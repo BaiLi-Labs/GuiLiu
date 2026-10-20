@@ -465,5 +465,119 @@
         "dest_port": "443"
       }
     ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0009",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "SSH 暴力破解（重复样例）",
+    "description": "短时间内大量 SSH 登录失败",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0003",
+    "count": 87,
+    "confidence": 80,
+    "severity": "Medium",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Host",
+      "alert_type": "BruteForce"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Block",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "HSS",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0003",
+        "name": "db-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "203.0.113.30",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.31",
+        "dest_port": "22"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0010",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "SSH 暴力破解（重复样例）",
+    "description": "短时间内大量 SSH 登录失败",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0003",
+    "count": 87,
+    "confidence": 80,
+    "severity": "Medium",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Host",
+      "alert_type": "BruteForce"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Block",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "HSS",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0003",
+        "name": "db-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "203.0.113.30",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.31",
+        "dest_port": "22"
+      }
+    ]
   }
 ]

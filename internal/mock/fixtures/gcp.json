@@ -214,5 +214,41 @@
         "protocol": "TCP"
       }
     ]
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0009",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0009",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-1",
+    "state": "ACTIVE",
+    "category": "SQL_INJECTION",
+    "description": "A SQL injection attempt was detected",
+    "severity": "CRITICAL",
+    "findingClass": "THREAT",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0003",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "source_ip": "203.0.113.13",
+      "destination_ip": "10.0.0.131"
+    },
+    "connections": [
+      {
+        "sourceIp": "203.0.113.13",
+        "sourcePort": 443,
+        "destinationIp": "10.0.0.131",
+        "destinationPort": 22,
+        "protocol": "TCP"
+      }
+    ],
+    "mitreAttack": {
+      "primaryTactic": "INITIAL_ACCESS",
+      "primaryTechniques": [
+        "EXPLOIT_PUBLIC_FACING_APPLICATION"
+      ]
+    }
   }
 ]

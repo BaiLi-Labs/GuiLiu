@@ -3,8 +3,10 @@
 package model
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -176,6 +178,20 @@ type Alert struct {
 	MapperVersion    string          `json:"mapper_version,omitempty"`
 }
 
+// AlertRevision is a material change to an alert's vendor payload or mapping.
+// Identical syncs do not create a new revision.
+type AlertRevision struct {
+	ID           string          `json:"id"`
+	AlertID      string          `json:"alert_id"`
+	Revision     int             `json:"revision"`
+	CapturedAt   time.Time       `json:"captured_at"`
+	Title        string          `json:"title,omitempty"`
+	Severity     Severity        `json:"severity"`
+	VendorStatus string          `json:"vendor_status,omitempty"`
+	Raw          json.RawMessage `json:"raw,omitempty"`
+	OCSF         json.RawMessage `json:"ocsf,omitempty"`
+}
+
 // AlertRecord is a stored alert: the normalized alert plus platform metadata.
 type AlertRecord struct {
 	ID          string `json:"id"`
@@ -270,8 +286,70 @@ type AlertFilter struct {
 	Start      *time.Time
 	End        *time.Time
 	Sort       string
+	GroupBy    AlertGroupBy
+	GroupKey   map[string]string
 	Limit      int
 	Offset     int
+}
+
+// AlertGroupBy is a read-only alert grouping strategy. Grouping never changes
+// the underlying alert rows.
+type AlertGroupBy string
+
+const (
+	GroupBySignature AlertGroupBy = "signature"
+	GroupByAsset     AlertGroupBy = "asset"
+	GroupBySource    AlertGroupBy = "source"
+)
+
+func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
+	switch AlertGroupBy(strings.ToLower(strings.TrimSpace(v))) {
+	case GroupBySignature:
+		return GroupBySignature, true
+	case GroupByAsset:
+		return GroupByAsset, true
+	case GroupBySource:
+		return GroupBySource, true
+	default:
+		return "", false
+	}
+}
+
+// AlertGroup is one query-time grouping result. Key is the exact, explainable
+// grouping key; members remain available through the normal alerts query.
+type AlertGroup struct {
+	ID           string            `json:"id"`
+	GroupBy      AlertGroupBy      `json:"group_by"`
+	Key          map[string]string `json:"key"`
+	Title        string            `json:"title"`
+	Count        int               `json:"count"`
+	MaxSeverity  Severity          `json:"max_severity"`
+	FirstSeenAt  time.Time         `json:"first_seen_at"`
+	LastSeenAt   time.Time         `json:"last_seen_at"`
+	Providers    []string          `json:"providers,omitempty"`
+	ResourceID   string            `json:"resource_id,omitempty"`
+	ResourceName string            `json:"resource_name,omitempty"`
+	SourceIP     string            `json:"source_ip,omitempty"`
+	AlertType    string            `json:"alert_type,omitempty"`
+}
+
+// GroupID is stable for a group_by strategy and canonical key, independent of
+// sort order and pagination.
+func GroupID(groupBy AlertGroupBy, key map[string]string) string {
+	keys := make([]string, 0, len(key))
+	for k := range key {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	_, _ = h.Write([]byte(groupBy))
+	for _, k := range keys {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte{'='})
+		_, _ = h.Write([]byte(key[k]))
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)[:12])
 }
 
 // AlertStats is the aggregate view used by the dashboard and MCP.

@@ -420,5 +420,57 @@
     "SecurityEventIds": "mock-security-event-0008",
     "Stages": "mock",
     "Count": 24
+  },
+  {
+    "Id": 100000000009,
+    "Name": "SSH 暴力破解（重复样例）",
+    "Desc": "大量 SSH 登录失败",
+    "Level": "suspicious",
+    "EventStatus": 2,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0003",
+    "InstanceName": "db-01",
+    "InternetIp": "10.0.0.113",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0009",
+    "AlarmEventType": "HostLogin",
+    "AlarmEventTypeDisplay": "HostLogin",
+    "AlarmEventName": "BruteForce",
+    "AlarmEventNameDisplay": "BruteForce",
+    "EventSubType": "HostLogin",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "203.0.113.31",
+        "ValueDisplay": "203.0.113.31"
+      },
+      {
+        "NameDisplay": "失败次数",
+        "Type": "count",
+        "Value": "87",
+        "ValueDisplay": "87"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0003",
+    "Stages": "mock",
+    "Count": 87
   }
 ]

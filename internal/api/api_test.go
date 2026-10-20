@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,6 +185,34 @@ func TestDevModeAndAlerts(t *testing.T) {
 	resp, body = do(t, client, http.MethodPatch, ts.URL+"/api/v1/alerts/"+rec.ID, "", `{"status":"acknowledged"}`)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "acknowledged") {
 		t.Fatalf("patch = %d: %s", resp.StatusCode, body)
+	}
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/groups?group_by=signature", "", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("groups = %d: %s", resp.StatusCode, body)
+	}
+	var groups struct {
+		Total  int `json:"total"`
+		Groups []struct {
+			ID    string            `json:"id"`
+			Count int               `json:"count"`
+			Key   map[string]string `json:"key"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(body, &groups); err != nil {
+		t.Fatal(err)
+	}
+	if groups.Total != 1 || len(groups.Groups) != 1 || groups.Groups[0].Count != 1 {
+		t.Fatalf("groups = %+v", groups)
+	}
+	keyJSON, _ := json.Marshal(groups.Groups[0].Key)
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts?group_by=signature&group_key="+url.QueryEscape(string(keyJSON)), "", "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"total":1`) {
+		t.Fatalf("group members = %d: %s", resp.StatusCode, body)
+	}
+
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/"+rec.ID+"/revisions", "", "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"revision":1`) {
+		t.Fatalf("revisions = %d: %s", resp.StatusCode, body)
 	}
 	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/stats", "", "")
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"total":1`) {

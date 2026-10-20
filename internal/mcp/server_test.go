@@ -85,8 +85,36 @@ func TestInitializeAndTools(t *testing.T) {
 
 	resp = call(t, srv, "tools/list", map[string]any{})
 	tools := resp.Result.(map[string]any)["tools"].([]map[string]any)
-	if len(tools) != 8 {
+	if len(tools) != 10 {
 		t.Fatalf("tools = %d", len(tools))
+	}
+
+	resp = call(t, srv, "tools/call", map[string]any{
+		"name":      "list_alert_groups",
+		"arguments": map[string]any{"group_by": "signature"},
+	})
+	groupPayload := resp.Result.(map[string]any)
+	if groupPayload["isError"] != false {
+		t.Fatalf("group tool error: %+v", groupPayload)
+	}
+	groupText := groupPayload["content"].([]map[string]any)[0]["text"].(string)
+	if !strings.Contains(groupText, `"total": 1`) || !strings.Contains(groupText, `"group_by": "signature"`) {
+		t.Fatalf("group result = %s", groupText)
+	}
+	resp = call(t, srv, "tools/call", map[string]any{
+		"name": "get_alert_group",
+		"arguments": map[string]any{
+			"group_by":  "signature",
+			"group_key": map[string]any{"singleton": rec.ID},
+		},
+	})
+	groupMembers := resp.Result.(map[string]any)
+	if groupMembers["isError"] != false {
+		t.Fatalf("group members error: %+v", groupMembers)
+	}
+	groupMembersText := groupMembers["content"].([]map[string]any)[0]["text"].(string)
+	if !strings.Contains(groupMembersText, `"total": 1`) {
+		t.Fatalf("group members = %s", groupMembersText)
 	}
 
 	resp = call(t, srv, "tools/call", map[string]any{

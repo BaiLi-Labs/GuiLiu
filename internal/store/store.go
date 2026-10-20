@@ -35,6 +35,8 @@ type Store interface {
 	UpsertAlert(ctx context.Context, alert *model.AlertRecord) (created bool, err error)
 	GetAlert(ctx context.Context, id string) (*model.AlertRecord, error)
 	ListAlerts(ctx context.Context, filter model.AlertFilter) ([]model.AlertRecord, int, error)
+	ListAlertGroups(ctx context.Context, filter model.AlertFilter) ([]model.AlertGroup, int, error)
+	ListAlertRevisions(ctx context.Context, alertID string, limit int) ([]model.AlertRevision, error)
 	UpdateAlertStatus(ctx context.Context, id string, status model.AlertStatus) error
 	AlertStats(ctx context.Context, filter model.AlertFilter) (*model.AlertStats, error)
 

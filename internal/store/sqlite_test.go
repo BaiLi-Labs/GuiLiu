@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +60,140 @@ func testAlert(title string) *model.AlertRecord {
 			OCSF:          json.RawMessage(`{"class_uid":2004}`),
 		},
 		Status: model.StatusOpen,
+	}
+}
+
+func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 10, 20, 6, 0, 0, 0, time.UTC)
+
+	makeAlert := func(id, sourceIP string, severity model.Severity, at time.Time) *model.AlertRecord {
+		a := testAlert("grouped " + id)
+		a.ExternalID = id
+		a.Severity = severity
+		a.EventTime = at
+		a.FirstSeenAt = at
+		a.LastSeenAt = at
+		a.SourceIP = sourceIP
+		a.Raw = json.RawMessage(`{"ID":"` + id + `"}`)
+		return a
+	}
+	alerts := []*model.AlertRecord{
+		makeAlert("a-1", "203.0.113.10", model.SeverityHigh, base),
+		makeAlert("a-2", "203.0.113.10", model.SeverityMedium, base.Add(time.Minute)),
+		makeAlert("a-3", "203.0.113.11", model.SeverityLow, base.Add(2*time.Minute)),
+		makeAlert("a-4", "", model.SeverityCritical, base.Add(3*time.Minute)),
+	}
+	for _, a := range alerts {
+		if _, err := st.UpsertAlert(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	groups, total, err := st.ListAlertGroups(ctx, model.AlertFilter{GroupBy: model.GroupBySignature, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 || len(groups) != 3 {
+		t.Fatalf("signature groups total=%d groups=%+v", total, groups)
+	}
+	var repeated *model.AlertGroup
+	for i := range groups {
+		if groups[i].Count == 2 {
+			repeated = &groups[i]
+		}
+	}
+	if repeated == nil || repeated.Key["source_ip"] != "203.0.113.10" || repeated.MaxSeverity != model.SeverityHigh {
+		t.Fatalf("repeated group = %+v", repeated)
+	}
+	if repeated.ID == "" || repeated.FirstSeenAt.IsZero() || repeated.LastSeenAt.IsZero() {
+		t.Fatalf("group metadata = %+v", repeated)
+	}
+
+	members, memberTotal, err := st.ListAlerts(ctx, model.AlertFilter{
+		GroupBy: model.GroupBySignature, GroupKey: repeated.Key, Limit: 10,
+	})
+	if err != nil || memberTotal != 2 || len(members) != 2 {
+		t.Fatalf("members total=%d items=%d err=%v", memberTotal, len(members), err)
+	}
+
+	assetGroups, assetTotal, err := st.ListAlertGroups(ctx, model.AlertFilter{GroupBy: model.GroupByAsset, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assetTotal != 1 || len(assetGroups) != 1 || assetGroups[0].Count != 4 {
+		t.Fatalf("asset groups total=%d groups=%+v", assetTotal, assetGroups)
+	}
+
+	// Missing source IP must not merge all incomplete alerts into one group.
+	var singleton *model.AlertGroup
+	for i := range groups {
+		if groups[i].Key["singleton"] != "" {
+			singleton = &groups[i]
+			break
+		}
+	}
+	if singleton == nil || singleton.Count != 1 {
+		t.Fatalf("singleton group = %+v", singleton)
+	}
+	singletonMembers, singletonTotal, err := st.ListAlerts(ctx, model.AlertFilter{
+		GroupBy: model.GroupBySignature, GroupKey: singleton.Key, Limit: 10,
+	})
+	if err != nil || singletonTotal != 1 || len(singletonMembers) != 1 || singletonMembers[0].ExternalID != "a-4" {
+		t.Fatalf("singleton members total=%d items=%+v err=%v", singletonTotal, singletonMembers, err)
+	}
+}
+
+func TestAlertRevisionsCaptureOnlySubstantiveChanges(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	first := testAlert("v1")
+	if created, err := st.UpsertAlert(ctx, first); err != nil || !created {
+		t.Fatalf("insert: created=%v err=%v", created, err)
+	}
+	revs, err := st.ListAlertRevisions(ctx, first.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 1 || revs[0].Revision != 1 || revs[0].Title != "v1" {
+		t.Fatalf("initial revisions = %+v", revs)
+	}
+
+	// Identical re-sync must not create history noise.
+	again := testAlert("v1")
+	if _, err := st.UpsertAlert(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	revs, _ = st.ListAlertRevisions(ctx, first.ID, 10)
+	if len(revs) != 1 {
+		t.Fatalf("identical sync created revision: %+v", revs)
+	}
+
+	changed := testAlert("v2")
+	changed.Severity = model.SeverityCritical
+	changed.Raw = json.RawMessage(`{"ID":"alert-1","updated":true}`)
+	changed.OCSF = json.RawMessage(`{"class_uid":2004,"severity_id":5}`)
+	if _, err := st.UpsertAlert(ctx, changed); err != nil {
+		t.Fatal(err)
+	}
+	revs, _ = st.ListAlertRevisions(ctx, first.ID, 10)
+	if len(revs) != 2 {
+		t.Fatalf("changed sync revisions = %+v", revs)
+	}
+	if revs[0].Revision != 2 || revs[0].Title != "v2" || revs[0].Severity != model.SeverityCritical ||
+		!strings.Contains(string(revs[0].Raw), "updated") {
+		t.Fatalf("latest revision = %+v", revs[0])
+	}
+
+	// Platform status updates are not vendor revisions.
+	if err := st.UpdateAlertStatus(ctx, first.ID, model.StatusAcknowledged); err != nil {
+		t.Fatal(err)
+	}
+	revs, _ = st.ListAlertRevisions(ctx, first.ID, 10)
+	if len(revs) != 2 {
+		t.Fatalf("status update created revision: %+v", revs)
 	}
 }
 

@@ -558,5 +558,161 @@
         }
       }
     ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "UnauthorizedAccess",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0009",
+      "title": "GuardDuty: SSH brute force (repeat)",
+      "desc": "An EC2 instance is being brute-forced over SSH",
+      "types": [
+        "TTPs"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "GuardDuty",
+        "uid": "aws.guardduty"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001",
+        "name": "i-mock0001",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "203.0.113.12"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.121"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+        },
+        "src_endpoint": {
+          "ip": "203.0.113.12"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.121"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "UnauthorizedAccess",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0010",
+      "title": "GuardDuty: SSH brute force (repeat)",
+      "desc": "An EC2 instance is being brute-forced over SSH",
+      "types": [
+        "TTPs"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "GuardDuty",
+        "uid": "aws.guardduty"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001",
+        "name": "i-mock0001",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "203.0.113.12"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.121"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+        },
+        "src_endpoint": {
+          "ip": "203.0.113.12"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.121"
+        }
+      }
+    ]
   }
 ]

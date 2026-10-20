@@ -114,6 +114,44 @@ export interface Evidence {
   data?: unknown;
 }
 
+export type AlertGroupBy = 'signature' | 'asset' | 'source';
+
+export interface AlertGroup {
+  id: string;
+  group_by: AlertGroupBy;
+  key: Record<string, string>;
+  title: string;
+  count: number;
+  max_severity: Severity;
+  first_seen_at: string;
+  last_seen_at: string;
+  providers?: string[];
+  resource_id?: string;
+  resource_name?: string;
+  source_ip?: string;
+  alert_type?: string;
+}
+
+export interface AlertGroupList {
+  groups: AlertGroup[];
+  total: number;
+  group_by: AlertGroupBy;
+  limit: number;
+  offset: number;
+}
+
+export interface AlertRevision {
+  id: string;
+  alert_id: string;
+  revision: number;
+  captured_at: string;
+  title?: string;
+  severity: Severity;
+  vendor_status?: string;
+  raw?: unknown;
+  ocsf?: unknown;
+}
+
 export interface Alert {
   id: string;
   provider: string;

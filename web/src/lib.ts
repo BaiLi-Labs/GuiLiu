@@ -95,13 +95,15 @@ export function cx(...values: Array<string | false | null | undefined>): string 
 
 export function rangeStart(range: string): string | undefined {
   if (!range || range === 'all') return undefined;
-  const hours: Record<string, number> = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
+  const hours: Record<string, number> = { '10m': 10 / 60, '1h': 1, '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
   const h = hours[range];
   if (!h) return undefined;
   return new Date(Date.now() - h * 3600_000).toISOString();
 }
 
 export const RANGE_OPTIONS = [
+  { value: '10m', label: '最近 10 分钟' },
+  { value: '1h', label: '最近 1 小时' },
   { value: '24h', label: '最近 24 小时' },
   { value: '7d', label: '最近 7 天' },
   { value: '30d', label: '最近 30 天' },

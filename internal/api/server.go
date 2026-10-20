@@ -79,8 +79,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /sync-runs", s.handleSyncRuns)
 
 	api.HandleFunc("GET /alerts", s.handleListAlerts)
+	api.HandleFunc("GET /alerts/groups", s.handleListAlertGroups)
 	api.HandleFunc("GET /alerts/{id}", s.handleGetAlert)
 	api.HandleFunc("GET /alerts/{id}/raw", s.handleGetAlertRaw)
+	api.HandleFunc("GET /alerts/{id}/revisions", s.handleGetAlertRevisions)
 	api.HandleFunc("PATCH /alerts/{id}", s.adminOnly(s.handlePatchAlert))
 	api.HandleFunc("GET /stats", s.handleStats)
 

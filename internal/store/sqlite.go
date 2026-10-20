@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -266,6 +267,9 @@ func (s *SQLite) DeleteAccount(ctx context.Context, id string, purgeAlerts bool)
 	defer tx.Rollback()
 
 	if purgeAlerts {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM alert_revisions WHERE alert_id IN (SELECT id FROM alerts WHERE account_id=?)`, id); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM alerts WHERE account_id=?`, id); err != nil {
 			return err
 		}
@@ -367,14 +371,17 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 	}
 
 	key := rec.DedupeKey()
+	newHash := alertRevisionHash(rec.Title, rec.Severity.String(), rec.VendorStatus, rec.Raw, rec.OCSF)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 
-	var existingID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM alerts WHERE dedupe_key=?`, key).Scan(&existingID)
+	var existingID, oldTitle, oldSeverity, oldVendorStatus, oldRaw, oldOCSF string
+	var oldUpdated int64
+	err = tx.QueryRowContext(ctx, `SELECT id, title, severity, vendor_status, raw, ocsf, updated_at FROM alerts WHERE dedupe_key=?`, key).
+		Scan(&existingID, &oldTitle, &oldSeverity, &oldVendorStatus, &oldRaw, &oldOCSF, &oldUpdated)
 	created := false
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -393,10 +400,46 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 			rec.Resource.Type, rec.SourceIP, rec.DestinationIP, rec.Actor, rec.Tactic, rec.Technique, observablesJSON, evidencesJSON,
 			rec.MapperVersion, string(rec.OCSF), string(rec.Raw),
 			millis(rec.CreatedAt), millis(rec.UpdatedAt))
+		if err == nil {
+			rev := &model.AlertRevision{
+				AlertID:      rec.ID,
+				Revision:     1,
+				CapturedAt:   now,
+				Title:        rec.Title,
+				Severity:     rec.Severity,
+				VendorStatus: rec.VendorStatus,
+				Raw:          rec.Raw,
+				OCSF:         rec.OCSF,
+			}
+			err = insertAlertRevision(ctx, tx, rev, newHash)
+		}
 	case err != nil:
 		return false, err
 	default:
 		rec.ID = existingID
+		// Seed history for alerts created before revisions existed. The old
+		// payload is the baseline, not a new change.
+		var revisionCount int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM alert_revisions WHERE alert_id=?`, existingID).Scan(&revisionCount); err != nil {
+			return false, err
+		}
+		if revisionCount == 0 {
+			oldSeverityValue, _ := model.ParseSeverity(oldSeverity)
+			oldHash := alertRevisionHash(oldTitle, oldSeverity, oldVendorStatus, json.RawMessage(oldRaw), json.RawMessage(oldOCSF))
+			base := &model.AlertRevision{
+				AlertID:      existingID,
+				Revision:     1,
+				CapturedAt:   fromMillis(oldUpdated),
+				Title:        oldTitle,
+				Severity:     oldSeverityValue,
+				VendorStatus: oldVendorStatus,
+				Raw:          json.RawMessage(oldRaw),
+				OCSF:         json.RawMessage(oldOCSF),
+			}
+			if err := insertAlertRevision(ctx, tx, base, oldHash); err != nil {
+				return false, err
+			}
+		}
 		_, err = tx.ExecContext(ctx, `
 			UPDATE alerts SET
 				account_name=?, account_uid=?, product=?, title=?, description=?,
@@ -411,6 +454,29 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 			rec.Region, rec.Resource.ID, rec.Resource.Name, rec.Resource.Type, rec.SourceIP, rec.DestinationIP,
 			rec.Actor, rec.Tactic, rec.Technique, observablesJSON, evidencesJSON, rec.MapperVersion, string(rec.OCSF), string(rec.Raw), millis(rec.UpdatedAt),
 			rec.ID)
+		if err == nil {
+			var lastHash string
+			var lastRevision int
+			if qerr := tx.QueryRowContext(ctx, `SELECT change_hash, revision FROM alert_revisions WHERE alert_id=? ORDER BY revision DESC LIMIT 1`, existingID).
+				Scan(&lastHash, &lastRevision); qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
+				return false, qerr
+			}
+			if lastHash != newHash {
+				rev := &model.AlertRevision{
+					AlertID:      rec.ID,
+					Revision:     lastRevision + 1,
+					CapturedAt:   now,
+					Title:        rec.Title,
+					Severity:     rec.Severity,
+					VendorStatus: rec.VendorStatus,
+					Raw:          rec.Raw,
+					OCSF:         rec.OCSF,
+				}
+				if err := insertAlertRevision(ctx, tx, rev, newHash); err != nil {
+					return false, err
+				}
+			}
+		}
 	}
 	if err != nil {
 		return false, err
@@ -419,6 +485,29 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 		return false, err
 	}
 	return created, nil
+}
+
+func alertRevisionHash(title, severity, vendorStatus string, raw, ocsf []byte) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(title))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(severity))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(vendorStatus))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(raw)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(ocsf)
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func insertAlertRevision(ctx context.Context, tx *sql.Tx, rev *model.AlertRevision, hash string) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO alert_revisions (id, alert_id, revision, change_hash, title, severity, vendor_status, ocsf, raw, captured_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		uuid.NewString(), rev.AlertID, rev.Revision, hash, rev.Title, rev.Severity.String(), rev.VendorStatus,
+		string(rev.OCSF), string(rev.Raw), millis(rev.CapturedAt))
+	return err
 }
 
 const alertColumns = `id, provider, account_id, account_name, account_uid, product, external_id,
@@ -482,6 +571,196 @@ func (s *SQLite) ListAlerts(ctx context.Context, f model.AlertFilter) ([]model.A
 		out = append(out, *rec)
 	}
 	return out, total, rows.Err()
+}
+
+func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]model.AlertGroup, int, error) {
+	groupBy := f.GroupBy
+	if groupBy == "" {
+		groupBy = model.GroupBySignature
+	}
+	where, args := buildAlertWhere(f)
+
+	var selectCols, groupCols string
+	switch groupBy {
+	case model.GroupBySignature:
+		selectCols = `provider, account_id, product, alert_type, resource_id, src_ip,
+			CASE WHEN product='' OR alert_type='' OR resource_id='' OR src_ip='' THEN id ELSE '' END,
+			COUNT(*), MAX(severity_id), MIN(first_seen_at), MAX(last_seen_at),
+			MIN(resource_name), MIN(title), GROUP_CONCAT(DISTINCT provider)`
+		groupCols = `1,2,3,4,5,6,7`
+	case model.GroupByAsset:
+		selectCols = `provider, account_id, region, resource_id,
+			CASE WHEN resource_id='' THEN id ELSE '' END,
+			COUNT(*), MAX(severity_id), MIN(first_seen_at), MAX(last_seen_at),
+			MIN(resource_name), MIN(title), GROUP_CONCAT(DISTINCT provider)`
+		groupCols = `1,2,3,4,5`
+	case model.GroupBySource:
+		selectCols = `src_ip, alert_type,
+			CASE WHEN src_ip='' OR alert_type='' THEN id ELSE '' END,
+			COUNT(*), MAX(severity_id), MIN(first_seen_at), MAX(last_seen_at),
+			MIN(resource_name), MIN(title), GROUP_CONCAT(DISTINCT provider)`
+		groupCols = `1,2,3`
+	default:
+		return nil, 0, fmt.Errorf("unknown group_by %q", groupBy)
+	}
+
+	var total int
+	countQuery := `SELECT COUNT(*) FROM (SELECT ` + selectCols + ` FROM alerts` + where + ` GROUP BY ` + groupCols + `)`
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []model.AlertGroup{}, 0, nil
+	}
+
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	query := `SELECT ` + selectCols + ` FROM alerts` + where +
+		` GROUP BY ` + groupCols +
+		` ORDER BY MAX(severity_id) DESC, COUNT(*) DESC, MAX(last_seen_at) DESC, ` + groupCols +
+		` LIMIT ? OFFSET ?`
+	rows, err := s.db.QueryContext(ctx, query, append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	out := make([]model.AlertGroup, 0, limit)
+	for rows.Next() {
+		group := model.AlertGroup{GroupBy: groupBy}
+		var singleton string
+		var maxSeverity int
+		var firstSeen, lastSeen int64
+		var resourceName, title, providers string
+		var alertType string
+		var count int
+		switch groupBy {
+		case model.GroupBySignature:
+			var provider, accountID, product, resourceID, sourceIP string
+			if err := rows.Scan(&provider, &accountID, &product, &alertType, &resourceID, &sourceIP, &singleton,
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &title, &providers); err != nil {
+				return nil, 0, err
+			}
+			group.Key = map[string]string{
+				"provider": provider, "account_id": accountID, "product": product,
+				"alert_type": alertType, "resource_id": resourceID, "source_ip": sourceIP,
+			}
+			group.ResourceID, group.ResourceName, group.SourceIP, group.AlertType = resourceID, resourceName, sourceIP, alertType
+		case model.GroupByAsset:
+			var provider, accountID, region, resourceID string
+			if err := rows.Scan(&provider, &accountID, &region, &resourceID, &singleton,
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &title, &providers); err != nil {
+				return nil, 0, err
+			}
+			group.Key = map[string]string{
+				"provider": provider, "account_id": accountID, "region": region, "resource_id": resourceID,
+			}
+			group.ResourceID, group.ResourceName = resourceID, resourceName
+		case model.GroupBySource:
+			var sourceIP string
+			if err := rows.Scan(&sourceIP, &alertType, &singleton,
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &title, &providers); err != nil {
+				return nil, 0, err
+			}
+			group.Key = map[string]string{"source_ip": sourceIP, "alert_type": alertType}
+			group.SourceIP, group.AlertType, group.ResourceName = sourceIP, alertType, resourceName
+		}
+		if singleton != "" {
+			group.Key["singleton"] = singleton
+		}
+		group.Title = groupTitle(groupBy, group.Key, resourceName, alertType)
+		group.ID = model.GroupID(groupBy, group.Key)
+		group.Count = count
+		group.MaxSeverity = model.Severity(maxSeverity)
+		group.FirstSeenAt = fromMillis(firstSeen)
+		group.LastSeenAt = fromMillis(lastSeen)
+		group.Providers = splitDistinct(providers)
+		out = append(out, group)
+	}
+	return out, total, rows.Err()
+}
+
+func groupTitle(groupBy model.AlertGroupBy, key map[string]string, resourceName, alertType string) string {
+	if key["singleton"] != "" {
+		return "未归并告警 · " + firstNonEmpty(alertType, "unknown")
+	}
+	switch groupBy {
+	case model.GroupByAsset:
+		return firstNonEmpty(resourceName, key["resource_id"], "未命名资产")
+	case model.GroupBySource:
+		return firstNonEmpty(key["source_ip"], "未知来源") + " · " + firstNonEmpty(alertType, "未知类型")
+	default:
+		base := firstNonEmpty(resourceName, key["resource_id"], key["source_ip"], "未命名资产")
+		if alertType != "" && !strings.Contains(base, alertType) {
+			base += " · " + alertType
+		}
+		return base
+	}
+}
+
+func splitDistinct(s string) []string {
+	parts := strings.Split(s, ",")
+	seen := map[string]bool{}
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func (s *SQLite) ListAlertRevisions(ctx context.Context, alertID string, limit int) ([]model.AlertRevision, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, alert_id, revision, title, severity, vendor_status, ocsf, raw, captured_at
+		FROM alert_revisions WHERE alert_id=? ORDER BY revision DESC LIMIT ?`, alertID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]model.AlertRevision, 0, limit)
+	for rows.Next() {
+		var rev model.AlertRevision
+		var severity string
+		var ocsf, raw string
+		var captured int64
+		if err := rows.Scan(&rev.ID, &rev.AlertID, &rev.Revision, &rev.Title, &severity, &rev.VendorStatus, &ocsf, &raw, &captured); err != nil {
+			return nil, err
+		}
+		rev.Severity, _ = model.ParseSeverity(severity)
+		rev.CapturedAt = fromMillis(captured)
+		rev.OCSF = json.RawMessage(ocsf)
+		rev.Raw = json.RawMessage(raw)
+		out = append(out, rev)
+	}
+	return out, rows.Err()
 }
 
 func (s *SQLite) UpdateAlertStatus(ctx context.Context, id string, status model.AlertStatus) error {
@@ -690,10 +969,58 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 		clauses = append(clauses, "event_time <= ?")
 		args = append(args, millis(*f.End))
 	}
+	if f.GroupBy != "" && len(f.GroupKey) > 0 {
+		gw, ga := buildGroupWhere(f)
+		if gw == "" {
+			clauses = append(clauses, "1=0")
+		} else {
+			clauses = append(clauses, gw)
+			args = append(args, ga...)
+		}
+	}
 	if len(clauses) == 0 {
 		return "", args
 	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func buildGroupWhere(f model.AlertFilter) (string, []any) {
+	if id := f.GroupKey["singleton"]; id != "" {
+		return "id = ?", []any{id}
+	}
+	clauses := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+	add := func(column string) {
+		v, ok := f.GroupKey[column]
+		if !ok {
+			return
+		}
+		clauses = append(clauses, column+" = ?")
+		args = append(args, v)
+	}
+	addAs := func(column, key string) {
+		if v, ok := f.GroupKey[key]; ok {
+			clauses = append(clauses, column+" = ?")
+			args = append(args, v)
+		}
+	}
+	switch f.GroupBy {
+	case model.GroupBySignature:
+		for _, col := range []string{"provider", "account_id", "product", "alert_type", "resource_id"} {
+			add(col)
+		}
+		addAs("src_ip", "source_ip")
+	case model.GroupByAsset:
+		for _, col := range []string{"provider", "account_id", "region", "resource_id"} {
+			add(col)
+		}
+	case model.GroupBySource:
+		addAs("src_ip", "source_ip")
+		add("alert_type")
+	default:
+		return "", nil
+	}
+	return strings.Join(clauses, " AND "), args
 }
 
 func likePattern(s string) string {

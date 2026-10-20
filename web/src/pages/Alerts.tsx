@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Filter, RotateCcw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Filter, Layers, List, RotateCcw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
@@ -15,7 +15,16 @@ import {
   rangeStart,
   truncate,
 } from '../lib';
-import type { Alert, AlertList, AlertStatus, Severity } from '../types';
+import type {
+  Alert,
+  AlertGroup,
+  AlertGroupBy,
+  AlertGroupList,
+  AlertList,
+  AlertRevision,
+  AlertStatus,
+  Severity,
+} from '../types';
 
 interface Filters {
   provider: string;
@@ -28,6 +37,22 @@ interface Filters {
 
 const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '' };
 
+function alertParams(filters: Filters, limit: number, offset: number) {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+  if (filters.provider) params.set('provider', filters.provider);
+  if (filters.severity) params.set('severity', filters.severity);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.q.trim()) params.set('q', filters.q.trim());
+  if (filters.ip.trim()) params.set('ip', filters.ip.trim());
+  const start = rangeStart(filters.range);
+  if (start) params.set('start', start);
+  return params;
+}
+
+type GroupSelection = { by: AlertGroupBy; key: Record<string, string>; title: string };
+
 export function Alerts() {
   const { providers, isAdmin, refreshNonce, toast } = useApp();
   const [filters, setFilters] = useState<Filters>(EMPTY);
@@ -37,21 +62,28 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<'raw' | 'groups'>('raw');
+  const [groupBy, setGroupBy] = useState<AlertGroupBy>('signature');
+  const [groupOffset, setGroupOffset] = useState(0);
+  const [groups, setGroups] = useState<AlertGroupList | null>(null);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState('');
+  const [group, setGroup] = useState<GroupSelection | null>(null);
 
   const limit = 20;
   const query = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set('limit', String(limit));
-    params.set('offset', String(offset));
-    if (applied.provider) params.set('provider', applied.provider);
-    if (applied.severity) params.set('severity', applied.severity);
-    if (applied.status) params.set('status', applied.status);
-    if (applied.q.trim()) params.set('q', applied.q.trim());
-    if (applied.ip.trim()) params.set('ip', applied.ip.trim());
-    const start = rangeStart(applied.range);
-    if (start) params.set('start', start);
+    const params = alertParams(applied, limit, offset);
+    if (group) {
+      params.set('group_by', group.by);
+      params.set('group_key', JSON.stringify(group.key));
+    }
     return params.toString();
-  }, [applied, offset]);
+  }, [applied, offset, group]);
+  const groupQuery = useMemo(() => {
+    const params = alertParams(applied, limit, groupOffset);
+    params.set('group_by', groupBy);
+    return params.toString();
+  }, [applied, groupBy, groupOffset]);
 
   useEffect(() => {
     let alive = true;
@@ -66,23 +98,77 @@ export function Alerts() {
     };
   }, [query, refreshNonce]);
 
+  useEffect(() => {
+    if (view !== 'groups') return;
+    let alive = true;
+    setGroupLoading(true);
+    setGroupError('');
+    api<AlertGroupList>(`/alerts/groups?${groupQuery}`)
+      .then((d) => alive && setGroups(d))
+      .catch((e) => alive && setGroupError(e.message || '分组查询失败'))
+      .finally(() => alive && setGroupLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [view, groupQuery, refreshNonce]);
+
   function apply() {
     setOffset(0);
+    setGroupOffset(0);
+    setGroup(null);
     setApplied({ ...filters });
   }
   function reset() {
     setFilters(EMPTY);
     setApplied(EMPTY);
     setOffset(0);
+    setGroupOffset(0);
+    setGroup(null);
   }
 
   const total = data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / limit));
   const current = Math.floor(offset / limit) + 1;
+  const groupTotal = groups?.total || 0;
+  const groupPages = Math.max(1, Math.ceil(groupTotal / limit));
+  const groupCurrent = Math.floor(groupOffset / limit) + 1;
+
+  function showGroup(g: AlertGroup) {
+    setGroup({ by: g.group_by, key: g.key, title: g.title });
+    setView('raw');
+    setOffset(0);
+  }
 
   return (
     <div className="space-y-4">
       <div className="card p-3">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-[var(--line)] p-0.5">
+            <button
+              className={`btn btn-sm ${view === 'raw' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => { setView('raw'); setGroup(null); }}
+            >
+              <List className="h-3.5 w-3.5" /> 原始告警
+            </button>
+            <button
+              className={`btn btn-sm ${view === 'groups' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => { setView('groups'); setGroup(null); }}
+            >
+              <Layers className="h-3.5 w-3.5" /> 聚合视图
+            </button>
+          </div>
+          {view === 'groups' ? (
+            <select
+              className="field"
+              value={groupBy}
+              onChange={(e) => { setGroupBy(e.target.value as AlertGroupBy); setGroupOffset(0); }}
+            >
+              <option value="signature">同类重复</option>
+              <option value="asset">按资产</option>
+              <option value="source">按攻击源</option>
+            </select>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-[var(--muted)]">
             <Filter className="h-3.5 w-3.5" />
@@ -146,13 +232,102 @@ export function Alerts() {
           </button>
         </div>
         <div className="mt-2 flex items-center gap-3 text-[10.5px] text-[var(--dim)]">
-          <span>共 {total.toLocaleString('zh-CN')} 条</span>
-          <span>·</span>
-          <span>第 {current} / {pages} 页</span>
+          {view === 'groups' ? (
+            <>
+              <span>共 {groupTotal.toLocaleString('zh-CN')} 组</span>
+              <span>·</span>
+              <span>第 {groupCurrent} / {groupPages} 页</span>
+            </>
+          ) : (
+            <>
+              <span>共 {total.toLocaleString('zh-CN')} 条</span>
+              <span>·</span>
+              <span>第 {current} / {pages} 页</span>
+            </>
+          )}
           {applied.q || applied.ip ? <span className="text-[var(--accent)]">已应用关键词筛选</span> : null}
         </div>
       </div>
 
+      {view === 'groups' ? (
+        <>
+          <div className="table-wrap relative">
+            {groupLoading ? (
+              <SkeletonRows count={7} />
+            ) : groupError ? (
+              <div className="p-4"><ErrorBox>{groupError}</ErrorBox></div>
+            ) : groups?.groups?.length ? (
+              <table className="data-table w-full min-w-[760px] table-fixed">
+                <thead>
+                  <tr>
+                    <th>告警分组</th>
+                    <th style={{ width: 76 }}>数量</th>
+                    <th style={{ width: 86 }}>最高等级</th>
+                    <th style={{ width: 150 }}>云厂商</th>
+                    <th style={{ width: 120 }}>最近</th>
+                    <th style={{ width: 72 }}>成员</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.groups.map((g) => (
+                    <tr key={g.id} className="row-click" onClick={() => showGroup(g)}>
+                      <td>
+                        <div className="cell-title">{g.title}</div>
+                        <div className="cell-sub">
+                          {g.key.singleton
+                            ? '关键字段不完整 · 单条分组'
+                            : [g.alert_type, g.source_ip, g.resource_id].filter(Boolean).join(' · ') || '—'}
+                        </div>
+                      </td>
+                      <td className="font-mono text-[12px]">{g.count.toLocaleString('zh-CN')}</td>
+                      <td><SeverityBadge severity={g.max_severity} /></td>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(g.providers || []).slice(0, 3).map((p) => (
+                            <span key={p} className="inline-flex items-center gap-1 text-[10.5px] text-[var(--muted)]">
+                              <BrandIcon provider={p} size="xs" />
+                              {providerShort(p)}
+                            </span>
+                          ))}
+                          {(g.providers || []).length > 3 ? <span className="text-[10px] text-[var(--dim)]">+{(g.providers || []).length - 3}</span> : null}
+                          {!(g.providers || []).length ? <span className="text-[10.5px] text-[var(--dim)]">—</span> : null}
+                        </div>
+                      </td>
+                      <td className="font-mono text-[10.5px] text-[var(--muted)]">{formatDate(g.last_seen_at)}</td>
+                      <td><span className="btn btn-sm">查看</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="py-16 text-center text-[12px] text-[var(--dim)]">没有匹配的分组，试试放宽筛选条件</div>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <span className="mr-auto text-[10.5px] text-[var(--dim)]">每页 {limit} 组</span>
+            <button className="btn btn-sm" disabled={groupOffset <= 0} onClick={() => setGroupOffset(Math.max(0, groupOffset - limit))}>
+              <ChevronLeft className="h-3.5 w-3.5" /> 上一页
+            </button>
+            <button className="btn btn-sm" disabled={groupOffset + limit >= groupTotal} onClick={() => setGroupOffset(groupOffset + limit)}>
+              下一页 <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {view === 'raw' ? (
+        <>
+          {group ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 px-3 py-2 text-[11px]">
+              <Layers className="h-3.5 w-3.5 text-[var(--accent)]" />
+              <span className="text-[var(--muted)]">分组成员</span>
+              <span className="font-medium">{group.title}</span>
+              <span className="text-[var(--dim)]">{total} 条原始告警</span>
+              <button className="btn btn-sm ml-auto" onClick={() => { setGroup(null); setOffset(0); }}>
+                <X className="h-3.5 w-3.5" /> 清除分组
+              </button>
+            </div>
+          ) : null}
       <div className="table-wrap relative">
         {loading ? (
           <SkeletonRows count={9} />
@@ -217,6 +392,8 @@ export function Alerts() {
           下一页 <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
+        </>
+      ) : null}
 
       <AlertDrawer
         id={selected}
@@ -246,6 +423,7 @@ function AlertDrawer({
   toast: (message: string, error?: boolean) => void;
 }) {
   const [detail, setDetail] = useState<Alert | null>(null);
+  const [revisions, setRevisions] = useState<AlertRevision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -256,10 +434,14 @@ function AlertDrawer({
     setLoading(true);
     setError('');
     setDetail(null);
+    setRevisions([]);
     api<Alert>(`/alerts/${encodeURIComponent(id)}`)
       .then((d) => alive && setDetail(d))
       .catch((e) => alive && setError(e.message || '加载失败'))
       .finally(() => alive && setLoading(false));
+    api<{ revisions: AlertRevision[] }>(`/alerts/${encodeURIComponent(id)}/revisions?limit=20`)
+      .then((d) => alive && setRevisions(d.revisions || []))
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -391,6 +573,31 @@ function AlertDrawer({
                 </div>
               ))}
               {!detail.evidences?.length ? <div className="text-[11px] text-[var(--dim)]">无</div> : null}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <div className="text-[10px] uppercase tracking-[1.2px] text-[var(--dim)]">版本历史</div>
+              <span className="pill">{revisions.length}</span>
+              <span className="text-[10px] text-[var(--dim)]">只在 vendor payload / 等级变化时新增</span>
+            </div>
+            <div className="space-y-1.5">
+              {revisions.map((r) => (
+                <details key={r.id} className="rounded-lg border border-[var(--line-soft)] bg-[var(--inset)]">
+                  <summary className="flex flex-wrap cursor-pointer items-center gap-2 px-3 py-2 text-[11px] text-[var(--muted)]">
+                    <span className="font-mono text-[var(--accent)]">#{r.revision}</span>
+                    <span>{formatTime(r.captured_at)}</span>
+                    <SeverityBadge severity={r.severity} />
+                    <span>{r.vendor_status || '—'}</span>
+                    <span className="ml-auto max-w-[240px] truncate">{r.title || '—'}</span>
+                  </summary>
+                  <pre className="code max-h-[300px] rounded-none border-x-0 border-b-0">
+                    {JSON.stringify({ title: r.title, severity: r.severity, vendor_status: r.vendor_status, raw: r.raw }, null, 2)}
+                  </pre>
+                </details>
+              ))}
+              {!revisions.length ? <div className="text-[11px] text-[var(--dim)]">暂无版本记录</div> : null}
             </div>
           </section>
 

@@ -128,6 +128,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		},
 		"instructions": "GuiLiu is a read-only, vendor-neutral security data hub. " +
 			"Use list_alerts/search_alerts_by_ip/search_alerts_by_asset to query normalized cloud alerts, " +
+			"list_alert_groups/get_alert_group to reduce duplicate reading while preserving original alerts, " +
 			"get_alert for full OCSF payload and raw vendor evidence, and get_connector_health to check ingestion freshness. " +
 			"All tools are read-only and scoped to the configured accounts.",
 	}
@@ -297,6 +298,22 @@ func intProp(desc string, def, min, max int) map[string]any {
 		"default":     def,
 		"minimum":     min,
 		"maximum":     max,
+	}
+}
+
+func groupByProp() map[string]any {
+	return map[string]any{
+		"type":        "string",
+		"description": "Grouping strategy: signature (default), asset or source",
+		"enum":        []string{"signature", "asset", "source"},
+	}
+}
+
+func groupKeyProp() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"description":          "Group key returned by list_alert_groups",
+		"additionalProperties": map[string]any{"type": "string"},
 	}
 }
 

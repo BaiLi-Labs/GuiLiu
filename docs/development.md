@@ -40,8 +40,8 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 品牌图标 | 五家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg)（MIT），内嵌为本地 `brands.svg`，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
-| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具；HTTP 使用 API Key |
-| Mock | `make mock` 启动免登录的五家云合成数据（42 条），用于前端、API、MCP 与映射开发 |
+| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，10 个只读工具；HTTP 使用 API Key |
+| Mock | `make mock` 启动免登录的五家云合成数据（48 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
 
@@ -200,12 +200,12 @@ make mock
 # http://127.0.0.1:8081
 ```
 
-- 免登录、内存 SQLite，启动即注入 **42 条**合成告警：
+- 免登录、内存 SQLite，启动即注入 **48 条**合成告警：
   - `tencent` 10 条：CSIP / CWP / CFW / WAF
-  - `aliyun` 8 条：SAS 主机、容器、K8s、漏洞、基线、网络
-  - `huawei` 8 条：SecMaster HSS / CFW / WAF / CSIP
-  - `aws` 8 条：Security Hub、GuardDuty、Inspector、Macie、IAM
-  - `gcp` 8 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
+  - `aliyun` 9 条：SAS 主机、容器、K8s、漏洞、基线、网络
+  - `huawei` 10 条：SecMaster HSS / CFW / WAF / CSIP
+  - `aws` 10 条：Security Hub、GuardDuty、Inspector、Macie、IAM
+  - `gcp` 9 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
 - Mock 模式会用合成连接器替换同名 provider，因此厂商筛选器和「已内置连接器」里只有一套腾讯云/阿里云/华为云/AWS/GCP，不会出现 `xxx (Mock)` 重复项。
 - 原始 JSON 在 `internal/mock/fixtures/<cloud>.json`，字段按对应 SDK 的响应结构构造；加载时把时间改写成相对当前时间。
 - 归一化分别调用真实 `tencent.Normalize`、`aliyun.Normalize`、`huawei.Normalize`、`aws.Normalize`、`gcp.Normalize`，因此 Mock 和真实接入走同一条 mapper / OCSF 路径。
@@ -423,14 +423,30 @@ internal/secret/             AES-256-GCM 凭据加密
 | GET | `/api/v1/accounts/{id}/health` | 游标、错误、最近运行 |
 | POST | `/api/v1/sync` | 异步同步全部账号（admin） |
 | GET | `/api/v1/sync-runs` | 同步运行记录 |
-| GET | `/api/v1/alerts` | 告警查询 |
+| GET | `/api/v1/alerts` | 告警查询；传 `group_by` + `group_key` 时返回分组成员 |
+| GET | `/api/v1/alerts/groups` | 查询时告警分组（signature / asset / source） |
 | GET | `/api/v1/alerts/{id}` | 详情（含 OCSF 与 raw） |
 | GET | `/api/v1/alerts/{id}/raw` | 厂商原始 JSON |
+| GET | `/api/v1/alerts/{id}/revisions` | 告警版本历史（仅实质变化） |
 | PATCH | `/api/v1/alerts/{id}` | 修改平台状态（admin） |
 | GET | `/api/v1/stats` | 聚合统计 |
 | POST | `/mcp` | MCP Streamable HTTP（Bearer API Key / Session） |
 
 查询参数：`provider`、`account_id`、`severity`（逗号分隔）、`status`、`start`、`end`、`ip`、`resource`、`q`、`sort`、`limit`（≤200）、`offset`。
+
+告警分组是**查询时视图**，不改变 alerts 表：
+
+```bash
+# 同类重复，默认按最高等级、成员数量、最近出现排序
+curl -s "http://127.0.0.1:8080/api/v1/alerts/groups?group_by=signature&since=24h" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# 用返回的 key 展开成员；key 是 JSON，需要 URL 编码
+curl -s "http://127.0.0.1:8080/api/v1/alerts?group_by=signature&group_key=%7B...%7D" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+三条约束：空关键字段不合并、资产跨云必须带 provider + account + region、分组不代表攻击成功。分组返回的 `count` 是原始告警成员数，不是厂商告警内部的事件次数；归流不删除、不抑制任何成员。
 
 ```bash
 curl -s "http://127.0.0.1:8080/api/v1/alerts?severity=critical,high&start=2026-10-19T00:00:00Z&limit=20" \
@@ -496,6 +512,8 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 | --- | --- |
 | `list_cloud_accounts` | 云账号与同步健康（不含凭据） |
 | `list_alerts` | 跨云告警查询与筛选 |
+| `list_alert_groups` | 查询时按 signature / asset / source 分组 |
+| `get_alert_group` | 展开分组内的原始告警成员 |
 | `get_alert` | 单条告警 + 完整 OCSF + 原始 JSON |
 | `get_alert_evidence` | 证据、可观测对象、原始载荷 |
 | `search_alerts_by_ip` | 按源 / 目标 IP 检索（默认 7 天） |
@@ -547,6 +565,16 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 默认限速：腾讯云 CSIP 2 QPS（官方上限 3/s，实测按固定间隔打满 3/s 会被限流，留出余量），阿里云 SAS 5 QPS。两者的 API 都有分页/频率限制，连接器内部自行限速。
 
 默认每个 run 最多 10 页（1000 条）。到页数预算时不是失败，而是保存页 token、以 `partial` 状态结束，下一轮从断点续传。这样既不会长时间占用 API 配额，也不会因为一次限流把已经拉取的进度丢掉。账号级 `max_pages` 可覆盖。
+
+### 告警版本历史
+
+`alert_revisions` 只在以下内容发生变化时新增版本：
+
+- 厂商原始 JSON
+- 统一 OCSF payload
+- 标题、严重等级、厂商状态
+
+相同内容重复同步不会产生新版本；平台状态（open / acknowledged / suppressed / closed）变更只更新 alerts，不计入厂商版本。`GET /api/v1/alerts/{id}/revisions` 可查看最近版本和原始 payload。
 
 ---
 

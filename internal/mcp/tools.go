@@ -44,6 +44,43 @@ func (s *Server) registerTools() {
 		Handler: s.toolListAlerts,
 	})
 	s.register(Tool{
+		Name:        "list_alert_groups",
+		Description: "Group alerts by signature, asset or source IP. Grouping is a read-only view; it never deletes or suppresses the original alerts.",
+		InputSchema: obj(mergeProps(map[string]any{
+			"group_by":   groupByProp(),
+			"provider":   strProp("Provider id"),
+			"account_id": strProp("Configured account id"),
+			"severity":   severityProp(),
+			"status":     statusProp(),
+			"keyword":    strProp("Full-text search across title, description, alert type and asset name"),
+			"ip":         strProp("Exact match on source or destination IP"),
+			"resource":   strProp("Asset id (exact) or asset name (substring)"),
+		}, mergeProps(timeProps(), map[string]any{
+			"limit":  intProp("Maximum groups to return", 20, 1, 200),
+			"offset": intProp("Pagination offset", 0, 0, 10000),
+		}))),
+		Handler: s.toolListAlertGroups,
+	})
+	s.register(Tool{
+		Name:        "get_alert_group",
+		Description: "Get the original alerts that belong to one alert group. group_key comes from list_alert_groups.",
+		InputSchema: obj(mergeProps(map[string]any{
+			"group_by":   groupByProp(),
+			"group_key":  groupKeyProp(),
+			"provider":   strProp("Provider id"),
+			"account_id": strProp("Configured account id"),
+			"severity":   severityProp(),
+			"status":     statusProp(),
+			"keyword":    strProp("Full-text search"),
+			"ip":         strProp("Exact match on source or destination IP"),
+			"resource":   strProp("Asset id (exact) or asset name (substring)"),
+		}, mergeProps(timeProps(), map[string]any{
+			"limit":  intProp("Maximum member alerts to return", 50, 1, 200),
+			"offset": intProp("Pagination offset", 0, 0, 10000),
+		})), "group_by", "group_key"),
+		Handler: s.toolGetAlertGroup,
+	})
+	s.register(Tool{
 		Name:        "get_alert",
 		Description: "Get one alert with its full OCSF Detection Finding payload and the original vendor JSON.",
 		InputSchema: obj(map[string]any{"alert_id": strProp("Alert id returned by list_alerts")}, "alert_id"),
@@ -102,6 +139,48 @@ func (s *Server) toolListAlerts(ctx context.Context, args map[string]any) (any, 
 		return nil, err
 	}
 	return s.listAlerts(ctx, f)
+}
+
+func (s *Server) toolListAlertGroups(ctx context.Context, args map[string]any) (any, error) {
+	f, err := s.filterFromArgs(args, 24*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	if f.GroupBy == "" {
+		f.GroupBy = model.GroupBySignature
+	}
+	groups, total, err := s.store.ListAlertGroups(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"total":    total,
+		"group_by": f.GroupBy,
+		"limit":    f.Limit,
+		"offset":   f.Offset,
+		"groups":   groups,
+	}, nil
+}
+
+func (s *Server) toolGetAlertGroup(ctx context.Context, args map[string]any) (any, error) {
+	f, err := s.filterFromArgs(args, 24*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	if f.GroupBy == "" {
+		return nil, errors.New("group_by is required")
+	}
+	if len(f.GroupKey) == 0 {
+		return nil, errors.New("group_key is required")
+	}
+	result, err := s.listAlerts(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	payload, _ := result.(map[string]any)
+	payload["group_by"] = f.GroupBy
+	payload["group_key"] = f.GroupKey
+	return payload, nil
 }
 
 func (s *Server) toolGetAlert(ctx context.Context, args map[string]any) (any, error) {
@@ -310,6 +389,16 @@ func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration
 		Limit:     argInt(args, "limit", 20, 1, 200),
 		Offset:    argInt(args, "offset", 0, 0, 10000),
 	}
+	if raw := argString(args, "group_by"); raw != "" {
+		groupBy, ok := model.ParseAlertGroupBy(raw)
+		if !ok {
+			return f, fmt.Errorf("unknown group_by %q", raw)
+		}
+		f.GroupBy = groupBy
+	}
+	if key := argStringMap(args, "group_key"); len(key) > 0 {
+		f.GroupKey = key
+	}
 	for _, raw := range argList(args, "severity") {
 		sev, ok := model.ParseSeverity(raw)
 		if !ok {
@@ -392,6 +481,24 @@ func derefTime(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+func argStringMap(args map[string]any, key string) map[string]string {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return nil
+	}
+	raw, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, item := range raw {
+		if s, ok := item.(string); ok {
+			out[k] = strings.TrimSpace(s)
+		}
+	}
+	return out
 }
 
 func argString(args map[string]any, key string) string {

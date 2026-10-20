@@ -76,6 +76,21 @@ CREATE TABLE IF NOT EXISTS sync_states (
     updated_at           INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS alert_revisions (
+    id            TEXT PRIMARY KEY,
+    alert_id      TEXT NOT NULL,
+    revision      INTEGER NOT NULL,
+    change_hash   TEXT NOT NULL,
+    title         TEXT NOT NULL DEFAULT '',
+    severity      TEXT NOT NULL DEFAULT 'unknown',
+    vendor_status TEXT NOT NULL DEFAULT '',
+    ocsf          TEXT NOT NULL DEFAULT '{}',
+    raw           TEXT NOT NULL DEFAULT '{}',
+    captured_at   INTEGER NOT NULL,
+    UNIQUE(alert_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_revisions_alert ON alert_revisions(alert_id, revision DESC);
+
 CREATE TABLE IF NOT EXISTS sync_runs (
     id          TEXT PRIMARY KEY,
     account_id  TEXT NOT NULL,

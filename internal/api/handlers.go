@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -401,6 +402,10 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if f.GroupBy != "" && len(f.GroupKey) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "group_key is required when group_by is set")
+		return
+	}
 	items, total, err := s.store.ListAlerts(r.Context(), f)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -415,6 +420,58 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		"total":  total,
 		"limit":  f.Limit,
 		"offset": f.Offset,
+	})
+}
+
+func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
+	f, err := parseAlertFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if f.GroupBy == "" {
+		f.GroupBy = model.GroupBySignature
+	}
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
+	}
+	groups, total, err := s.store.ListAlertGroups(r.Context(), f)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"groups":   groups,
+		"total":    total,
+		"group_by": f.GroupBy,
+		"limit":    f.Limit,
+		"offset":   f.Offset,
+	})
+}
+
+func (s *Server) handleGetAlertRevisions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.store.GetAlert(r.Context(), id); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+			return
+		}
+		limit = n
+	}
+	revisions, err := s.store.ListAlertRevisions(r.Context(), id, limit)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"alert_id":  id,
+		"revisions": revisions,
 	})
 }
 
@@ -546,8 +603,37 @@ func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 		}
 		f.End = &t
 	}
+	if raw := q.Get("since"); raw != "" {
+		d, ok := timeutil.ParseDuration(raw)
+		if !ok {
+			return f, fmt.Errorf("invalid since %q", raw)
+		}
+		now := time.Now().UTC()
+		if f.Start == nil {
+			start := now.Add(-d)
+			f.Start = &start
+		}
+		if f.End == nil {
+			f.End = &now
+		}
+	}
 	if f.Start != nil && f.End != nil && f.End.Before(*f.Start) {
 		return f, errors.New("end must be after start")
+	}
+	if raw := q.Get("group_by"); raw != "" {
+		groupBy, ok := model.ParseAlertGroupBy(raw)
+		if !ok {
+			return f, fmt.Errorf("unknown group_by %q", raw)
+		}
+		f.GroupBy = groupBy
+	}
+	if raw := q.Get("group_key"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &f.GroupKey); err != nil {
+			return f, fmt.Errorf("invalid group_key: %w", err)
+		}
+		if len(f.GroupKey) == 0 {
+			return f, errors.New("group_key must not be empty")
+		}
 	}
 	return f, nil
 }
