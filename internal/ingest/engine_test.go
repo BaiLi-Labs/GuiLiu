@@ -18,8 +18,9 @@ import (
 )
 
 type fakeConnector struct {
-	desc    connector.Descriptor
-	fetchFn func(context.Context, connector.Query) (connector.Page, error)
+	desc        connector.Descriptor
+	fetchFn     func(context.Context, connector.Query) (connector.Page, error)
+	normalizeFn func(json.RawMessage) (model.Alert, error)
 }
 
 func (f *fakeConnector) Info() connector.Descriptor  { return f.desc }
@@ -29,6 +30,9 @@ func (f *fakeConnector) Fetch(ctx context.Context, q connector.Query) (connector
 }
 
 func (f *fakeConnector) Normalize(raw json.RawMessage) (model.Alert, error) {
+	if f.normalizeFn != nil {
+		return f.normalizeFn(raw)
+	}
 	var p struct {
 		ID       string `json:"id"`
 		Title    string `json:"title"`
@@ -182,6 +186,132 @@ func TestSyncAccountDedupesAndAdvancesCursor(t *testing.T) {
 	}
 	if state.ConsecutiveFailures != 1 || state.LastError == "" {
 		t.Fatalf("state after failure = %+v", state)
+	}
+}
+
+func TestRecordFailurePersistsRawAndResumes(t *testing.T) {
+	st, cipher, reg, acct, fake := fixture(t)
+	eng := New(st, reg, cipher, Options{
+		Enabled: true, Interval: time.Hour, InitialLookback: time.Hour,
+		Overlap: time.Minute, MaxWindow: time.Hour, MaxPages: 10, PageSize: 100, Workers: 1,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	fixed := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	eng.now = func() time.Time { return fixed }
+
+	good := rawAlert(t, "good-1", "good", 3, fixed.Add(-time.Minute))
+	bad := rawAlert(t, "bad-1", "bad", 4, fixed.Add(-2*time.Minute))
+	var tokens []string
+	fake.fetchFn = func(_ context.Context, q connector.Query) (connector.Page, error) {
+		tokens = append(tokens, q.Token)
+		if q.Token == "" {
+			return connector.Page{
+				Records:   []connector.RawAlert{{Raw: good}, {Raw: bad}},
+				NextToken: "2",
+				Total:     2,
+			}, nil
+		}
+		return connector.Page{Total: 2}, nil
+	}
+	fake.normalizeFn = func(raw json.RawMessage) (model.Alert, error) {
+		var p struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Severity int    `json:"severity"`
+			Time     int64  `json:"time"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return model.Alert{}, err
+		}
+		if p.ID == "bad-1" {
+			return model.Alert{}, errors.New("bad record")
+		}
+		return model.Alert{
+			ExternalID: p.ID,
+			Title:      p.Title,
+			Severity:   model.Severity(p.Severity),
+			EventTime:  time.UnixMilli(p.Time).UTC(),
+			Raw:        append(json.RawMessage(nil), raw...),
+		}, nil
+	}
+
+	run, err := eng.SyncAccount(context.Background(), *acct, "test")
+	if err == nil || run == nil || run.Status != "failed" || run.Failed != 1 {
+		t.Fatalf("expected record failure, run=%+v err=%v", run, err)
+	}
+	state, err := st.GetSyncState(context.Background(), acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.CursorEnd.IsZero() {
+		t.Fatalf("cursor advanced over failed record: %s", state.CursorEnd)
+	}
+	if state.PendingToken != "2" || len(state.PendingRecords) != 1 || string(state.PendingRecords[0]) != string(bad) {
+		t.Fatalf("pending state = %+v", state)
+	}
+	_, total, _ := st.ListAlerts(context.Background(), model.AlertFilter{Limit: 10})
+	if total != 1 {
+		t.Fatalf("successful record not stored, total=%d", total)
+	}
+
+	fake.normalizeFn = nil
+	eng.now = func() time.Time { return fixed.Add(5 * time.Minute) }
+	run2, err := eng.SyncAccount(context.Background(), *acct, "test")
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if run2.Status != "success" || run2.Created != 1 {
+		t.Fatalf("resume run = %+v", run2)
+	}
+	state, _ = st.GetSyncState(context.Background(), acct.ID)
+	if len(state.PendingRecords) != 0 || state.PendingToken != "" || !state.CursorEnd.Equal(fixed) {
+		t.Fatalf("state after retry = %+v", state)
+	}
+	if len(tokens) != 2 || tokens[0] != "" || tokens[1] != "2" {
+		t.Fatalf("unexpected fetch sequence: %v", tokens)
+	}
+	_, total, _ = st.ListAlerts(context.Background(), model.AlertFilter{Limit: 10})
+	if total != 2 {
+		t.Fatalf("total after retry = %d", total)
+	}
+}
+
+func TestRecordFailureOnLastPageResumesWithoutRefetch(t *testing.T) {
+	st, cipher, reg, acct, fake := fixture(t)
+	eng := New(st, reg, cipher, Options{
+		Enabled: true, Interval: time.Hour, InitialLookback: time.Hour,
+		Overlap: time.Minute, MaxWindow: time.Hour, MaxPages: 10, PageSize: 100, Workers: 1,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	fixed := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	eng.now = func() time.Time { return fixed }
+
+	fake.fetchFn = func(context.Context, connector.Query) (connector.Page, error) {
+		return connector.Page{Records: []connector.RawAlert{{Raw: rawAlert(t, "bad-last", "bad", 3, fixed.Add(-time.Minute))}}, Total: 1}, nil
+	}
+	fake.normalizeFn = func(json.RawMessage) (model.Alert, error) { return model.Alert{}, errors.New("bad record") }
+	if _, err := eng.SyncAccount(context.Background(), *acct, "test"); err == nil {
+		t.Fatal("expected failure")
+	}
+	state, _ := st.GetSyncState(context.Background(), acct.ID)
+	if state.PendingToken != "" || len(state.PendingRecords) != 1 {
+		t.Fatalf("pending state = %+v", state)
+	}
+
+	fake.normalizeFn = nil
+	fetches := 0
+	fake.fetchFn = func(context.Context, connector.Query) (connector.Page, error) {
+		fetches++
+		return connector.Page{}, errors.New("must not refetch a completed last page")
+	}
+	run, err := eng.SyncAccount(context.Background(), *acct, "test")
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if run.Status != "success" || fetches != 0 {
+		t.Fatalf("run=%+v fetches=%d", run, fetches)
+	}
+	state, _ = st.GetSyncState(context.Background(), acct.ID)
+	if !state.CursorEnd.Equal(fixed) || len(state.PendingRecords) != 0 {
+		t.Fatalf("state after retry = %+v", state)
 	}
 }
 

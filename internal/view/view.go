@@ -114,6 +114,7 @@ func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 type SyncState struct {
 	CursorEnd           string `json:"cursor_end,omitempty"`
 	Pending             bool   `json:"pending"`
+	PendingCount        int    `json:"pending_count,omitempty"`
 	LastSuccessAt       string `json:"last_success_at,omitempty"`
 	LastAttemptAt       string `json:"last_attempt_at,omitempty"`
 	LastError           string `json:"last_error,omitempty"`
@@ -130,7 +131,8 @@ func SyncStateFromModel(s *model.SyncState) SyncState {
 	}
 	v := SyncState{
 		CursorEnd:           timeutil.Format(s.CursorEnd),
-		Pending:             s.PendingToken != "",
+		Pending:             s.PendingToken != "" || len(s.PendingRecords) > 0,
+		PendingCount:        len(s.PendingRecords),
 		LastSuccessAt:       ptrFormat(s.LastSuccessAt),
 		LastAttemptAt:       ptrFormat(s.LastAttemptAt),
 		LastError:           s.LastError,

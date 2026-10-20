@@ -4,6 +4,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -261,7 +262,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	// a throttled backfill does not restart from page one and burn the quota.
 	start, end := e.window(acct, state)
 	token := ""
-	if state.PendingToken != "" && !state.PendingEnd.IsZero() {
+	if !state.PendingEnd.IsZero() {
 		start, end = state.PendingStart, state.PendingEnd
 		token = state.PendingToken
 	}
@@ -289,7 +290,53 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	pages, fetched, created, updated, failed := 0, 0, 0, 0, 0
 	var firstRecordErr string
 
+	retryPending := func() error {
+		if len(state.PendingRecords) == 0 {
+			return nil
+		}
+		pending := state.PendingRecords
+		state.PendingRecords = nil
+		for _, raw := range pending {
+			isNew, err := e.processRecord(ctx, acct, conn, raw, end)
+			if err != nil {
+				failed++
+				if firstRecordErr == "" {
+					firstRecordErr = err.Error()
+				}
+				state.PendingRecords = append(state.PendingRecords, raw)
+				continue
+			}
+			if isNew {
+				created++
+			} else {
+				updated++
+			}
+		}
+		if len(state.PendingRecords) > 0 {
+			state.LastError = fmt.Sprintf("%d pending record(s) still failing: %s", len(state.PendingRecords), firstRecordErr)
+			state.LastErrorAt = ptrNow(e.now())
+			state.ConsecutiveFailures++
+			if serr := e.store.SaveSyncState(ctx, state); serr != nil {
+				return serr
+			}
+			return fmt.Errorf("%s", state.LastError)
+		}
+		// The page's failed records are now durable in the alert table. Keep
+		// the page token so the next fetch continues after that page.
+		return e.store.SaveSyncState(ctx, state)
+	}
+
 	for {
+		if len(state.PendingRecords) > 0 {
+			if err := retryPending(); err != nil {
+				return finish(err, pages, fetched, created, updated, failed, "")
+			}
+			if token == "" {
+				// The failed page was the last page in the window.
+				break
+			}
+		}
+
 		pages++
 		page, err := e.fetchWithRetry(ctx, conn, connector.Query{
 			Start:    start,
@@ -309,26 +356,12 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		}
 
 		fetched += len(page.Records)
+		pageFailed := make([]json.RawMessage, 0)
 		for _, record := range page.Records {
-			alert, err := conn.Normalize(record.Raw)
+			isNew, err := e.processRecord(ctx, acct, conn, record.Raw, end)
 			if err != nil {
 				failed++
-				if firstRecordErr == "" {
-					firstRecordErr = err.Error()
-				}
-				continue
-			}
-			rec, err := e.buildRecord(acct, conn.Info(), alert, end)
-			if err != nil {
-				failed++
-				if firstRecordErr == "" {
-					firstRecordErr = err.Error()
-				}
-				continue
-			}
-			isNew, err := e.store.UpsertAlert(ctx, rec)
-			if err != nil {
-				failed++
+				pageFailed = append(pageFailed, record.Raw)
 				if firstRecordErr == "" {
 					firstRecordErr = err.Error()
 				}
@@ -339,6 +372,25 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 			} else {
 				updated++
 			}
+		}
+
+		if len(pageFailed) > 0 {
+			// Never advance the cursor over a record that was not persisted.
+			// The failed raw payloads and the next page token are saved so the
+			// next run retries them instead of silently skipping a window.
+			state.PendingStart = start
+			state.PendingEnd = end
+			state.PendingToken = page.NextToken
+			state.PendingRecords = pageFailed
+			state.LastError = fmt.Sprintf("%d alert(s) failed to normalize/store: %s", len(pageFailed), firstRecordErr)
+			state.LastErrorAt = ptrNow(e.now())
+			state.LastDurationMS = e.now().Sub(started).Milliseconds()
+			state.ItemsLastRun = fetched
+			state.ConsecutiveFailures++
+			if serr := e.store.SaveSyncState(ctx, state); serr != nil {
+				return finish(serr, pages, fetched, created, updated, failed, "")
+			}
+			return finish(fmt.Errorf("%s", state.LastError), pages, fetched, created, updated, failed, "")
 		}
 
 		if page.NextToken == "" {
@@ -374,6 +426,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	state.PendingStart = time.Time{}
 	state.PendingEnd = time.Time{}
 	state.PendingToken = ""
+	state.PendingRecords = nil
 	state.LastSuccessAt = &ended
 	state.LastError = ""
 	state.LastErrorAt = nil
@@ -384,12 +437,19 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		return finish(err, pages, fetched, created, updated, failed, "")
 	}
 
-	warning := ""
-	if failed > 0 {
-		warning = fmt.Sprintf("%d alert(s) failed to normalize/store: %s", failed, firstRecordErr)
-		e.log.Warn("sync completed with record errors", "account", acct.Name, "failed", failed, "error", firstRecordErr)
+	return finish(nil, pages, fetched, created, updated, failed, "")
+}
+
+func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, windowEnd time.Time) (bool, error) {
+	alert, err := conn.Normalize(raw)
+	if err != nil {
+		return false, fmt.Errorf("normalize: %w", err)
 	}
-	return finish(nil, pages, fetched, created, updated, failed, warning)
+	rec, err := e.buildRecord(acct, conn.Info(), alert, windowEnd)
+	if err != nil {
+		return false, err
+	}
+	return e.store.UpsertAlert(ctx, rec)
 }
 
 func (e *Engine) window(acct model.Account, state *model.SyncState) (time.Time, time.Time) {

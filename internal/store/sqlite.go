@@ -90,6 +90,7 @@ func (s *SQLite) migrate() error {
 		{"sync_states", "pending_start", `ALTER TABLE sync_states ADD COLUMN pending_start INTEGER NOT NULL DEFAULT 0`},
 		{"sync_states", "pending_end", `ALTER TABLE sync_states ADD COLUMN pending_end INTEGER NOT NULL DEFAULT 0`},
 		{"sync_states", "pending_token", `ALTER TABLE sync_states ADD COLUMN pending_token TEXT NOT NULL DEFAULT ''`},
+		{"sync_states", "pending_records", `ALTER TABLE sync_states ADD COLUMN pending_records TEXT NOT NULL DEFAULT '[]'`},
 	} {
 		exists, err := s.hasColumn(col.table, col.name)
 		if err != nil {
@@ -707,12 +708,13 @@ func likePattern(s string) string {
 func (s *SQLite) GetSyncState(ctx context.Context, accountID string) (*model.SyncState, error) {
 	var st model.SyncState
 	var cursor, pendingStart, pendingEnd, lastSuccess, lastAttempt, lastErrorAt, updated int64
+	var pendingRecords string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT account_id, cursor_end, pending_start, pending_end, pending_token,
+		SELECT account_id, cursor_end, pending_start, pending_end, pending_token, pending_records,
 		       last_success_at, last_attempt_at, last_error, last_error_at,
 		       last_duration_ms, items_last_run, consecutive_failures, updated_at
 		FROM sync_states WHERE account_id=?`, accountID).
-		Scan(&st.AccountID, &cursor, &pendingStart, &pendingEnd, &st.PendingToken,
+		Scan(&st.AccountID, &cursor, &pendingStart, &pendingEnd, &st.PendingToken, &pendingRecords,
 			&lastSuccess, &lastAttempt, &st.LastError, &lastErrorAt,
 			&st.LastDurationMS, &st.ItemsLastRun, &st.ConsecutiveFailures, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -720,6 +722,11 @@ func (s *SQLite) GetSyncState(ctx context.Context, accountID string) (*model.Syn
 	}
 	if err != nil {
 		return nil, err
+	}
+	if pendingRecords != "" && pendingRecords != "null" {
+		if err := json.Unmarshal([]byte(pendingRecords), &st.PendingRecords); err != nil {
+			return nil, fmt.Errorf("decode pending records: %w", err)
+		}
 	}
 	st.CursorEnd = fromMillis(cursor)
 	st.PendingStart = fromMillis(pendingStart)
@@ -733,16 +740,25 @@ func (s *SQLite) GetSyncState(ctx context.Context, accountID string) (*model.Syn
 
 func (s *SQLite) SaveSyncState(ctx context.Context, st *model.SyncState) error {
 	st.UpdatedAt = time.Now().UTC()
+	pendingRecords := "[]"
+	if len(st.PendingRecords) > 0 {
+		raw, err := json.Marshal(st.PendingRecords)
+		if err != nil {
+			return fmt.Errorf("encode pending records: %w", err)
+		}
+		pendingRecords = string(raw)
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sync_states (account_id, cursor_end, pending_start, pending_end, pending_token,
+		INSERT INTO sync_states (account_id, cursor_end, pending_start, pending_end, pending_token, pending_records,
 			last_success_at, last_attempt_at, last_error, last_error_at,
 			last_duration_ms, items_last_run, consecutive_failures, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(account_id) DO UPDATE SET
 			cursor_end=excluded.cursor_end,
 			pending_start=excluded.pending_start,
 			pending_end=excluded.pending_end,
 			pending_token=excluded.pending_token,
+			pending_records=excluded.pending_records,
 			last_success_at=excluded.last_success_at,
 			last_attempt_at=excluded.last_attempt_at,
 			last_error=excluded.last_error,
@@ -751,7 +767,7 @@ func (s *SQLite) SaveSyncState(ctx context.Context, st *model.SyncState) error {
 			items_last_run=excluded.items_last_run,
 			consecutive_failures=excluded.consecutive_failures,
 			updated_at=excluded.updated_at`,
-		st.AccountID, millis(st.CursorEnd), millis(st.PendingStart), millis(st.PendingEnd), st.PendingToken,
+		st.AccountID, millis(st.CursorEnd), millis(st.PendingStart), millis(st.PendingEnd), st.PendingToken, pendingRecords,
 		millisPtr(st.LastSuccessAt), millisPtr(st.LastAttemptAt),
 		st.LastError, millisPtr(st.LastErrorAt), st.LastDurationMS, st.ItemsLastRun, st.ConsecutiveFailures, millis(st.UpdatedAt))
 	return err

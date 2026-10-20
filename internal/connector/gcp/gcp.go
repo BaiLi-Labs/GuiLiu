@@ -110,8 +110,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	if pageSize > 1000 {
 		pageSize = 1000
 	}
-	filter := fmt.Sprintf(`state = "ACTIVE" AND event_time >= %q AND event_time < %q`,
-		q.Start.UTC().Format(time.RFC3339), q.End.UTC().Format(time.RFC3339))
+	filter := findingFilter(q.Start, q.End)
 	resp, err := c.findings.ListFindings(ctx, &securitycenterpb.ListFindingsRequest{
 		Parent:    c.parent,
 		Filter:    filter,
@@ -137,6 +136,16 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		NextToken: resp.NextPageToken,
 		Total:     int(resp.TotalSize),
 	}, nil
+}
+
+func findingFilter(start, end time.Time) string {
+	// Keep inactive findings in the window: a finding can be resolved between
+	// two syncs, and filtering only ACTIVE would make that state change invisible.
+	// GCP's event_time is creation/detection time rather than an update time, so
+	// old findings that become INACTIVE still need a periodic full reconciliation
+	// outside this incremental window.
+	return fmt.Sprintf(`event_time >= %q AND event_time < %q`,
+		start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339))
 }
 
 func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {

@@ -218,17 +218,21 @@ type SyncState struct {
 	CursorEnd time.Time `json:"cursor_end,omitempty"`
 	// Pending* resume an interrupted window from the last successful page.
 	// They are cleared only after the whole window has been committed.
-	PendingStart        time.Time  `json:"pending_start,omitempty"`
-	PendingEnd          time.Time  `json:"pending_end,omitempty"`
-	PendingToken        string     `json:"pending_token,omitempty"`
-	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
-	LastAttemptAt       *time.Time `json:"last_attempt_at,omitempty"`
-	LastError           string     `json:"last_error,omitempty"`
-	LastErrorAt         *time.Time `json:"last_error_at,omitempty"`
-	LastDurationMS      int64      `json:"last_duration_ms"`
-	ItemsLastRun        int        `json:"items_last_run"`
-	ConsecutiveFailures int        `json:"consecutive_failures"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	PendingStart time.Time `json:"pending_start,omitempty"`
+	PendingEnd   time.Time `json:"pending_end,omitempty"`
+	PendingToken string    `json:"pending_token,omitempty"`
+	// PendingRecords are vendor payloads whose normalization or storage failed.
+	// They are persisted before the cursor can advance and are retried before
+	// the next page is fetched, so a bad record cannot be silently skipped.
+	PendingRecords      []json.RawMessage `json:"pending_records,omitempty"`
+	LastSuccessAt       *time.Time        `json:"last_success_at,omitempty"`
+	LastAttemptAt       *time.Time        `json:"last_attempt_at,omitempty"`
+	LastError           string            `json:"last_error,omitempty"`
+	LastErrorAt         *time.Time        `json:"last_error_at,omitempty"`
+	LastDurationMS      int64             `json:"last_duration_ms"`
+	ItemsLastRun        int               `json:"items_last_run"`
+	ConsecutiveFailures int               `json:"consecutive_failures"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 // Healthy reports whether the last sync succeeded recently.

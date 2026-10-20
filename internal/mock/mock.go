@@ -58,6 +58,10 @@ var awsCredential = []connector.CredentialField{
 	{Name: "session_token", Label: "Session Token", Secret: true, Help: "可选，临时凭据"},
 }
 
+var aliyunOptions = []connector.OptionField{
+	{Name: "status", Label: "告警状态过滤", Placeholder: "留空=全部；0 未处理 / 1 已处理 ..."},
+}
+
 var huaweiOptions = []connector.OptionField{
 	{Name: "project_id", Label: "Project ID", Required: true, Placeholder: "例如 cn-north-4 项目 ID"},
 	{Name: "workspace_id", Label: "Workspace ID", Required: true, Placeholder: "SecMaster 工作空间 ID"},
@@ -94,7 +98,7 @@ var specs = []spec{
 			"aliyun", "Alibaba Cloud", "Alibaba Cloud",
 			"Cloud Security Center (SAS)", "aliyun.sas", "aliyun-sas/v1",
 			[]connector.Product{{Code: "SAS", Name: "Cloud Security Center"}},
-			akCredential, nil,
+			akCredential, aliyunOptions,
 		),
 		fixture:   aliyunFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&aliyun.Connector{}).Normalize(raw) },

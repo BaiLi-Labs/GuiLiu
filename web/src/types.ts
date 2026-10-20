@@ -4,6 +4,7 @@ export type AlertStatus = 'open' | 'acknowledged' | 'suppressed' | 'closed';
 export interface SyncState {
   cursor_end?: string;
   pending?: boolean;
+  pending_count?: number;
   last_success_at?: string;
   last_attempt_at?: string;
   last_error?: string;

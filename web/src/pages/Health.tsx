@@ -114,7 +114,15 @@ export function Health() {
                     <td>
                       <span className="inline-flex items-center gap-1.5 text-[11px]">
                         <span className={`h-1.5 w-1.5 rounded-full ${bad ? 'bg-[var(--danger)]' : st.pending ? 'bg-[var(--med)]' : st.last_success_at ? 'bg-[var(--low)]' : 'bg-[var(--dim)]'}`} />
-                        {!a.enabled ? '已停用' : bad ? '同步失败' : st.pending ? '续传中' : st.last_success_at ? '正常' : '等待同步'}
+                        {!a.enabled
+                          ? '已停用'
+                          : bad
+                            ? `同步失败${st.pending_count ? ` · 待重试 ${st.pending_count}` : ''}`
+                            : st.pending
+                              ? '续传中'
+                              : st.last_success_at
+                                ? '正常'
+                                : '等待同步'}
                       </span>
                     </td>
                     <td className="font-mono text-[10.5px] text-[var(--muted)]">{st.last_success_at ? relTime(st.last_success_at) : '—'}</td>

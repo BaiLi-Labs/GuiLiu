@@ -533,8 +533,8 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 1. 窗口：`[cursor - overlap, now - 0]`；首次为 `now - initial_lookback`（默认 24h，优先保证当前告警可见；设置更长的回溯会从最早时间开始按 `max_window` 分段追赶）。
 2. 单次最多推进 `max_window`（默认 24h），积压时自动分段追赶。
 3. 每页最多 `page_size`（默认 100），每个 run 最多 `max_pages`（默认 10）。
-4. 页内每条 raw 独立归一化/入库，单条失败记为 `failed`，不阻塞整批。
-5. **所有页成功后**才提交游标；失败时游标不动，下一轮重叠重试。
+4. 页内每条 raw 独立归一化/入库；成功记录照常入库，失败 raw 写入 `sync_states.pending_records`，当前页停止继续读取。
+5. 下一轮先重试 `pending_records`，全部成功后才继续该窗口的分页；**所有页成功后**才提交游标。失败记录不会因为游标推进而被永久跳过。
 6. 去重键：`provider + account_id + external_id`；更新时保留分析人员设置的平台状态。
 7. 每个账号同一时刻只允许一个同步任务。
 
@@ -560,9 +560,10 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 - **只做 Detection Finding**：暂不做 Incident 聚合、跨厂商实体消歧。
 - **不写回云厂商**：平台状态独立，避免误操作与权限扩张。
 - **单实例 SQLite**：适合单机/小团队与 POC；数据量上来后替换 `store.Store` 为 PostgreSQL / ClickHouse。
-- **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据。
+- **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据；API Key 尚未支持按云账号范围授权。
 - **Azure 尚未实现**：接口已就绪，见 `docs/connector-guide.md`。AWS / 华为云 / GCP 已完成连接器与单元测试，但仍需真实凭据做一轮字段校准。
-- **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 只拉取 `ACTIVE` findings，按 `event_time` 过滤；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
+- **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 已取消 `ACTIVE` 硬过滤，但 `event_time` 不是更新时间，早期 finding 的状态变化仍需周期性全量对账；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
+- **阿里云状态**：`status` option 留空表示不限制 `DescribeSuspEvents.Status`，填 `0` 等值则只采集对应状态。
 - **OCSF 映射仍需真实样本**：新连接器的时间字段、资源类型、证据结构按官方 SDK/文档实现，真实账号下建议先用 `probe -raw` 抽样核对再开持续同步。
 
 ---

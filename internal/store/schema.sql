@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS sync_states (
     pending_start        INTEGER NOT NULL DEFAULT 0,
     pending_end          INTEGER NOT NULL DEFAULT 0,
     pending_token        TEXT NOT NULL DEFAULT '',
+    pending_records      TEXT NOT NULL DEFAULT '[]',
     last_success_at      INTEGER NOT NULL DEFAULT 0,
     last_attempt_at      INTEGER NOT NULL DEFAULT 0,
     last_error           TEXT NOT NULL DEFAULT '',

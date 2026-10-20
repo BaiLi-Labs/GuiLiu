@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -42,6 +43,9 @@ func descriptor() connector.Descriptor {
 			{Name: "access_key_secret", Label: "AccessKey Secret", Required: true, Secret: true},
 			{Name: "session_token", Label: "STS Token", Secret: true, Help: "Optional, for temporary credentials"},
 		},
+		OptionFields: []connector.OptionField{
+			{Name: "status", Label: "告警状态过滤", Placeholder: "留空=全部；0 未处理 / 1 已处理 ...", Help: "对应 DescribeSuspEvents.Status，留空表示不限制"},
+		},
 		Products: []connector.Product{
 			{Code: "SAS", Name: "Security Center (host, container, cloud platform)"},
 		},
@@ -53,6 +57,7 @@ type Connector struct {
 	client   *sas.Client
 	limiter  *connector.Limiter
 	pageSize int
+	status   string
 }
 
 // New builds an Alibaba Cloud connector from an account configuration.
@@ -84,6 +89,7 @@ func New(cfg connector.AccountConfig) (connector.Connector, error) {
 		client:   client,
 		limiter:  connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
 		pageSize: connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
+		status:   strings.TrimSpace(cfg.Options["status"]),
 	}, nil
 }
 
@@ -131,7 +137,9 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		TimeStart:   tea.String(connector.FormatBeijing(q.Start)),
 		TimeEnd:     tea.String(connector.FormatBeijing(q.End)),
 		Lang:        tea.String("zh"),
-		Status:      tea.String("0"),
+	}
+	if c.status != "" {
+		req.Status = tea.String(c.status)
 	}
 	// The generated SAS client has no context-aware method, so timeouts are
 	// enforced at the transport level.
