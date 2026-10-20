@@ -38,7 +38,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具；HTTP 使用 API Key |
-| Mock | `make mock` 启动免登录的合成腾讯云数据，用于前端和映射开发 |
+| Mock | `make mock` 启动免登录的五家云合成数据（42 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
 
@@ -66,7 +66,7 @@ export TENCENT_SECRET_KEY='...'
 
 ```bash
 make dev     # 等价于 GUILIU_DEV=1，认证关闭，仅用于本机
-make mock    # 合成腾讯云数据 + 内存库 + 免登录，见下文 Mock
+make mock    # 五家云合成数据 + 内存库 + 免登录，见下文 Mock
 ```
 
 > 生产模式必须登录；没有用户且未设置 `GUILIU_ADMIN_PASSWORD` 时，服务会拒绝启动，而不是以匿名方式运行。
@@ -178,12 +178,16 @@ make mock
 # http://127.0.0.1:8081
 ```
 
-- 免登录、内存 SQLite、启动即注入 10 条合成腾讯云告警。
-- 覆盖 CFW / WAF / CWP / CSIP，`Level` 1–5，`Status` 0/1/2，IP 资产与域名资产，包含证据字段。
-- 原始 JSON 在 `internal/mock/fixtures/tencent.json`；加载时把时间改写成相对当前时间，避免数据“过期”。
-- 归一化调用真实 `tencent.Normalize`，因此 Mock 和真实接入走同一条 OCSF 路径。
-- 所有数据均为虚构：`203.0.113.0/24`、`198.51.100.0/24`、`192.0.2.0/24`、`ins-mockNNNN`、`Mock Corp`、`example.com`。
-- 新增分类样本或接入其他云的 Mock：见 [`internal/mock/README.md`](internal/mock/README.md)。模式是“原始数组 + 复用生产 mapper”，避免 mock 与生产映射分叉。
+- 免登录、内存 SQLite，启动即注入 **42 条**合成告警：
+  - `tencent-mock` 10 条：CSIP / CWP / CFW / WAF
+  - `aliyun-mock` 8 条：SAS 主机、容器、K8s、漏洞、基线、网络
+  - `huawei-mock` 8 条：SecMaster HSS / CFW / WAF / CSIP
+  - `aws-mock` 8 条：Security Hub、GuardDuty、Inspector、Macie、IAM
+  - `gcp-mock` 8 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
+- 原始 JSON 在 `internal/mock/fixtures/<cloud>.json`，字段按对应 SDK 的响应结构构造；加载时把时间改写成相对当前时间。
+- 归一化分别调用真实 `tencent.Normalize`、`aliyun.Normalize`、`huawei.Normalize`、`aws.Normalize`、`gcp.Normalize`，因此 Mock 和真实接入走同一条 mapper / OCSF 路径。
+- 所有数据均为虚构：文档保留 IP、`mock-*` 资产、`Mock Corp`、`example.com`、假账号 ID。
+- 每个 fixture 都有离线 mapper 测试；新增样本或接入其他云见 [`internal/mock/README.md`](internal/mock/README.md)。
 
 > Mock 模式会强制关闭认证和定时同步，数据库为内存。只用于本地开发和演示，不要部署到生产。
 

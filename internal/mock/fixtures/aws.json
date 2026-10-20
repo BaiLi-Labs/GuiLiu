@@ -1,0 +1,562 @@
+[
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "UnauthorizedAccess",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0001",
+      "title": "GuardDuty: SSH brute force",
+      "desc": "An EC2 instance is being brute-forced over SSH",
+      "types": [
+        "TTPs"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "GuardDuty",
+        "uid": "aws.guardduty"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001",
+        "name": "i-mock0001",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "203.0.113.12"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.121"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0001"
+        },
+        "src_endpoint": {
+          "ip": "203.0.113.12"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.121"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Trojan",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0002",
+      "title": "GuardDuty: Phishing domain request",
+      "desc": "An EC2 instance queried a known phishing domain",
+      "types": [
+        "TTPs"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "GuardDuty",
+        "uid": "aws.guardduty"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0002",
+        "name": "i-mock0002",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "198.51.100.22"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.122"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0002"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0002"
+        },
+        "src_endpoint": {
+          "ip": "198.51.100.22"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.122"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "CryptoCurrency",
+    "type_uid": 200401,
+    "severity_id": 3,
+    "severity": "Medium",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0003",
+      "title": "GuardDuty: Crypto mining",
+      "desc": "An EC2 instance is communicating with a mining pool",
+      "types": [
+        "TTPs"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "GuardDuty",
+        "uid": "aws.guardduty"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0003",
+        "name": "i-mock0003",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "203.0.113.32"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.123"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0003"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0003"
+        },
+        "src_endpoint": {
+          "ip": "203.0.113.32"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.123"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Vulnerability",
+    "type_uid": 200401,
+    "severity_id": 5,
+    "severity": "Critical",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0004",
+      "title": "Inspector: CVE in package",
+      "desc": "A running instance has a critical package vulnerability",
+      "types": [
+        "Vulnerability"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "Inspector",
+        "uid": "aws.inspector"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0004",
+        "name": "i-mock0004",
+        "type": "Instance",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0004"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:instance/i-mock0004"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Configuration",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0005",
+      "title": "Security Hub: S3 bucket public",
+      "desc": "A bucket allows public read access",
+      "types": [
+        "Misconfiguration"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "Security Hub",
+        "uid": "aws.security hub"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::mock-public-bucket",
+        "name": "mock-public-bucket",
+        "type": "S3Bucket",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:s3:::mock-public-bucket"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:s3:::mock-public-bucket"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Data Security",
+    "type_uid": 200401,
+    "severity_id": 4,
+    "severity": "High",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0006",
+      "title": "Macie: Sensitive data in S3",
+      "desc": "A bucket contains possible credentials",
+      "types": [
+        "SensitiveData"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "Macie",
+        "uid": "aws.macie"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::mock-data-bucket",
+        "name": "mock-data-bucket",
+        "type": "S3Bucket",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:s3:::mock-data-bucket"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:s3:::mock-data-bucket"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Access Analysis",
+    "type_uid": 200401,
+    "severity_id": 3,
+    "severity": "Medium",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0007",
+      "title": "IAM Access Analyzer: External access",
+      "desc": "A role can be assumed by an external principal",
+      "types": [
+        "ExternalAccess"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "IAM Access Analyzer",
+        "uid": "aws.iam access analyzer"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:iam::123456789012:role/mock-external-role",
+        "name": "mock-external-role",
+        "type": "IAMRole",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:iam::123456789012:role/mock-external-role"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:iam::123456789012:role/mock-external-role"
+        }
+      }
+    ]
+  },
+  {
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "activity_id": 1,
+    "activity_name": "Configuration",
+    "type_uid": 200401,
+    "severity_id": 5,
+    "severity": "Critical",
+    "time": 0,
+    "status": "New",
+    "finding_info": {
+      "uid": "mock-aws-0008",
+      "title": "Security Hub: Open security group",
+      "desc": "A security group allows SSH from the internet",
+      "types": [
+        "Misconfiguration"
+      ],
+      "created_time": 0,
+      "first_seen_time": 0,
+      "last_seen_time": 0,
+      "modified_time": 0
+    },
+    "cloud": {
+      "provider": "AWS",
+      "region": "us-east-1",
+      "account": {
+        "uid": "123456789012",
+        "name": "mock-account"
+      }
+    },
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "vendor_name": "Amazon Web Services",
+        "name": "Security Hub",
+        "uid": "aws.security hub"
+      }
+    },
+    "resources": [
+      {
+        "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-mock0008",
+        "name": "sg-mock0008",
+        "type": "SecurityGroup",
+        "region": "us-east-1"
+      }
+    ],
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type_id": 2,
+        "value": "203.0.113.82"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type_id": 2,
+        "value": "10.0.0.128"
+      },
+      {
+        "name": "resources.uid",
+        "type_id": 10,
+        "value": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-mock0008"
+      }
+    ],
+    "evidences": [
+      {
+        "type": "mock",
+        "data": {
+          "resource": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-mock0008"
+        },
+        "src_endpoint": {
+          "ip": "203.0.113.82"
+        },
+        "dst_endpoint": {
+          "ip": "10.0.0.128"
+        }
+      }
+    ]
+  }
+]

@@ -19,10 +19,43 @@
       "region": "ap-guangzhou",
       "access_key_id": "mock-ak",
       "access_key_secret": "mock-sk",
-      "options": {
-        "rate_limit": "20",
-        "page_size": "100"
-      }
+      "options": {"page_size": "100"}
+    },
+    {
+      "name": "mock-aliyun",
+      "provider": "aliyun-mock",
+      "account_uid": "100000000001",
+      "region": "cn-hangzhou",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {"page_size": "100"}
+    },
+    {
+      "name": "mock-huawei",
+      "provider": "huawei-mock",
+      "account_uid": "mock-domain-100000000001",
+      "region": "cn-north-4",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {"page_size": "100"}
+    },
+    {
+      "name": "mock-aws",
+      "provider": "aws-mock",
+      "account_uid": "123456789012",
+      "region": "us-east-1",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {"page_size": "100"}
+    },
+    {
+      "name": "mock-gcp",
+      "provider": "gcp-mock",
+      "account_uid": "mock-project",
+      "region": "us-central1",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {"page_size": "100"}
     }
   ]
 }

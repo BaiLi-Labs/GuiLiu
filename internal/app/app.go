@@ -130,7 +130,7 @@ func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log 
 	}
 	seeded := 0
 	for _, acct := range accounts {
-		if acct.Provider != mock.ProviderID {
+		if !mock.IsMockProvider(acct.Provider) {
 			continue
 		}
 		run, err := engine.SyncAccount(ctx, acct, "mock-seed")
@@ -141,7 +141,7 @@ func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log 
 		log.Info("mock data ready", "account", acct.Name, "alerts", run.Fetched)
 	}
 	if seeded == 0 {
-		return fmt.Errorf("mock mode requires an account with provider %q", mock.ProviderID)
+		return fmt.Errorf("mock mode requires at least one mock account")
 	}
 	return nil
 }

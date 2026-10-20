@@ -1,0 +1,218 @@
+[
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0001",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0001",
+    "resourceName": "//storage.googleapis.com/projects/_/buckets/mock-public-bucket",
+    "state": "ACTIVE",
+    "category": "PUBLIC_BUCKET_ACL",
+    "description": "A Cloud Storage bucket is publicly readable",
+    "severity": "HIGH",
+    "findingClass": "MISCONFIGURATION",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0001",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "bucket": "mock-public-bucket"
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0002",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0002",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/global/firewalls/mock-open-ssh",
+    "state": "ACTIVE",
+    "category": "OPEN_FIREWALL",
+    "description": "A firewall rule allows SSH from 0.0.0.0/0",
+    "severity": "HIGH",
+    "findingClass": "MISCONFIGURATION",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0002",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "firewall": "mock-open-ssh"
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0003",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0003",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-1",
+    "state": "ACTIVE",
+    "category": "SQL_INJECTION",
+    "description": "A SQL injection attempt was detected",
+    "severity": "CRITICAL",
+    "findingClass": "THREAT",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0003",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "source_ip": "203.0.113.13",
+      "destination_ip": "10.0.0.131"
+    },
+    "connections": [
+      {
+        "sourceIp": "203.0.113.13",
+        "sourcePort": 443,
+        "destinationIp": "10.0.0.131",
+        "destinationPort": 22,
+        "protocol": "TCP"
+      }
+    ],
+    "mitreAttack": {
+      "primaryTactic": "INITIAL_ACCESS",
+      "primaryTechniques": [
+        "EXPLOIT_PUBLIC_FACING_APPLICATION"
+      ]
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0004",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0004",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-2",
+    "state": "ACTIVE",
+    "category": "MALWARE",
+    "description": "A malicious binary was detected on a VM",
+    "severity": "HIGH",
+    "findingClass": "THREAT",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0004",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "source_ip": "198.51.100.23",
+      "destination_ip": "10.0.0.132"
+    },
+    "connections": [
+      {
+        "sourceIp": "198.51.100.23",
+        "sourcePort": 443,
+        "destinationIp": "10.0.0.132",
+        "destinationPort": 22,
+        "protocol": "TCP"
+      }
+    ],
+    "mitreAttack": {
+      "primaryTactic": "EXECUTION",
+      "primaryTechniques": [
+        "COMMAND_AND_SCRIPTING_INTERPRETER"
+      ]
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0005",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0005",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-3",
+    "state": "ACTIVE",
+    "category": "CRYPTOMINING",
+    "description": "A VM is communicating with a mining pool",
+    "severity": "MEDIUM",
+    "findingClass": "THREAT",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0005",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "source_ip": "203.0.113.33",
+      "destination_ip": "10.0.0.133"
+    },
+    "connections": [
+      {
+        "sourceIp": "203.0.113.33",
+        "sourcePort": 443,
+        "destinationIp": "10.0.0.133",
+        "destinationPort": 22,
+        "protocol": "TCP"
+      }
+    ],
+    "mitreAttack": {
+      "primaryTactic": "IMPACT"
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0006",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0006",
+    "resourceName": "//cloudresourcemanager.googleapis.com/projects/mock-project",
+    "state": "ACTIVE",
+    "category": "EXTERNAL_MEMBER",
+    "description": "A project IAM policy grants external access",
+    "severity": "MEDIUM",
+    "findingClass": "MISCONFIGURATION",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0006",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "member": "user:mock@example.com"
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0007",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0007",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-4",
+    "state": "ACTIVE",
+    "category": "VULNERABILITY",
+    "description": "A VM has a known vulnerable package",
+    "severity": "HIGH",
+    "findingClass": "VULNERABILITY",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0007",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "cve": "CVE-2026-0001"
+    }
+  },
+  {
+    "name": "organizations/123456789/sources/987654321/findings/mock-gcp-0008",
+    "parent": "organizations/123456789/sources/987654321",
+    "canonicalName": "organizations/123456789/sources/987654321/findings/mock-gcp-0008",
+    "resourceName": "//compute.googleapis.com/projects/mock-project/zones/us-central1-a/instances/mock-vm-5",
+    "state": "ACTIVE",
+    "category": "PUBLIC_IP_ADDRESS",
+    "description": "An instance has a public IP address",
+    "severity": "LOW",
+    "findingClass": "MISCONFIGURATION",
+    "eventTime": "2026-01-01T00:00:00Z",
+    "createTime": "2026-01-01T00:00:00Z",
+    "externalUri": "https://console.example.com/security-center/findings/mock-gcp-0008",
+    "sourceProperties": {
+      "project_id": "mock-project",
+      "source": "Security Command Center",
+      "scanner_name": "Mock Scanner",
+      "source_ip": "203.0.113.83",
+      "destination_ip": "10.0.0.138",
+      "ip_address": "203.0.113.83"
+    },
+    "connections": [
+      {
+        "sourceIp": "203.0.113.83",
+        "sourcePort": 443,
+        "destinationIp": "10.0.0.138",
+        "destinationPort": 22,
+        "protocol": "TCP"
+      }
+    ]
+  }
+]

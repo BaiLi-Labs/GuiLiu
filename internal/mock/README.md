@@ -1,44 +1,56 @@
 # Mock fixtures
 
-`make mock` registers the `tencent-mock` connector and starts GuiLiu with in-memory
-storage, no login, and this fixture set. It reuses the production Tencent mapper,
-so the data goes through the same normalization and OCSF path as real alerts.
+`make mock` 注册五家云的 mock connector，使用内存库、关闭认证，并直接注入 fixtures 中的合成告警。每个 mock connector 都调用对应厂商的**生产 mapper**，所以 mock 数据和真实 SDK 响应走同一条归一化与 OCSF 路径。
 
-## 文件
+## Provider 与数据
 
-- `fixtures/tencent.json`：数组，每个元素是一条腾讯云 CSIP `AlertInfo` 原始 JSON。
-- 时间字段在加载时会自动改写为相对当前时间，避免 mock 数据过期后从默认时间窗消失。
-- `Uin` / `AppID` / `NickName` / IP / 域名 / 资产 ID / 文件名全部为虚构值。
+| Provider | fixture | 原始格式 | 覆盖分类 |
+| --- | --- | --- | --- |
+| `tencent-mock` | `fixtures/tencent.json` | CSIP `AlertInfo` | CFW / WAF / CWP / CSIP，SQL 注入、Webshell、反弹 Shell、暴力破解、弱口令、端口扫描、CC |
+| `aliyun-mock` | `fixtures/aliyun.json` | SAS `DescribeSuspEvents` 的 `SuspEvents` 项 | 主机恶意进程、Webshell、SSH 暴力破解、容器逃逸、K8s 特权 Pod、漏洞、基线、网络扫描 |
+| `huawei-mock` | `fixtures/huawei.json` | SecMaster `ListAlerts` 的 `ListAlertRsp` | HSS 反弹 Shell / Webshell / 暴力破解、CFW 端口扫描、WAF SQL/命令注入、CSIP 弱口令/漏洞 |
+| `aws-mock` | `fixtures/aws.json` | Security Hub `GetFindingsV2` 返回的 OCSF finding | GuardDuty 未授权访问/钓鱼/挖矿、Inspector CVE、Security Hub S3/安全组、Macie、IAM |
+| `gcp-mock` | `fixtures/gcp.json` | SCC `ListFindings` 的 Finding（protojson） | 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM 外部访问、漏洞、公网 IP |
+
+加载时会把时间字段改写为相对当前时间，避免 fixture 过期后从默认时间窗消失。支持的字段：
+
+- 字符串时间：`CreateTime`、`UpdateTime`、`Date`、`OccurrenceTime`、`LastTime`、`FirstObservedTime`、`LastObservedTime`、`ArriveTime`、`first_observed_time`、`last_observed_time`、`create_time`、`eventTime`、`createTime` 等。
+- 毫秒时间戳：`OccurrenceTimeStamp`、`LastTimeStamp`、`time`、`created_time`、`first_seen_time`、`last_seen_time`、`modified_time` 等。
 
 ## 脱敏规则
 
 新增样本时必须遵守：
 
 - 外部 IP 使用文档保留段：`203.0.113.0/24`、`198.51.100.0/24`、`192.0.2.0/24`。
-- 内网 IP 使用 `10.0.0.0/24` 或 `172.16.0.0/12`。
-- UIN 使用 `100000000001`，AppID 使用 `1300000000`，账号名使用 `Mock Corp`。
+- 内网 IP 使用 `10.0.0.0/24`。
+- 账号 ID 使用 `mock-*` 或 `123456789012` / `100000000001`。
 - 域名使用 `example.com` 子域。
-- 资产 ID 使用 `ins-mockNNNN`。
-- 文件路径使用 `/tmp/mock/` 或 `/var/www/html/mock-*`。
-- 不要包含真实客户名、真实公网 IP、真实账号、真实凭证、真实主机名。
+- 资产 ID 使用 `i-mockNNNN`、`ecs-mockNNNN`、`mock-*`。
+- 文件路径使用 `/var/www/html/mock-*` 或 `/tmp/mock-*`。
+- 不要包含真实客户名、真实公网 IP、真实账号、真实凭证、真实主机名、真实 ARN 账号。
 
 ## 增加样本
 
-直接在 `tencent.json` 里追加对象即可。建议覆盖：
+直接编辑对应的 fixture 数组即可，建议每个厂商覆盖：
 
-- `Source`: `CFW` / `WAF` / `CWP` / `CSIP`
-- `Type` / `SubType`: 漏洞利用、SQL 注入、命令注入、反弹 Shell、Webshell、暴力破解、弱口令、端口扫描、CC
-- `Level`: 1–5
-- `Status`: 0 未处置 / 1 已忽略 / 2 已处置
-- 有/无 `EvidenceData`、域名为资产、IP 为资产、容器资产
+- 至少一个严重/高危、一个中危、一个低危/提示；
+- 有 IP、有域名、有主机、有容器/K8s 资产；
+- 有证据和无证据；
+- 不同厂商状态值。
 
-## 增加其他云
+fixture 的字段名必须与 SDK 响应一致：
 
-参照 `internal/mock/mock.go`：
+- 阿里云使用 Go SDK 生成的 JSON tag，例如 `AlarmEventType`、`OccurrenceTimeStamp`、`SourceAliUid`。
+- 华为使用 `ListAlertRsp` 的 JSON tag，例如 `handle_status`、`alert_type`、`network_list`。
+- AWS 使用 `GetFindingsV2` 返回的 OCSF 字段，例如 `finding_info.uid`、`severity_id`、`cloud.account.uid`。
+- GCP 使用 `ListFindings` 的 protojson 字段，例如 `resourceName`、`sourceProperties`、`eventTime`。
 
-1. 新建 `fixtures/<cloud>.json`，保存该厂商的原始告警数组。
-2. 实现一个 mock connector，`Fetch` 分页返回原始数组，`Normalize` 直接调用该厂商的**生产 mapper**。
-3. 在 `mock.Register` 中注册多个 provider。
-4. 在 `configs/mock.json` 的 `accounts` 中增加对应 mock 账号。
+## 验证
 
-这样 mock 数据永远和生产映射逻辑保持一致，不会出现“mock 能跑、真实数据不能跑”的分叉。
+```bash
+go test ./internal/mock
+make mock
+# http://127.0.0.1:8081
+```
+
+`TestAllFixturesNormalize` 会加载每个 fixture、逐条调用真实 mapper，并检查外部 ID、标题、时间、云账号、资产证据和 observables。新增样本后先跑这个测试，再跑 `make mock` 看控制台。
