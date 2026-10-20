@@ -35,6 +35,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 查询 | 按厂商 / 账号 / 等级 / 状态 / 时间 / IP / 资产 / 关键词过滤，统计聚合 |
 | 生命周期 | 平台侧 `open / acknowledged / suppressed / closed`，不覆盖厂商原始状态 |
 | 控制台 | 单页 Web 控制台：登录、概览、告警、详情抽屉、账号接入、同步健康、API Key、MCP 配置；深浅色自动跟随系统 |
+| 品牌图标 | 五家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg)（MIT），内嵌为本地 `brands.svg`，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具；HTTP 使用 API Key |

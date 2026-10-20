@@ -311,20 +311,26 @@ tbody tr:last-child td{border-bottom:none}
 .provider-card{display:flex;flex-direction:column;gap:10px}
 .provider-title{display:flex;align-items:center;gap:9px}
 .provider-logo{
-  width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none;
+  width:34px;height:34px;border-radius:9px;display:inline-grid;place-items:center;flex:none;vertical-align:middle;
   background:color-mix(in srgb,var(--accent-2) 9%,transparent);border:1px solid color-mix(in srgb,var(--accent-2) 20%,transparent);
   font-family:var(--mono);font-size:11px;color:var(--accent-2);text-transform:uppercase;letter-spacing:.2px;
 }
-.provider-logo.brand{background:color-mix(in srgb,var(--brand) 13%,transparent);border-color:color-mix(in srgb,var(--brand) 32%,transparent);color:color-mix(in srgb,var(--brand) 78%,#000)}
-[data-theme="dark"] .provider-logo.brand{color:color-mix(in srgb,var(--brand) 58%,#fff)}
-.provider-logo.brand-tencent{--brand:#0052D9}
+.provider-logo.brand{background:color-mix(in srgb,#fff 92%,var(--brand));border-color:color-mix(in srgb,var(--brand) 32%,transparent);overflow:hidden}
+[data-theme="dark"] .provider-logo.brand{background:color-mix(in srgb,#fff 88%,var(--brand))}
+.provider-logo.brand svg{width:22px;height:22px;display:block}
+.provider-logo.brand-tencent{--brand:#00A3FF}
 .provider-logo.brand-aliyun{--brand:#FF6A00}
-.provider-logo.brand-huawei{--brand:#CF0A2C}
-.provider-logo.brand-aws{--brand:#FF9900;text-transform:none;font-weight:800;font-size:10px}
-.provider-logo.brand-gcp{background:conic-gradient(from -45deg,#4285F4 0 25%,#EA4335 0 50%,#FBBC05 0 75%,#34A853 0);border-color:transparent;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.28)}
+.provider-logo.brand-huawei{--brand:#C7000B}
+.provider-logo.brand-aws{--brand:#FF9900}
+.provider-logo.brand-gcp{--brand:#4285F4}
+.provider-logo.md{width:26px;height:26px;border-radius:7px}
+.provider-logo.md svg{width:17px;height:17px}
 .provider-logo.sm{width:22px;height:22px;border-radius:6px;font-size:9px}
-.provider-logo.xs{width:18px;height:18px;border-radius:5px;font-size:8px}
-.provider-logo.brand-aws.sm,.provider-logo.brand-aws.xs{font-size:8px;font-weight:800}
+.provider-logo.xs{width:22px;height:22px;border-radius:6px;font-size:8px}
+.provider-logo.sm svg{width:15px;height:15px}
+.provider-logo.xs svg{width:14px;height:14px}
+.account-brand{position:relative;flex:none;display:grid;place-items:center}
+.account-brand .health-dot{position:absolute;right:-2px;bottom:-2px;margin:0;width:9px;height:9px;border:2px solid var(--panel)}
 .chips{display:flex;gap:5px;flex-wrap:wrap}
 .chip{font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--chip-bg);border:1px solid var(--line-soft);color:var(--muted)}
 .chip.accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 22%,transparent);background:color-mix(in srgb,var(--accent) 5%,transparent)}
@@ -615,15 +621,18 @@ const providerShort = (id) => {
   return p.vendor || p.name;
 };
 const BRANDS = {
-  tencent: {mark: 'TC', cls: 'brand-tencent'},
-  aliyun: {mark: 'Ali', cls: 'brand-aliyun'},
-  huawei: {mark: 'HW', cls: 'brand-huawei'},
-  aws: {mark: 'aws', cls: 'brand-aws'},
-  gcp: {mark: 'G', cls: 'brand-gcp'},
+  tencent: {symbol: 'brand-tencent', cls: 'brand-tencent'},
+  aliyun: {symbol: 'brand-aliyun', cls: 'brand-aliyun'},
+  huawei: {symbol: 'brand-huawei', cls: 'brand-huawei'},
+  aws: {symbol: 'brand-aws', cls: 'brand-aws'},
+  gcp: {symbol: 'brand-google', cls: 'brand-gcp'},
 };
 function brandMark(id, size) {
-  const b = BRANDS[id] || {mark: String(id || '?').slice(0, 2), cls: ''};
-  return `<span class="provider-logo brand ${b.cls} ${size || ''}" title="${esc(providerShort(id))}">${esc(b.mark)}</span>`;
+  const b = BRANDS[id];
+  if (!b) {
+    return `<span class="provider-logo ${size || ''}" title="${esc(providerShort(id))}">${esc(String(id || '?').slice(0, 2).toUpperCase())}</span>`;
+  }
+  return `<span class="provider-logo brand ${b.cls} ${size || ''}" title="${esc(providerShort(id))}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/brands.svg#${b.symbol}"></use></svg></span>`;
 }
 const isAdmin = () => !!(S.me && (S.me.dev_mode || (S.me.user && S.me.user.role === 'admin')));
 const truncate = (s, n) => {
@@ -1227,8 +1236,10 @@ function accountCard(a) {
   const healthText = !a.enabled ? '已停用' : st.pending ? '续传中' : failures > 0 ? '同步失败' : st.last_success_at ? '正常' : '等待首次同步';
   return `<div class="card account-card">
     <div class="account-head">
-      <span class="health-dot ${healthClass}"></span>
-      ${brandMark(a.provider, 'sm')}
+      <div class="account-brand">
+        ${brandMark(a.provider, 'md')}
+        <span class="health-dot ${healthClass}"></span>
+      </div>
       <div style="min-width:0">
         <div class="account-name">${esc(a.name)}</div>
         <div class="account-meta">${esc(a.provider_name || a.provider)} · ${esc(a.account_uid || '未填写账号 ID')}${a.region ? ' · ' + esc(a.region) : ''}</div>
