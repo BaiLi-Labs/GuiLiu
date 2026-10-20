@@ -38,7 +38,16 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     }
   }
   if (!res.ok) {
-    const message = body?.error?.message || `${res.status} ${res.statusText}`;
+    const messages: Record<string, string> = {
+      unauthorized: '认证失败，请重新登录',
+      forbidden: '权限不足',
+      invalid_credentials: '用户名或密码错误',
+      too_many_attempts: '请求过于频繁，请稍后再试',
+      already_running: '该账号正在同步',
+      sync_disabled: '同步未启用',
+      conflict: '账号名称已存在',
+    };
+    const message = messages[body?.error?.code] || body?.error?.message || `${res.status} ${res.statusText}`;
     throw new ApiError(res.status, message, body?.error?.code);
   }
   return body as T;

@@ -1,17 +1,21 @@
 import { useState } from 'react';
-import { ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import { login } from '../api';
+import { useI18n } from '../i18n';
+import { Preferences } from '../components/Preferences';
+import { GuiLiuMark } from '../components/GuiLiuMark';
+import { ErrorBox } from '../components/ui';
 import type { Me } from '../types';
 
 export function Login({ onSuccess }: { onSuccess: (me: Me) => void }) {
+  const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!username || !password || busy) {
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!username.trim() || !password || busy) {
       setError('请输入用户名和密码');
       return;
     }
@@ -22,66 +26,61 @@ export function Login({ onSuccess }: { onSuccess: (me: Me) => void }) {
       setPassword('');
       onSuccess(me);
     } catch (err: any) {
-      setError(err?.status === 429 ? '尝试过于频繁，请稍后再试' : err?.message || '登录失败');
+      setError(
+        err?.status === 429
+          ? '尝试过于频繁，请稍后再试'
+          : err?.status === 401
+            ? '登录失败'
+            : err?.message || '登录失败',
+      );
     } finally {
       setBusy(false);
     }
   }
-
   return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <div className="w-full max-w-[420px]">
-        <div className="mb-6 flex items-center gap-3 px-1">
-          <div className="grid h-11 w-11 place-items-center rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]">
-            <ShieldCheck className="h-5 w-5" />
+    <div className="flex min-h-screen flex-col">
+      <div className="flex justify-end p-5">
+        <Preferences />
+      </div>
+      <div className="grid flex-1 place-items-center px-5 pb-20">
+        <div className="w-full max-w-[400px]">
+          <div className="mb-8 flex items-center gap-3">
+            <GuiLiuMark className="h-10 w-10 shrink-0 text-[var(--accent)]" />
+            <span className="text-2xl font-semibold">
+              GuiLiu <span className="text-base font-normal text-[var(--muted)]">归流</span>
+            </span>
           </div>
-          <div>
-            <div className="text-[19px] font-semibold tracking-tight">GuiLiu</div>
-            <div className="text-[10px] uppercase tracking-[2px] text-[var(--dim)]">Security data hub</div>
-          </div>
-        </div>
-        <form onSubmit={submit} className="card p-6 shadow-2xl">
-          <h1 className="text-[19px] font-semibold">登录控制台</h1>
-          <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
-            使用管理员或团队成员账号登录。登录态由 HttpOnly Session Cookie 维护。
-          </p>
-          <div className="mt-5 space-y-3">
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] text-[var(--muted)]">用户名</span>
+          <form onSubmit={submit} className="card space-y-5 p-7">
+            <h1 className="text-xl font-semibold">{t('登录控制台')}</h1>
+            <label className="form-label">
+              {t('用户名')}
               <input
                 className="field h-10 w-full"
                 autoComplete="username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
+                onChange={(event) => setUsername(event.target.value)}
+                required
                 autoFocus
               />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] text-[var(--muted)]">密码</span>
+            <label className="form-label">
+              {t('密码')}
               <input
                 className="field h-10 w-full"
                 type="password"
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                onChange={(event) => setPassword(event.target.value)}
+                required
               />
             </label>
-          </div>
-          {error ? <div className="mt-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-[11.5px] text-[var(--danger-text)]">{error}</div> : null}
-          <button className="btn btn-primary mt-5 h-10 w-full justify-center" disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            {busy ? '登录中…' : '进入控制台'}
-          </button>
-          <div className="mt-5 border-t border-[var(--line-soft)] pt-4 text-[11px] leading-relaxed text-[var(--dim)]">
-            首次启动：设置 <code className="font-mono">GUILIU_ADMIN_PASSWORD</code> 后启动，或运行
-            <code className="ml-1 font-mono">guiliu user add -username admin -role admin</code>。
-            <br />
-            本地调试可运行 <code className="font-mono">make dev</code>；Mock 模式使用
-            <code className="ml-1 font-mono">make mock</code>。
-          </div>
-        </form>
+            {error ? <ErrorBox>{t(error)}</ErrorBox> : null}
+            <button className="btn btn-primary h-10 w-full" disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {t(busy ? '登录中…' : '进入控制台')}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

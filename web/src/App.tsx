@@ -10,6 +10,7 @@ import { Health } from './pages/Health';
 import { MCP } from './pages/MCP';
 import { AppContext } from './state';
 import { isAdmin, useHashPage } from './lib';
+import { useI18n } from './i18n';
 import type { Me, Meta, Provider } from './types';
 
 interface ToastState {
@@ -19,6 +20,7 @@ interface ToastState {
 }
 
 export default function App() {
+  const { locale, t } = useI18n();
   const [me, setMe] = useState<Me | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -26,7 +28,22 @@ export default function App() {
   const [fatal, setFatal] = useState('');
   const [toastState, setToastState] = useState<ToastState | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [page, go] = useHashPage();
+  const [page, go, routeQuery] = useHashPage();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [page]);
+
+  useEffect(() => {
+    const names = {
+      overview: '概览',
+      alerts: '统一告警',
+      accounts: '云账号',
+      health: '接入状态',
+      mcp: 'API 与 MCP',
+    };
+    document.title = `${t(names[page])} · GuiLiu`;
+  }, [locale, page]);
   const timer = useRef<number | undefined>(undefined);
 
   const toast = useCallback((message: string, error = false) => {
@@ -66,6 +83,7 @@ export default function App() {
     isAdmin: isAdmin(me?.user?.role, me?.dev_mode),
     page,
     go,
+    routeQuery,
     toast,
     refreshNonce,
     refresh: () => setRefreshNonce((n) => n + 1),
@@ -83,10 +101,10 @@ export default function App() {
     return (
       <div className="grid min-h-screen place-items-center px-4">
         <div className="card max-w-md p-6 text-center">
-          <div className="text-[15px] font-semibold">服务暂不可用</div>
-          <div className="mt-2 text-[12px] text-[var(--danger-text)]">{fatal}</div>
+          <div className="text-[15px] font-semibold">{t('服务不可用')}</div>
+          <div className="mt-2 text-[12px] text-[var(--danger-text)]">{t(fatal)}</div>
           <button className="btn btn-primary mt-4" onClick={() => window.location.reload()}>
-            重新连接
+            {t('重新连接')}
           </button>
         </div>
       </div>
@@ -118,7 +136,7 @@ export default function App() {
               : 'border-[var(--line)] bg-[var(--panel)] text-[var(--text)]'
           }`}
         >
-          {toastState.message}
+          {t(toastState.message)}
         </div>
       ) : null}
     </AppContext.Provider>

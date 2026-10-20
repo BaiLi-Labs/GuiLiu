@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Cloud, Loader2, Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Loader2, Pencil, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
 import { Empty, ErrorBox, Modal, SkeletonRows } from '../components/ui';
-import { formatDate, relTime } from '../lib';
+import { accountStatus, fmtNum, formatDate, providerShort, relTime } from '../lib';
 import type { Account, AccountPayload, Provider } from '../types';
 
 interface FormState {
@@ -13,318 +14,322 @@ interface FormState {
   account_uid: string;
   region: string;
   enabled: boolean;
-  endpoint: string;
-  rate_limit: string;
-  max_pages: string;
   credentials: Record<string, string>;
   options: Record<string, string>;
 }
-
-function blankForm(provider: Provider | undefined): FormState {
+function blankForm(provider?: Provider): FormState {
   return {
     name: '',
     provider: provider?.id || '',
     account_uid: '',
     region: '',
     enabled: true,
-    endpoint: '',
-    rate_limit: '',
-    max_pages: '',
     credentials: {},
     options: {},
   };
 }
 
-function editForm(a: Account): FormState {
-  return {
-    name: a.name,
-    provider: a.provider,
-    account_uid: a.account_uid || '',
-    region: a.region || '',
-    enabled: a.enabled,
-    endpoint: a.options?.endpoint || '',
-    rate_limit: a.options?.rate_limit || '',
-    max_pages: a.options?.max_pages || '',
-    credentials: {},
-    options: { ...(a.options || {}) },
-  };
-}
-
 export function Accounts() {
-  const { providers, meta, isAdmin: admin, refreshNonce, toast } = useApp();
+  const { providers, meta, isAdmin, refreshNonce, toast } = useApp();
+  const { t } = useI18n();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Account | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [busyId, setBusyId] = useState('');
-  const [syncingAll, setSyncingAll] = useState(false);
-
+  const [busy, setBusy] = useState('');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const syncAvailable = !meta?.mock && !!meta?.sync_enabled;
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const d = await api<{ accounts: Account[] }>('/accounts');
-      setAccounts(d.accounts || []);
-    } catch (e: any) {
-      setError(e.message || '加载失败');
+      const result = await api<{ accounts: Account[] }>('/accounts');
+      setAccounts(result.accounts || []);
+    } catch (err: any) {
+      setError(err.message || '加载失败');
     } finally {
       setLoading(false);
     }
   }
-
   useEffect(() => {
-    load();
+    void load();
   }, [refreshNonce]);
-
-  async function action(id: string, path: string, method: string, message: string) {
-    setBusyId(id);
+  function connect() {
+    setEditing(null);
+    setModalOpen(true);
+  }
+  async function action(id: string, path: string, method: string, message: string, body?: unknown) {
+    if (busy) return;
+    setBusy(id);
     try {
-      await api(path, { method });
+      await api(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
       toast(message);
       await load();
-    } catch (e: any) {
-      if (e?.status !== 401) toast(e.message || '操作失败', true);
+    } catch (err: any) {
+      toast(err.message || '操作失败', true);
     } finally {
-      setBusyId('');
+      setBusy('');
     }
   }
-
-  async function remove(a: Account) {
-    if (!window.confirm(`删除云账号「${a.name}」？关联告警不会自动删除。`)) return;
-    setBusyId(a.id);
-    try {
-      await api(`/accounts/${encodeURIComponent(a.id)}`, { method: 'DELETE' });
-      toast('账号已删除');
-      await load();
-    } catch (e: any) {
-      if (e?.status !== 401) toast(e.message || '删除失败', true);
-    } finally {
-      setBusyId('');
-    }
+  async function remove(account: Account) {
+    if (!window.confirm(t('删除云账号「{name}」？已采集的告警会保留。', { name: account.name }))) return;
+    await action(account.id, `/accounts/${encodeURIComponent(account.id)}`, 'DELETE', '账号已删除');
   }
-
-  async function toggleCorrect(a: Account) {
-    setBusyId(a.id);
-    try {
-      await api(`/accounts/${encodeURIComponent(a.id)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled: !a.enabled }),
-      });
-      toast(a.enabled ? '账号已停用' : '账号已启用');
-      await load();
-    } catch (e: any) {
-      if (e?.status !== 401) toast(e.message || '操作失败', true);
-    } finally {
-      setBusyId('');
-    }
-  }
-
-  async function syncAll() {
-    if (syncingAll) return;
-    setSyncingAll(true);
-    try {
-      await api('/sync', { method: 'POST' });
-      toast('已触发全部账号同步');
-      setTimeout(load, 1600);
-    } catch (e: any) {
-      if (e?.status !== 401) toast(e.message || '同步失败', true);
-    } finally {
-      setSyncingAll(false);
-    }
-  }
-
+  const visible = accounts.filter(
+    (account) =>
+      (!status || accountStatus(account) === status) &&
+      [
+        account.name,
+        account.provider,
+        account.provider_name,
+        account.account_uid,
+        account.region,
+        providerShort(account.provider),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(search.toLowerCase().trim()),
+  );
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        {admin ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[240px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--dim)]" />
+          <input
+            className="field w-full pl-9"
+            aria-label={t('搜索账号、厂商、区域…')}
+            placeholder={t('搜索账号、厂商、区域…')}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+        <select
+          className="field"
+          aria-label={t('接入状态')}
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+        >
+          <option value="">{t('所有接入状态')}</option>
+          {['已同步', '同步失败', '续传中', '等待首次同步', '已停用'].map((value) => (
+            <option key={value} value={value}>
+              {t(value)}
+            </option>
+          ))}
+        </select>
+        {isAdmin ? (
           <>
             <button
-              className="btn btn-primary"
-              onClick={() => {
-                setEditing(null);
-                setModalOpen(true);
-              }}
+              className="btn"
+              disabled={!!busy || !syncAvailable}
+              onClick={() => action('all', '/sync', 'POST', '已触发全部账号同步')}
             >
-              <Plus className="h-4 w-4" /> 接入云账号
+              <RefreshCw className="h-4 w-4" />
+              {t('同步全部')}
             </button>
-            <button className="btn" onClick={syncAll} disabled={syncingAll}>
-              {syncingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              同步全部
+            <button className="btn btn-primary" onClick={connect}>
+              <Plus className="h-4 w-4" />
+              {t('接入云账号')}
             </button>
           </>
         ) : (
-          <span className="pill">只读账号：仅管理员可变更云账号</span>
+          <span className="text-xs text-[var(--muted)]">{t('仅管理员可管理云账号')}</span>
         )}
-        <span className="pill ml-auto">AK/SK 使用 AES-256-GCM 加密存储</span>
       </div>
-
-      {loading ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="card p-4"><SkeletonRows count={3} /></div>
-          ))}
-        </div>
-      ) : error ? (
-        <ErrorBox>{error}</ErrorBox>
-      ) : accounts.length ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {accounts.map((a) => (
-            <AccountCard
-              key={a.id}
-              account={a}
-              busy={busyId === a.id}
-              admin={admin}
-              onCheck={() => action(a.id, `/accounts/${encodeURIComponent(a.id)}/check`, 'POST', '连接正常，凭据与权限有效')}
-              onSync={() => action(a.id, `/accounts/${encodeURIComponent(a.id)}/sync`, 'POST', '同步已触发')}
-              onEdit={() => {
-                setEditing(a);
-                setModalOpen(true);
-              }}
-              onToggle={() => toggleCorrect(a)}
-              onDelete={() => remove(a)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="card">
+      {error ? <ErrorBox>{error}</ErrorBox> : null}
+      <div className="table-wrap">
+        {loading ? (
+          <SkeletonRows count={8} />
+        ) : !accounts.length ? (
           <Empty title="还没有接入任何云账号">
-            接入云厂商后，平台会按增量游标自动拉取、归一化并去重告警。
-            <div className="mt-4">
-              <button className="btn btn-primary" onClick={() => { setEditing(null); setModalOpen(true); }}>
-                接入第一个账号
+            {isAdmin ? (
+              <button className="btn btn-primary" onClick={connect}>
+                {t('接入第一个账号')}
               </button>
-            </div>
+            ) : null}
           </Empty>
-        </div>
-      )}
-
-      <section>
-        <div className="mb-2 flex items-center gap-2">
-          <Cloud className="h-4 w-4 text-[var(--accent-2)]" />
-          <h2 className="text-[11px] uppercase tracking-[1.2px] text-[var(--dim)]">已内置连接器</h2>
-          {admin ? <span className="pill">Mock 模式使用合成数据</span> : null}
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {providers.map((p) => (
-            <ProviderCard key={p.id} provider={p} mock={!!meta?.mock} />
+        ) : !visible.length ? (
+          <Empty title="无匹配账号">
+            <button
+              className="btn"
+              onClick={() => {
+                setSearch('');
+                setStatus('');
+              }}
+            >
+              {t('清除筛选')}
+            </button>
+          </Empty>
+        ) : (
+          <table className="data-table min-w-[1000px]">
+            <thead>
+              <tr>
+                <th>{t('账号')}</th>
+                <th>{t('云厂商')}</th>
+                <th>{t('区域')}</th>
+                <th>{t('状态')}</th>
+                <th>{t('最近同步')}</th>
+                <th>{t('数据截至')}</th>
+                <th>{t('上次条数')}</th>
+                {isAdmin ? <th className="text-right">{t('操作')}</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((account) => {
+                const state = accountStatus(account);
+                return (
+                  <tr key={account.id}>
+                    <td>
+                      <div className="font-medium">{account.name}</div>
+                      <div className="cell-sub max-w-[200px] font-mono" title={account.account_uid}>
+                        {account.account_uid || '—'}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <BrandIcon provider={account.provider} size="xs" />
+                        {providerShort(account.provider)}
+                      </div>
+                    </td>
+                    <td className="text-xs">{account.region || '—'}</td>
+                    <td>
+                      <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                        <span
+                          className={`status-dot ${state === '同步失败' ? 'status-error' : state === '已同步' ? 'status-ok' : state === '续传中' ? 'status-pending' : ''}`}
+                        />
+                        {t(state)}
+                      </span>
+                      {account.sync_state?.last_error ? (
+                        <div
+                          className="cell-sub max-w-[200px] text-[var(--danger)]"
+                          title={account.sync_state.last_error}
+                        >
+                          {account.sync_state.last_error}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="whitespace-nowrap text-xs" title={account.sync_state?.last_success_at}>
+                      {relTime(account.sync_state?.last_success_at)}
+                    </td>
+                    <td className="whitespace-nowrap text-xs text-[var(--muted)]">
+                      {formatDate(account.sync_state?.cursor_end)}
+                    </td>
+                    <td className="tabular-nums">{fmtNum(account.sync_state?.items_last_run)}</td>
+                    {isAdmin ? (
+                      <td>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            className="btn btn-ghost btn-icon"
+                            aria-label={`${t('验证连接')} · ${account.name}`}
+                            title={t('验证连接')}
+                            disabled={!!busy || !!meta?.mock}
+                            onClick={() =>
+                              action(
+                                account.id,
+                                `/accounts/${encodeURIComponent(account.id)}/check`,
+                                'POST',
+                                '连接正常，凭据与权限有效',
+                              )
+                            }
+                          >
+                            {busy === account.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-icon"
+                            aria-label={`${t('同步')} · ${account.name}`}
+                            title={t('同步')}
+                            disabled={!!busy || !syncAvailable || !account.enabled}
+                            onClick={() =>
+                              action(
+                                account.id,
+                                `/accounts/${encodeURIComponent(account.id)}/sync`,
+                                'POST',
+                                '同步已触发',
+                              )
+                            }
+                          >
+                            <Play className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-icon"
+                            aria-label={`${t('编辑')} · ${account.name}`}
+                            title={t('编辑')}
+                            disabled={!!busy}
+                            onClick={() => {
+                              setEditing(account);
+                              setModalOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={!!busy}
+                            onClick={() =>
+                              action(
+                                account.id,
+                                `/accounts/${encodeURIComponent(account.id)}`,
+                                'PATCH',
+                                account.enabled ? '账号已停用' : '账号已启用',
+                                { enabled: !account.enabled },
+                              )
+                            }
+                          >
+                            {t(account.enabled ? '停用' : '启用')}
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-icon text-[var(--danger)]"
+                            aria-label={`${t('删除')} · ${account.name}`}
+                            title={t('删除')}
+                            disabled={!!busy}
+                            onClick={() => remove(account)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <details className="disclosure">
+        <summary>
+          {t('可用连接器')} <span className="ml-2 text-xs text-[var(--muted)]">{providers.length}</span>
+        </summary>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {providers.map((provider) => (
+            <div
+              key={provider.id}
+              className="flex items-center gap-3 rounded-lg border border-[var(--line)] p-4"
+            >
+              <BrandIcon provider={provider.id} size="sm" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{provider.name}</div>
+                <div className="mt-1 text-xs text-[var(--muted)]">{t(provider.product)}</div>
+              </div>
+            </div>
           ))}
         </div>
-      </section>
-
+      </details>
       <AccountModal
         open={modalOpen}
         editing={editing}
         providers={providers}
         onClose={() => setModalOpen(false)}
-        onSaved={async () => {
+        onSaved={() => {
           setModalOpen(false);
-          await load();
+          void load();
         }}
       />
-    </div>
-  );
-}
-
-function AccountCard({
-  account: a,
-  busy,
-  admin,
-  onCheck,
-  onSync,
-  onEdit,
-  onToggle,
-  onDelete,
-}: {
-  account: Account;
-  busy: boolean;
-  admin: boolean;
-  onCheck: () => void;
-  onSync: () => void;
-  onEdit: () => void;
-  onToggle: () => void;
-  onDelete: () => void;
-}) {
-  const st = a.sync_state || {};
-  const failures = st.consecutive_failures || 0;
-  const health = !a.enabled ? '已停用' : st.pending ? '续传中' : failures ? '同步失败' : st.last_success_at ? '正常' : '等待首次同步';
-  const dot = !a.enabled ? 'bg-[var(--dim)]' : failures ? 'bg-[var(--danger)]' : st.pending ? 'bg-[var(--med)]' : 'bg-[var(--low)]';
-  return (
-    <div className="card p-4">
-      <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <BrandIcon provider={a.provider} size="md" />
-          <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--panel)] ${dot}`} />
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-[14px] font-semibold">{a.name}</div>
-          <div className="mt-1 truncate text-[10.5px] text-[var(--dim)]">
-            {a.provider_name || a.provider} · {a.account_uid || '未填写账号 ID'}{a.region ? ` · ${a.region}` : ''}
-          </div>
-        </div>
-        <span className="pill ml-auto shrink-0">{a.access_key_hint || '—'}</span>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Mini label="最近同步" value={relTime(st.last_success_at)} />
-        <Mini label="上次条数" value={String(st.items_last_run ?? 0)} />
-        <Mini label="耗时" value={st.last_duration_ms ? `${st.last_duration_ms}ms` : '—'} />
-      </div>
-      <div className="mt-3 flex items-center justify-between text-[10px] text-[var(--dim)]">
-        <span>游标 {st.cursor_end ? formatDate(st.cursor_end) : '—'}</span>
-        <span>{health}</span>
-      </div>
-      {st.last_error ? <div className="mt-2 truncate text-[10px] text-[var(--danger-text)]">{st.last_error}</div> : null}
-      {admin ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <button className="btn btn-sm btn-primary" onClick={onCheck} disabled={busy}>
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} 检测
-          </button>
-          <button className="btn btn-sm" onClick={onSync} disabled={busy}>
-            <Play className="h-3 w-3" /> 同步
-          </button>
-          <button className="btn btn-sm" onClick={onEdit} disabled={busy}>
-            <Pencil className="h-3 w-3" /> 编辑
-          </button>
-          <button className="btn btn-sm" onClick={onToggle} disabled={busy}>
-            {a.enabled ? '停用' : '启用'}
-          </button>
-          <button className="btn btn-sm btn-danger ml-auto" onClick={onDelete} disabled={busy}>
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function Mini({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--line-soft)] bg-[var(--inset)] px-2.5 py-2">
-      <div className="text-[9.5px] text-[var(--dim)]">{label}</div>
-      <div className="mt-0.5 truncate text-[11px]">{value}</div>
-    </div>
-  );
-}
-
-function ProviderCard({ provider: p, mock }: { provider: Provider; mock: boolean }) {
-  return (
-    <div className="card flex flex-col gap-2.5 p-4">
-      <div className="flex items-center gap-2.5">
-        <BrandIcon provider={p.id} />
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold">{p.name}</div>
-          <div className="truncate text-[10.5px] text-[var(--dim)]">{p.product} · API {p.api_version || '—'}</div>
-        </div>
-        <span className="pill ml-auto">{mock ? 'Mock · ' : ''}{p.mapper_version || 'mapper —'}</span>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {(p.products || []).map((x) => (
-          <span key={x.code} className="pill">{x.name}</span>
-        ))}
-      </div>
-      <div className="text-[10.5px] text-[var(--dim)]">
-        凭据字段：{(p.credential_fields || []).map((f) => f.label).join('、') || '无'}
-      </div>
     </div>
   );
 }
@@ -343,77 +348,82 @@ function AccountModal({
   onSaved: () => void;
 }) {
   const { toast } = useApp();
+  const { t } = useI18n();
   const [form, setForm] = useState<FormState>(() => blankForm(providers[0]));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const isEdit = !!editing;
-
   useEffect(() => {
     if (!open) return;
     setError('');
-    setForm(editing ? editForm(editing) : blankForm(providers[0]));
+    setForm(
+      editing
+        ? {
+            name: editing.name,
+            provider: editing.provider,
+            account_uid: editing.account_uid || '',
+            region: editing.region || '',
+            enabled: editing.enabled,
+            credentials: {},
+            options: { ...editing.options },
+          }
+        : blankForm(providers[0]),
+    );
   }, [open, editing, providers]);
-
-  const provider = useMemo(() => providers.find((p) => p.id === form.provider), [providers, form.provider]);
-  const optionFields = provider?.option_fields || [];
+  const provider = useMemo(
+    () => providers.find((item) => item.id === form.provider),
+    [providers, form.provider],
+  );
   const credentialFields = provider?.credential_fields || [];
-
+  const optionFields = provider?.option_fields || [];
+  const requiredOptions = optionFields.filter((field) => field.required);
+  const optionalOptions = optionFields.filter((field) => !field.required && field.name !== 'endpoint');
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((previous) => ({ ...previous, [key]: value }));
   }
-
-  function setCredential(name: string, value: string) {
-    setForm((f) => ({ ...f, credentials: { ...f.credentials, [name]: value } }));
+  function setCredential(key: string, value: string) {
+    setForm((previous) => ({ ...previous, credentials: { ...previous.credentials, [key]: value } }));
   }
-  function setOption(name: string, value: string) {
-    setForm((f) => ({ ...f, options: { ...f.options, [name]: value } }));
+  function setOption(key: string, value: string) {
+    setForm((previous) => ({ ...previous, options: { ...previous.options, [key]: value } }));
   }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     if (busy) return;
     if (!form.name.trim()) {
-      setError('账号名称不能为空');
+      setError(t('请填写 {field}', { field: t('账号名称') }));
       return;
     }
-    if (!form.provider) {
+    if (!provider) {
       setError('请选择云厂商');
       return;
     }
-    if (!isEdit) {
-      for (const f of credentialFields) {
-        if (f.required && !form.credentials[f.name]?.trim()) {
-          setError(`请填写 ${f.label}`);
+    for (const field of requiredOptions)
+      if (!form.options[field.name]?.trim()) {
+        setError(t('请填写 {field}', { field: t(field.label) }));
+        return;
+      }
+    if (!isEdit)
+      for (const field of credentialFields)
+        if (field.required && !form.credentials[field.name]?.trim()) {
+          setError(t('请填写 {field}', { field: t(field.label) }));
           return;
         }
-      }
-      for (const f of optionFields) {
-        if (f.required && !form.options[f.name]?.trim()) {
-          setError(`请填写 ${f.label}`);
-          return;
-        }
-      }
-    }
-    setBusy(true);
-    setError('');
-    const options: Record<string, string> = {
-      ...form.options,
-      ...(form.endpoint.trim() ? { endpoint: form.endpoint.trim() } : {}),
-      ...(form.rate_limit.trim() ? { rate_limit: form.rate_limit.trim() } : {}),
-      ...(form.max_pages.trim() ? { max_pages: form.max_pages.trim() } : {}),
-    };
     const body: AccountPayload = {
       name: form.name.trim(),
       account_uid: form.account_uid.trim(),
       region: form.region.trim(),
-      options,
+      options: Object.fromEntries(Object.entries(form.options).map(([key, value]) => [key, value.trim()])),
     };
-    for (const [key, value] of Object.entries(form.credentials)) {
-      if (value.trim()) body[key] = value.trim();
-    }
+    for (const [key, value] of Object.entries(form.credentials)) if (value.trim()) body[key] = value.trim();
+    setBusy(true);
+    setError('');
     try {
-      if (isEdit && editing) {
-        await api(`/accounts/${encodeURIComponent(editing.id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+      if (editing) {
+        await api(`/accounts/${encodeURIComponent(editing.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
         toast('账号已更新');
       } else {
         await api('/accounts', {
@@ -424,130 +434,155 @@ function AccountModal({
       }
       onSaved();
     } catch (err: any) {
-      setError(err?.message || '保存失败');
+      setError(err.message || '保存失败');
     } finally {
       setBusy(false);
     }
   }
-
+  const optionInput = (field: NonNullable<Provider['option_fields']>[number]) => (
+    <label key={field.name} className="form-label">
+      {t(field.label)}
+      {field.required ? ' *' : ''}
+      <input
+        className="field w-full"
+        type={field.name === 'rate_limit' || field.name === 'max_pages' ? 'number' : 'text'}
+        min={field.name === 'rate_limit' || field.name === 'max_pages' ? 1 : undefined}
+        step={field.name === 'rate_limit' ? 'any' : undefined}
+        value={form.options[field.name] || ''}
+        onChange={(event) => setOption(field.name, event.target.value)}
+        placeholder={t(field.placeholder || '')}
+        required={field.required}
+      />
+      {field.help ? <span className="field-help">{t(field.help)}</span> : null}
+    </label>
+  );
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? `编辑账号 · ${editing?.name}` : '接入云账号'}
-      subtitle="凭据会加密存储，仅用于只读拉取厂商告警。"
+      title={editing ? t('编辑账号 · {name}', { name: editing.name }) : t('接入云账号')}
       wide
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <div className="mb-1.5 text-[11px] text-[var(--muted)]">账号名称</div>
-            <input className="field w-full" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="例如 prod-aws" required />
-          </label>
-          <label className="block">
-            <div className="mb-1.5 text-[11px] text-[var(--muted)]">云厂商</div>
+      <form className="space-y-5" onSubmit={submit}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="form-label">
+            {t('云厂商')}
             <select
               className="field w-full"
               value={form.provider}
               disabled={isEdit}
-              onChange={(e) => {
-                set('provider', e.target.value);
-                setForm((f) => ({ ...f, credentials: {}, options: {}, endpoint: '', rate_limit: '', max_pages: '' }));
-              }}
+              onChange={(event) =>
+                setForm((previous) => ({
+                  ...previous,
+                  provider: event.target.value,
+                  credentials: {},
+                  options: {},
+                }))
+              }
             >
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.product}
+              {providers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} · {t(item.product)}
                 </option>
               ))}
             </select>
           </label>
-          <label className="block">
-            <div className="mb-1.5 text-[11px] text-[var(--muted)]">云账号 ID / 项目 ID（可选）</div>
-            <input className="field w-full" value={form.account_uid} onChange={(e) => set('account_uid', e.target.value)} placeholder="可选" />
+          <label className="form-label">
+            {t('账号名称')}
+            <input
+              className="field w-full"
+              value={form.name}
+              onChange={(event) => set('name', event.target.value)}
+              placeholder={t('例如 prod-aws')}
+              required
+            />
           </label>
-          <label className="block">
-            <div className="mb-1.5 text-[11px] text-[var(--muted)]">Region（可选）</div>
-            <input className="field w-full" value={form.region} onChange={(e) => set('region', e.target.value)} placeholder="例如 us-east-1" />
+          <label className="form-label">
+            {t('云账号 ID / 项目 ID（可选）')}
+            <input
+              className="field w-full"
+              value={form.account_uid}
+              onChange={(event) => set('account_uid', event.target.value)}
+            />
           </label>
+          <label className="form-label">
+            {t('Region（可选）')}
+            <input
+              className="field w-full"
+              value={form.region}
+              onChange={(event) => set('region', event.target.value)}
+              placeholder={t('例如 us-east-1')}
+            />
+          </label>
+          {requiredOptions.map(optionInput)}
         </div>
-
-        <div className="rounded-xl border border-[var(--line-soft)] bg-[var(--inset)] p-3">
-          <div className="mb-3 text-[10px] uppercase tracking-[1px] text-[var(--dim)]">凭据</div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {credentialFields.map((f) => (
-              <label key={f.name} className={f.multiline ? 'block sm:col-span-2' : 'block'}>
-                <div className="mb-1.5 text-[11px] text-[var(--muted)]">
-                  {f.label} {f.required ? <span className="text-[var(--danger)]">*</span> : null}
-                </div>
-                {f.multiline ? (
+        <section className="border-t border-[var(--line)] pt-5">
+          <h3 className="section-title">{t('凭据')}</h3>
+          <p className="mb-4 mt-2 text-xs text-[var(--muted)]">{t('使用只读凭据。凭据将加密保存。')}</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {credentialFields.map((field) => (
+              <label key={field.name} className={`form-label ${field.multiline ? 'sm:col-span-2' : ''}`}>
+                {t(field.label)}
+                {field.required && !isEdit ? ' *' : ''}
+                {field.multiline ? (
                   <textarea
-                    className="field w-full font-mono text-[11px]"
-                    value={form.credentials[f.name] || ''}
-                    onChange={(e) => setCredential(f.name, e.target.value)}
-                    placeholder={isEdit ? '留空保持现有凭据' : f.help || ''}
+                    className="field w-full font-mono"
+                    value={form.credentials[field.name] || ''}
+                    onChange={(event) => setCredential(field.name, event.target.value)}
+                    placeholder={isEdit ? t('留空保持现有凭据') : undefined}
+                    required={field.required && !isEdit}
+                    spellCheck={false}
                   />
                 ) : (
                   <input
                     className="field w-full"
-                    type={f.secret ? 'password' : 'text'}
-                    value={form.credentials[f.name] || ''}
-                    onChange={(e) => setCredential(f.name, e.target.value)}
-                    placeholder={isEdit ? '留空保持现有凭据' : f.help || ''}
+                    type={field.secret ? 'password' : 'text'}
+                    value={form.credentials[field.name] || ''}
+                    onChange={(event) => setCredential(field.name, event.target.value)}
+                    placeholder={isEdit ? t('留空保持现有凭据') : undefined}
                     autoComplete="off"
+                    required={field.required && !isEdit}
                   />
                 )}
-                {f.help ? <div className="mt-1 text-[10px] text-[var(--dim)]">{f.help}</div> : null}
+                {field.help ? <span className="field-help">{t(field.help)}</span> : null}
               </label>
             ))}
-            {!credentialFields.length ? <div className="text-[11px] text-[var(--dim)]">该连接器不需要凭据</div> : null}
+            {!credentialFields.length ? (
+              <span className="text-sm text-[var(--muted)]">{t('该连接器不需要凭据')}</span>
+            ) : null}
           </div>
-        </div>
-
-        <div className="rounded-xl border border-[var(--line-soft)] bg-[var(--inset)] p-3">
-          <div className="mb-3 text-[10px] uppercase tracking-[1px] text-[var(--dim)]">高级选项</div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block">
-              <div className="mb-1.5 text-[11px] text-[var(--muted)]">Endpoint</div>
-              <input className="field w-full" value={form.endpoint} onChange={(e) => set('endpoint', e.target.value)} placeholder="默认官方 endpoint" />
-            </label>
-            <label className="block">
-              <div className="mb-1.5 text-[11px] text-[var(--muted)]">限速 QPS</div>
-              <input className="field w-full" type="number" min="1" value={form.rate_limit} onChange={(e) => set('rate_limit', e.target.value)} placeholder="默认按厂商" />
-            </label>
-            <label className="block">
-              <div className="mb-1.5 text-[11px] text-[var(--muted)]">每轮最大页数</div>
-              <input className="field w-full" type="number" min="1" value={form.max_pages} onChange={(e) => set('max_pages', e.target.value)} placeholder="默认 10" />
-            </label>
+        </section>
+        <details className="disclosure">
+          <summary>{t('高级选项')}</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {optionInput({
+              name: 'endpoint',
+              label: provider?.id === 'azure' ? 'ARM Endpoint' : 'Endpoint',
+              placeholder: '默认官方 endpoint',
+            })}
+            {optionInput({ name: 'rate_limit', label: '限速 QPS', placeholder: '默认按厂商' })}
+            {optionInput({ name: 'max_pages', label: '每轮最大页数', placeholder: '默认 10' })}
+            {optionalOptions.map(optionInput)}
           </div>
-          {optionFields.length ? (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {optionFields.map((f) => (
-                <label key={f.name} className="block">
-                  <div className="mb-1.5 text-[11px] text-[var(--muted)]">
-                    {f.label} {f.required ? <span className="text-[var(--danger)]">*</span> : null}
-                  </div>
-                  <input
-                    className="field w-full"
-                    value={form.options[f.name] || ''}
-                    onChange={(e) => setOption(f.name, e.target.value)}
-                    placeholder={f.placeholder || f.help || ''}
-                  />
-                  {f.help ? <div className="mt-1 text-[10px] text-[var(--dim)]">{f.help}</div> : null}
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
+        </details>
         {error ? <ErrorBox>{error}</ErrorBox> : null}
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            取消
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--line)] pt-4">
+          {!isEdit ? (
+            <label className="mr-auto flex items-center gap-2 text-sm text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(event) => set('enabled', event.target.checked)}
+              />
+              {t('启用定时同步')}
+            </label>
+          ) : null}
+          <button className="btn" type="button" onClick={onClose}>
+            {t('取消')}
           </button>
           <button className="btn btn-primary" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {isEdit ? '保存修改' : '接入账号'}
+            {t(busy ? '保存中…' : isEdit ? '保存修改' : '接入账号')}
           </button>
         </div>
       </form>

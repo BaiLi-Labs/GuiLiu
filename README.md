@@ -1,90 +1,84 @@
-# GuiLiu · 归流
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="web/public/brand/logo-dark.svg">
+  <img src="web/public/brand/logo.svg" alt="GuiLiu · 归流" width="252" height="72">
+</picture>
 
-**把多家云的安全告警，汇成一份可查询、可追溯、可交给 Agent 使用的数据。**
+**Open-source security alert infrastructure for multi-cloud teams.**
 
-GuiLiu 接入腾讯云、阿里云、华为云、AWS、Google Cloud、Microsoft Azure 的安全告警，统一转换成 OCSF Detection Finding，保留厂商原始 JSON，并提供控制台、REST API 和只读 MCP。
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-> 不替代云安全产品，不做 SIEM，不做 SOAR，也不内置 Agent。  
-> 只解决四件事：**可靠接入、字段归一、统一查询、同步健康**。
+GuiLiu collects alerts from cloud security services, normalizes them into a shared OCSF model, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, or read-only MCP tools.
 
----
+Built by [BaiLi Labs](https://github.com/BaiLi-Labs). Self-hosted, with a single Go binary and an embedded web console.
 
-## 它能做什么
+![GuiLiu console with synthetic multi-cloud alerts](docs/images/overview-en.jpg)
 
-- **一个入口看多云告警**：腾讯云 CSIP / 阿里云 SAS / 华为云 SecMaster / AWS Security Hub / GCP SCC / Azure Defender for Cloud。
-- **字段统一**：等级、状态、资产、IP、账号、ATT&CK 等映射到 OCSF `class_uid=2004`。
-- **证据可追溯**：每条告警保留原始厂商 JSON、`mapper_version` 和完整证据，可重放映射；实质变更写入版本历史。
-- **双视图聚合**：原始告警与查询时分组（同类重复 / 资产 / 攻击源）并存，分组可展开全部成员。
-- **增量同步**：时间窗口、重叠回看、分页游标、去重 upsert、页级断点续传。
-- **失败可恢复**：单条记录失败会持久化原始 payload，先重试再推进游标，不把漏数伪装成同步成功。
-- **给人和 Agent 同一份数据**：控制台查询，REST API，以及 10 个只读 MCP 工具。
-- **离线可演示**：`make mock` 内置六家云、56 条合成告警，不需要任何云账号。
+## Why GuiLiu
 
-## 支持的云
+Working across clouds means maintaining separate credentials, queries, severity scales, and evidence formats. An agent needs those integrations just as much as an analyst does.
 
-| 厂商 | 产品 / API | 接入状态 |
-| --- | --- | --- |
-| 腾讯云 | 云安全中心 CSIP `DescribeAlertList` | 已用真实账号验证 |
-| 阿里云 | 云安全中心 SAS `DescribeSuspEvents` | 连接器完成，待真实 AK 校准 |
-| 华为云 | 安全云脑 SecMaster `ListAlerts` | 连接器完成，待真实账号校准 |
-| AWS | Security Hub `GetFindingsV2`（OCSF） | 连接器完成，待真实账号校准 |
-| Google Cloud | Security Command Center `ListFindings` | 连接器完成，待真实账号校准 |
-| Microsoft Azure | Defender for Cloud `Alerts - List` | 连接器完成，待真实账号校准 |
+GuiLiu provides a common data layer:
 
-Azure 使用 Service Principal，或未配置 Client ID/Secret 时使用 DefaultAzureCredential / Managed Identity。
+- **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed records retain their raw payload and are retried before the cursor advances.
+- **Consistent queries.** A common alert model for severity, status, accounts, assets, IPs, and evidence, mapped to OCSF Detection Finding (`class_uid=2004`).
+- **Original data.** Vendor JSON and mapping versions remain available alongside normalized fields. Query-time grouping preserves the underlying alerts.
+- **Human and agent access.** One dataset across the console, REST API, and ten read-only MCP tools. Bring your own agent.
 
-## 控制台
+A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP. Analysis and response stay with the tools you choose.
 
-- 概览：告警总量、等级分布、厂商分布、最近告警、账号健康
-- 统一告警：原始告警 / 聚合视图切换，按同类重复 / 资产 / 攻击源分组，分组展开成员；详情抽屉含原始 JSON、OCSF 与版本历史
-- 云账号：接入、检测、同步、停用、编辑、删除；华为云 `project_id` / `workspace_id`、GCP `parent`、Azure `subscription_id` / `tenant_id` 等厂商字段按连接器动态渲染
-- 接入状态：账号游标、连续失败、限流 / 续传状态、最近同步运行
-- MCP：API Key 创建 / 吊销、HTTP / stdio 配置、工具清单
-- 深浅色自动跟随浏览器主题，也可手动锁定
+## Connector coverage
 
-品牌图标使用开源 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），内置在 React 工程中，不依赖外部 CDN。
+Each connector targets a specific cloud security API. Other products are visible only when their alerts are included by that upstream service.
 
-## 快速体验
+| Cloud           | Upstream service                         | Validation                                                                      |
+| --------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
+| Tencent Cloud   | CSIP · `DescribeAlertList`               | Tested with a real account: backfill, incremental sync, throttling, and resume  |
+| Alibaba Cloud   | SAS · `DescribeSuspEvents`               | Implemented; unit tests and synthetic fixtures; real-account validation pending |
+| Huawei Cloud    | SecMaster · `ListAlerts`                 | Implemented; unit tests and synthetic fixtures; real-account validation pending |
+| AWS             | Security Hub · `GetFindingsV2`           | Implemented; unit tests and synthetic fixtures; real-account validation pending |
+| Google Cloud    | Security Command Center · `ListFindings` | Implemented; unit tests and synthetic fixtures; real-account validation pending |
+| Microsoft Azure | Defender for Cloud · `Alerts - List`     | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 
-不需要云账号，直接看合成数据：
+The console supports English and Simplified Chinese, remembers language and appearance preferences, and formats dates and numbers for the selected language. Vendor alert content remains in its original language.
+
+## Try it locally
+
+Requirements: Go 1.26+, Node.js 20+, and npm.
 
 ```bash
 make mock
-# 打开 http://127.0.0.1:8081
 ```
 
-Mock 模式会启动 6 个厂商、56 条告警，关闭登录和定时同步，使用内存数据库。只用于本地开发和演示。
+Open <http://127.0.0.1:8081>. The demo contains 56 synthetic alerts across six providers, uses an in-memory database, and disables authentication and scheduled ingestion. It does not require cloud credentials.
 
-## 生产运行
+## Deploy
 
-环境要求：Go 1.26+、Node.js 20+。
+Build the embedded console and server:
 
 ```bash
 make build
-
 cp configs/guiliu.example.json guiliu.json
-export GUILIU_ADMIN_PASSWORD='a-long-initial-password'
+export GUILIU_ADMIN_PASSWORD='replace-with-a-long-initial-password'
 ./bin/guiliu serve
 ```
 
-打开 <http://127.0.0.1:8080>，用 `admin` + `GUILIU_ADMIN_PASSWORD` 登录，然后进入「云账号」接入厂商。
+Open <http://127.0.0.1:8080>, sign in as `admin`, and connect an account from **Cloud accounts**. Use read-only cloud permissions.
 
-也可以使用 Docker：
+For Docker:
 
 ```bash
 docker build -t guiliu:dev .
-
-docker run --rm -p 8080:8080 \
+docker run --rm -p 127.0.0.1:8080:8080 \
   -v "$PWD/data:/data" \
-  -e GUILIU_ADMIN_PASSWORD='a-long-initial-password' \
+  -e GUILIU_ADMIN_PASSWORD='replace-with-a-long-initial-password' \
   guiliu:dev
 ```
 
-配置、部署、API、连接器开发和故障排查见 [开发与运维文档](docs/development.md)。
+The current storage implementation is single-instance SQLite. Preserve the database and encryption key together when backing up. For remote access, configure an HTTPS reverse proxy and secure cookies; see the [deployment and operations guide](docs/development.md).
 
-## 接入 MCP
+## Connect your agent
 
-登录控制台后进入「MCP」，创建 API Key，然后把配置粘贴到支持 Streamable HTTP 的 MCP 客户端：
+In **API & MCP**, create an API key and copy the HTTP configuration into your MCP client:
 
 ```json
 {
@@ -92,66 +86,61 @@ docker run --rm -p 8080:8080 \
     "guiliu": {
       "type": "http",
       "url": "http://127.0.0.1:8080/mcp",
-      "headers": { "Authorization": "Bearer <API_KEY>" }
+      "headers": {
+        "Authorization": "Bearer <API_KEY>"
+      }
     }
   }
 }
 ```
 
-当前提供 10 个只读工具：账号列表、告警查询、告警分组、分组成员、告警详情、证据、按 IP / 资产检索、统计、接入健康。
+| Task                           | MCP tools                                                             |
+| ------------------------------ | --------------------------------------------------------------------- |
+| Query alerts                   | `list_alerts`, `search_alerts_by_ip`, `search_alerts_by_asset`        |
+| Group and expand               | `list_alert_groups`, `get_alert_group`                                |
+| Inspect evidence               | `get_alert`, `get_alert_evidence`                                     |
+| Inspect coverage and ingestion | `list_cloud_accounts`, `get_alert_statistics`, `get_connector_health` |
 
-## 安全模型
+For example, ask your agent to find high-severity alerts from the last 24 hours, group repeated findings, and cite the original alert IDs in its analysis. Check ingestion progress before interpreting an empty result.
 
-- Argon2id 密码哈希，HttpOnly Session Cookie
-- API Key 支持创建、吊销、过期；服务端只保存 SHA-256 哈希
-- 云账号 AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储
-- 生产模式默认必须登录；`make dev` / `make mock` 关闭认证，只能绑定本机
-- Cookie 写操作校验同源；登录接口限流
-- MCP 只读，不暴露 SQL、云 API 凭据或封禁能力
+MCP is read-only, with limits of 200 records per call and a 90-day query window. API keys currently grant access to all cloud accounts in the instance; per-account scopes are not yet implemented. REST endpoint details and stdio setup are in the [API and MCP guide](docs/development.md).
 
-## 架构
+## Security and deployment boundaries
 
-```text
-腾讯云 / 阿里云 / 华为云 / AWS / GCP / Azure
-              │
-              ▼
-      Connector 插件层
-      认证 · 分页 · 限流 · 重试 · 原始 JSON
-              │
-              ▼
-      Normalize / OCSF
-      统一等级 · 资产 · IP · 证据 · mapper_version
-              │
-              ▼
-      SQLite（Store 接口可替换 PostgreSQL / ClickHouse）
-              │
-        ┌─────┴─────┐
-        ▼           ▼
-   React 控制台   REST API / MCP
+- Local users with `admin` and `viewer` roles; authenticated access is required by default.
+- Argon2id password hashes, HttpOnly session cookies, and revocable API keys stored as hashes.
+- Cloud credentials encrypted at rest with AES-256-GCM.
+- Platform alert status is independent of vendor status. GuiLiu does not write changes back to cloud services.
+- A shared dataset within each instance. OIDC, tenant isolation, and fine-grained API-key scopes are not implemented.
+- Raw payload retention enables future reprocessing; a managed mapping-replay task is not yet implemented.
+
+See the [current limitations and validation record](docs/development.md) before connecting a production workload. OCSF schema validation in CI, additional storage backends, and broader real-account validation remain on the roadmap.
+
+## Architecture
+
+Connectors fetch and normalize vendor alerts. The ingestion engine manages checkpoints and retries. A shared store serves REST, MCP, and the console.
+
+Go · React · TypeScript · Tailwind CSS · SQLite · OCSF 1.6
+
+The `store.Store` interface separates storage from ingestion and query handlers. PostgreSQL and ClickHouse are potential future implementations, not currently shipped backends.
+
+## Development
+
+```bash
+make test                          # Go tests
+make vet                           # Go static checks
+npm --prefix web test              # Locale, routing, and UI regression checks
+npm --prefix web run build         # TypeScript checks and production console build
 ```
 
-技术栈：Go、React 18、Tailwind CSS、Vite、SQLite、OCSF 1.6。前端源码在根目录 `web/`，构建产物由 Go `embed` 打进单个二进制。
+- [Development and operations](docs/development.md) — configuration, API, deployment, and validation records; currently in Chinese.
+- [Connector guide](docs/connector-guide.md) — add a provider, implement mapping, and classify failures.
+- [Fixture guide](internal/mock/README.md) — synthetic samples and redaction rules.
 
-## 当前状态
-
-- 腾讯云：真实账号完成 24h 回填、增量同步、限流与断点续传验证
-- 同步可靠性：单条失败原始 payload 持久化、失败记录优先重试、游标不越过未落库数据
-- 数据追溯：告警版本历史只记录实质变化；查询时分组不改变原始告警
-- 六家云：统一 mapper、离线 Mock、单元测试和 UI 已完成
-- 下一步：用真实凭据校准华为云 / AWS / GCP / Azure / 阿里云字段；做跨厂商同资产告警聚合
-
-## 文档
-
-- [开发与运维文档](docs/development.md)：配置、构建、API、MCP、部署、验证
-- [连接器开发指南](docs/connector-guide.md)：新增云厂商、mapper、分页、错误分类
-- [Mock 数据说明](internal/mock/README.md)：fixture 格式、脱敏规则、增加样本
+Issues with reproducible samples and connector contributions are welcome. Remove credentials and sensitive customer data before sharing payloads.
 
 ## License
 
-Apache License 2.0，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
 
-厂商名称与 Logo 归各自所有者所有；本项目的许可证不授予其商标使用权。
-
----
-
-如果这个项目对你有帮助，欢迎提交 Issue 或 PR。
+Cloud-provider names and trademarks belong to their respective owners. Embedded brand icons use [theSVG](https://github.com/glincker/thesvg) and [Devicon](https://github.com/devicons/devicon), both under the MIT license.

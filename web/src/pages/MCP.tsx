@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { KeyRound, Loader2, Plus, ShieldCheck, Terminal, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { CopyButton, Empty, ErrorBox } from '../components/ui';
 import { formatDate } from '../lib';
@@ -20,216 +21,252 @@ const TOOLS = [
 ];
 
 export function MCP() {
-  const { me, toast } = useApp();
+  const { me, meta, toast } = useApp();
+  const { t } = useI18n();
   const dev = !!me?.dev_mode;
   const [keys, setKeys] = useState<APIKey[]>([]);
-  const [newKey, setNewKey] = useState('');
+  const [newKey, setNewKey] = useState<{ id: string; token: string } | null>(null);
   const [name, setName] = useState('');
+  const [expiry, setExpiry] = useState('90');
+  const [transport, setTransport] = useState('http');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(!dev);
   const [error, setError] = useState('');
-
   async function loadKeys() {
     if (dev) return;
     try {
-      const d = await api<{ keys: APIKey[] | null }>('/auth/keys');
-      setKeys(d.keys || []);
-    } catch (e: any) {
-      if (e?.status !== 401) setError(e.message || '加载 API Key 失败');
+      const result = await api<{ keys: APIKey[] | null }>('/auth/keys');
+      setKeys(result.keys || []);
+    } catch (err: any) {
+      setError(err.message || '加载 API Key 失败');
+    } finally {
+      setLoading(false);
     }
   }
-
   useEffect(() => {
-    loadKeys();
+    void loadKeys();
   }, [dev]);
-
   const endpoint = `${window.location.origin}/mcp`;
-  const token = newKey || '<API_KEY>';
-  const config = useMemo(
-    () =>
-      JSON.stringify(
-        {
-          mcpServers: {
-            guiliu: {
-              type: 'http',
-              url: endpoint,
-              headers: { Authorization: `Bearer ${token}` },
-            },
-          },
-        },
-        null,
-        2,
-      ),
-    [endpoint, token],
-  );
-  const stdio = JSON.stringify(
-    {
-      mcpServers: {
-        guiliu: {
-          command: 'guiliu',
-          args: ['mcp', '-config', '/etc/guiliu/guiliu.json'],
-        },
+  const token = newKey?.token || '<API_KEY>';
+  const httpConfig = {
+    mcpServers: {
+      guiliu: {
+        type: 'http',
+        url: endpoint,
+        ...(!dev ? { headers: { Authorization: `Bearer ${token}` } } : {}),
       },
     },
-    null,
-    2,
-  );
-  const curl = `curl -s ${endpoint} \\
-  -H 'Authorization: Bearer ${token}' \\
-  -H 'Content-Type: application/json' \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
-
-  async function createKey() {
-    if (busy) return;
+  };
+  const stdioConfig = {
+    mcpServers: { guiliu: { command: 'guiliu', args: ['mcp', '-config', '/etc/guiliu/guiliu.json'] } },
+  };
+  const config = JSON.stringify(transport === 'http' ? httpConfig : stdioConfig, null, 2);
+  const curl = `curl -s '${endpoint}' \\\n  ${!dev ? `-H 'Authorization: Bearer ${token}' \\\n  ` : ''}-H 'Content-Type: application/json' \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+  async function createKey(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !name.trim()) return;
     setBusy(true);
     setError('');
     try {
-      const d = await api<{ key: string; api_key: APIKey }>('/auth/keys', {
+      const result = await api<{ key: string; api_key: APIKey }>('/auth/keys', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim() || 'default' }),
+        body: JSON.stringify({ name: name.trim(), expires_in_days: Number(expiry) }),
       });
-      setNewKey(d.key);
+      setNewKey({ id: result.api_key.id, token: result.key });
       setName('');
       await loadKeys();
       toast('API Key 已创建，只显示一次');
-    } catch (e: any) {
-      if (e?.status !== 401) setError(e.message || '创建失败');
+    } catch (err: any) {
+      setError(err.message || '创建失败');
     } finally {
       setBusy(false);
     }
   }
-
   async function revoke(key: APIKey) {
-    if (!window.confirm(`吊销 API Key「${key.name}」？使用它的客户端会立即失效。`)) return;
+    if (
+      busy ||
+      !window.confirm(t('吊销 API Key「{name}」？使用它的客户端将立即失去访问权限。', { name: key.name }))
+    )
+      return;
+    setBusy(true);
     try {
       await api(`/auth/keys/${encodeURIComponent(key.id)}`, { method: 'DELETE' });
-      if (newKey) setNewKey('');
+      if (newKey?.id === key.id) setNewKey(null);
       await loadKeys();
       toast('API Key 已吊销');
-    } catch (e: any) {
-      if (e?.status !== 401) toast(e.message || '吊销失败', true);
+    } catch (err: any) {
+      setError(err.message || '操作失败');
+    } finally {
+      setBusy(false);
     }
   }
-
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="card p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-[var(--accent)]" />
-            <h2 className="text-[13px] font-semibold">HTTP 接入（推荐）</h2>
-            <span className="pill ml-auto">Streamable HTTP</span>
-          </div>
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <span className="pill">POST {endpoint}</span>
-            <span className="pill">Bearer API Key</span>
-            <span className="pill">只读</span>
-          </div>
-          <pre className="code">{config}</pre>
-          <div className="mt-2 flex justify-end"><CopyButton value={config} /></div>
-          <p className="mt-2 text-[10.5px] leading-relaxed text-[var(--dim)]">
-            使用下方创建的 API Key 认证，不要使用浏览器 Session Cookie。
-          </p>
+    <div className="space-y-5">
+      <section className="card">
+        <div className="section-heading">
+          <h2 className="section-title">{t('API Keys')}</h2>
+          <span className="text-xs text-[var(--muted)]">{t('只读')}</span>
         </div>
-        <div className="card p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-[var(--accent-2)]" />
-            <h2 className="text-[13px] font-semibold">stdio 接入</h2>
-            <span className="pill ml-auto">MCP 2025-06-18</span>
-          </div>
-          <pre className="code">{stdio}</pre>
-          <div className="mt-2 flex justify-end"><CopyButton value={stdio} /></div>
-          <p className="mt-2 text-[10.5px] leading-relaxed text-[var(--dim)]">
-            由本机 OS 用户直接启动，不经过 HTTP 认证；不要在共享机器上运行。
-          </p>
-        </div>
-      </div>
-
-      <div className="card p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <KeyRound className="h-4 w-4 text-[var(--med)]" />
-          <h2 className="text-[13px] font-semibold">API Keys</h2>
-          <span className="pill ml-auto">{keys.length} 个活跃 Key</span>
-        </div>
-        {error ? <div className="mb-3"><ErrorBox>{error}</ErrorBox></div> : null}
-        {newKey ? (
-          <div className="mb-3 rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[1px] text-[var(--accent)]">新 Key 只显示一次</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="min-w-[220px] flex-1 break-all font-mono text-[11px]">{newKey}</code>
-              <CopyButton value={newKey} />
-              <button className="btn btn-sm btn-ghost" onClick={() => setNewKey('')}>关闭</button>
-            </div>
-          </div>
-        ) : null}
-        {dev ? (
-          <Empty title="开发 / Mock 模式">
-            REST 与 MCP 都不需要认证，也不会签发 API Key。生产模式启动后在这里创建 Key 供 Agent 使用。
-          </Empty>
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap gap-2">
-              <input className="field min-w-[200px] flex-1" value={name} onChange={(e) => setName(e.target.value)} placeholder="Key 名称，例如 claude-code" />
-              <button className="btn btn-primary" onClick={createKey} disabled={busy}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                创建 API Key
-              </button>
-            </div>
-            {keys.length ? (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead><tr><th>名称</th><th>前缀</th><th>创建时间</th><th>最后使用</th><th style={{ width: 80 }}></th></tr></thead>
-                  <tbody>
-                    {keys.filter((k) => !k.revoked_at).map((k) => (
-                      <tr key={k.id}>
-                        <td className="text-[11.5px]">{k.name}</td>
-                        <td className="font-mono text-[11px]">{k.prefix}</td>
-                        <td className="font-mono text-[10.5px] text-[var(--muted)]">{formatDate(k.created_at)}</td>
-                        <td className="font-mono text-[10.5px] text-[var(--muted)]">{k.last_used_at ? formatDate(k.last_used_at) : '从未'}</td>
-                        <td>
-                          <button className="btn btn-sm btn-danger" onClick={() => revoke(k)}>
-                            <Trash2 className="h-3 w-3" /> 吊销
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="space-y-4 p-5">
+          <p className="text-xs text-[var(--muted)]">{t('访问范围：当前实例的全部云账号。')}</p>
+          {error ? <ErrorBox>{error}</ErrorBox> : null}
+          {newKey ? (
+            <div className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] p-4">
+              <div className="mb-3 text-sm font-medium">{t('新 Key 只显示一次')}</div>
+              <div className="flex flex-wrap items-center gap-3">
+                <code className="min-w-0 flex-1 break-all text-xs">{newKey.token}</code>
+                <CopyButton value={newKey.token} />
+                <button className="btn btn-sm" onClick={() => setNewKey(null)}>
+                  {t('关闭')}
+                </button>
               </div>
-            ) : (
-              <div className="py-8 text-center text-[12px] text-[var(--dim)]">还没有 API Key，创建一个后填入上面的 Authorization 头。</div>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="card p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-[var(--low)]" />
-          <h2 className="text-[13px] font-semibold">工具清单</h2>
+            </div>
+          ) : null}
+          {dev ? (
+            <p className="py-2 text-sm text-[var(--muted)]">
+              {t(meta?.mock ? '演示模式不签发 API Key。' : '开发模式不签发 API Key。')}
+            </p>
+          ) : (
+            <>
+              <form onSubmit={createKey} className="flex flex-wrap items-center gap-2">
+                <input
+                  className="field min-w-[220px] flex-1"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  aria-label={t('名称')}
+                  placeholder={t('Key 名称，例如 claude-code')}
+                  required
+                />
+                <select
+                  className="field"
+                  aria-label={t('过期时间')}
+                  value={expiry}
+                  onChange={(event) => setExpiry(event.target.value)}
+                >
+                  <option value="30">30 {t('天')}</option>
+                  <option value="90">90 {t('天')}</option>
+                  <option value="365">365 {t('天')}</option>
+                </select>
+                <button className="btn btn-primary" disabled={busy}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {t('创建 API Key')}
+                </button>
+              </form>
+              {loading ? (
+                <div className="py-4 text-sm">{t('加载中…')}</div>
+              ) : keys.length ? (
+                <div className="table-wrap">
+                  <table className="data-table min-w-[740px]">
+                    <thead>
+                      <tr>
+                        <th>{t('名称')}</th>
+                        <th>{t('前缀')}</th>
+                        <th>{t('状态')}</th>
+                        <th>{t('创建时间')}</th>
+                        <th>{t('最后使用')}</th>
+                        <th>{t('过期时间')}</th>
+                        <th>{t('操作')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {keys.map((key) => {
+                        const revoked = !!key.revoked_at;
+                        const expired = !!key.expires_at && new Date(key.expires_at).getTime() <= Date.now();
+                        return (
+                          <tr key={key.id}>
+                            <td>{key.name}</td>
+                            <td className="font-mono text-xs">{key.prefix}</td>
+                            <td>{t(revoked ? '已吊销' : expired ? '已过期' : '有效')}</td>
+                            <td className="text-xs">{formatDate(key.created_at)}</td>
+                            <td className="text-xs">
+                              {key.last_used_at ? formatDate(key.last_used_at) : t('从未')}
+                            </td>
+                            <td className="text-xs">{formatDate(key.expires_at)}</td>
+                            <td>
+                              <button
+                                className="btn btn-ghost btn-sm text-[var(--danger)]"
+                                disabled={busy || revoked}
+                                onClick={() => revoke(key)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                {t('吊销')}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <Empty title="尚未创建 API Key" />
+              )}
+            </>
+          )}
         </div>
-        <div className="table-wrap">
+      </section>
+      <section className="card p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="section-title">{t('接入配置')}</h2>
+          <select
+            className="field"
+            aria-label={t('传输方式')}
+            value={transport}
+            onChange={(event) => setTransport(event.target.value)}
+          >
+            <option value="http">Streamable HTTP</option>
+            <option value="stdio">stdio</option>
+          </select>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <code className="break-all text-xs text-[var(--muted)]">
+            {transport === 'http' ? endpoint : 'guiliu mcp'}
+          </code>
+          <CopyButton value={config} label="复制配置" />
+        </div>
+        <pre className="code">{config}</pre>
+        <p className="mt-3 text-xs text-[var(--muted)]">
+          {t(
+            transport === 'stdio'
+              ? '使用当前系统用户权限访问本机数据。'
+              : dev
+                ? '生产环境需要 API Key；演示模式无需认证。'
+                : '配置中的占位符需要替换为 API Key。',
+          )}
+        </p>
+      </section>
+      <details className="disclosure">
+        <summary>
+          {t('工具目录')} <span className="ml-2 text-xs text-[var(--muted)]">{TOOLS.length}</span>
+        </summary>
+        <div className="table-wrap mt-4">
           <table className="data-table">
-            <thead><tr><th style={{ width: 250 }}>工具</th><th>用途</th></tr></thead>
+            <thead>
+              <tr>
+                <th>{t('工具')}</th>
+                <th>{t('用途')}</th>
+              </tr>
+            </thead>
             <tbody>
-              {TOOLS.map(([name, desc]) => (
+              {TOOLS.map(([name, description]) => (
                 <tr key={name}>
-                  <td className="font-mono text-[11px] text-[var(--accent)]">{name}</td>
-                  <td className="text-[11.5px] text-[var(--muted)]">{desc}</td>
+                  <td className="font-mono text-xs">{name}</td>
+                  <td>{t(description)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[10.5px] leading-relaxed text-[var(--dim)]">
-          所有工具默认只读，限制返回数量（≤200）与时间范围（≤90 天），不暴露 SQL、云 API 凭据或封禁能力。
-        </p>
-      </div>
-
-      <div className="card p-4">
-        <h2 className="mb-2 text-[13px] font-semibold">手动验证</h2>
-        <pre className="code">{curl}</pre>
-        <div className="mt-2 flex justify-end"><CopyButton value={curl} /></div>
-      </div>
+      </details>
+      <details className="disclosure">
+        <summary>{t('验证请求')}</summary>
+        <div className="mt-4">
+          <pre className="code">{curl}</pre>
+          <div className="mt-2 flex justify-end">
+            <CopyButton value={curl} />
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

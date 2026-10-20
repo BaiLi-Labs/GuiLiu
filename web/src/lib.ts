@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { AlertStatus, Page, Severity } from './types';
+import type { Account, AlertGroup, AlertStatus, Page, Severity } from './types';
+import { getLocale, t } from './i18n';
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
   critical: '严重',
@@ -11,7 +12,15 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   unknown: '未知',
 };
 
-export const SEVERITY_ORDER: Severity[] = ['critical', 'fatal', 'high', 'medium', 'low', 'informational', 'unknown'];
+export const SEVERITY_ORDER: Severity[] = [
+  'critical',
+  'fatal',
+  'high',
+  'medium',
+  'low',
+  'informational',
+  'unknown',
+];
 
 export const STATUS_LABEL: Record<AlertStatus, string> = {
   open: '待处理',
@@ -46,7 +55,7 @@ export function formatTime(value?: string): string {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString('zh-CN', {
+  return d.toLocaleString(getLocale(), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -61,7 +70,7 @@ export function formatDate(value?: string): string {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString('zh-CN', {
+  return d.toLocaleString(getLocale(), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -72,18 +81,18 @@ export function formatDate(value?: string): string {
 
 export function relTime(value?: string): string {
   if (!value) return '—';
-  const diff = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(diff) || diff < 0) return formatDate(value);
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return '刚刚';
-  if (min < 60) return `${min} 分钟前`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
+  const diff = new Date(value).getTime() - Date.now();
+  if (!Number.isFinite(diff)) return '—';
+  const formatter = new Intl.RelativeTimeFormat(getLocale(), { numeric: 'auto' });
+  const absolute = Math.abs(diff);
+  if (absolute < 60_000) return formatter.format(0, 'second');
+  const unit = absolute < 3600_000 ? 'minute' : absolute < 86400_000 ? 'hour' : 'day';
+  const divisor = unit === 'minute' ? 60_000 : unit === 'hour' ? 3600_000 : 86400_000;
+  return formatter.format(Math.round(diff / divisor), unit);
 }
 
 export function fmtNum(value?: number): string {
-  return Number(value || 0).toLocaleString('zh-CN');
+  return Number(value || 0).toLocaleString(getLocale());
 }
 
 export function truncate(value: string, max: number): string {
@@ -112,24 +121,49 @@ export const RANGE_OPTIONS = [
   { value: 'all', label: '全部时间' },
 ];
 
+export type RouteParams = Record<string, string>;
+
 export function parseHashPage(hash: string): Page {
-  const raw = hash.replace(/^#\/?/, '').split('/')[0];
+  const raw = hash.replace(/^#\/?/, '').split(/[/?]/)[0];
   const pages: Page[] = ['overview', 'alerts', 'accounts', 'health', 'mcp'];
   return pages.includes(raw as Page) ? (raw as Page) : 'overview';
 }
 
-export function useHashPage(): [Page, (page: Page) => void] {
-  const [page, setPage] = useState<Page>(() => parseHashPage(window.location.hash));
+export function useHashPage(): [Page, (page: Page, params?: RouteParams) => void, string] {
+  const [hash, setHash] = useState(() => window.location.hash);
   useEffect(() => {
-    const onChange = () => setPage(parseHashPage(window.location.hash));
+    const onChange = () => setHash(window.location.hash);
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
-  const go = (next: Page) => {
-    window.location.hash = `#/${next}`;
-    setPage(next);
+  const go = (next: Page, params: RouteParams = {}) => {
+    const search = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== '')).toString();
+    const nextHash = `#/${next}${search ? `?${search}` : ''}`;
+    window.location.hash = nextHash;
+    setHash(nextHash);
   };
-  return [page, go];
+  return [parseHashPage(hash), go, hash.split('?')[1] || ''];
+}
+
+// One status definition for account lists, overview, and ingestion details.
+export function accountStatus(account: Account): string {
+  if (!account.enabled) return '已停用';
+  const state = account.sync_state;
+  if ((state?.consecutive_failures || 0) > 0) return '同步失败';
+  if (state?.pending) return '续传中';
+  return state?.last_success_at ? '已同步' : '等待首次同步';
+}
+
+export function groupTitle(
+  group: Pick<AlertGroup, 'key' | 'group_by' | 'resource_name' | 'resource_id' | 'source_ip' | 'alert_type'>,
+): string {
+  if (group.key.singleton) return `${t('未归并告警')} · ${group.alert_type || t('未知类型')}`;
+  if (group.group_by === 'asset') return group.resource_name || group.resource_id || t('未命名资产');
+  if (group.group_by === 'source')
+    return `${group.source_ip || t('未知来源')} · ${group.alert_type || t('未知类型')}`;
+  return [group.resource_name || group.resource_id || group.source_ip || t('未命名资产'), group.alert_type]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
@@ -137,7 +171,12 @@ const THEME_KEY = 'guiliu_theme';
 
 export function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(THEME_KEY);
+    } catch {
+      /* storage unavailable */
+    }
     return saved === 'light' || saved === 'dark' || saved === 'auto' ? saved : 'auto';
   });
 
@@ -160,7 +199,11 @@ export function useTheme() {
 
   const update = (next: ThemeMode) => {
     setMode(next);
-    localStorage.setItem(THEME_KEY, next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      /* use in-memory preference */
+    }
   };
   return { mode, setMode: update };
 }
