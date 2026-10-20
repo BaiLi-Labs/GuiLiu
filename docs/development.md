@@ -38,7 +38,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 查询 | 按厂商 / 账号 / 等级 / 状态 / 时间 / IP / 资产 / 关键词过滤，统计聚合 |
 | 生命周期 | 平台侧 `open / acknowledged / suppressed / closed`，不覆盖厂商原始状态 |
 | 控制台 | React + Tailwind 控制台：登录、概览、告警、详情抽屉、账号接入、同步健康、API Key、MCP 配置；深浅色自动跟随系统 |
-| 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg)（MIT），以 React 组件内嵌，不依赖外部 CDN |
+| 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），以 React 组件内嵌，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，10 个只读工具；HTTP 使用 API Key |
@@ -65,7 +65,7 @@ npm run preview
 - `make web`：安装依赖并执行 `npm run build`（包含 TypeScript 类型检查）
 - `cd web && npm run typecheck`：只做 TypeScript 类型检查
 - 修改前端后要重新构建 `web/dist`，或执行 `make web`
-- 前端源码不再使用单文件 HTML；品牌图标在 `web/src/components/BrandIcons.tsx`，来源 theSVG（MIT），使用紧凑 viewBox 避免透明留白
+- 前端源码不再使用单文件 HTML；品牌图标在 `web/src/components/BrandIcons.tsx`，来源 theSVG / Devicon（MIT），使用紧凑 viewBox 避免透明留白
 
 ## 快速开始
 

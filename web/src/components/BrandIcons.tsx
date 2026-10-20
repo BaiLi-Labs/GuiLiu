@@ -1,5 +1,6 @@
-// Open-source brand marks from theSVG (https://github.com/glincker/thesvg), MIT License.
-// Tight viewBox values remove transparent padding from the source icons.
+// Open-source brand marks: theSVG (https://github.com/glincker/thesvg) and
+// Devicon (https://github.com/devicons/devicon), both MIT. Tight viewBox values
+// remove transparent padding from the source icons.
 import type { CSSProperties, SVGProps } from 'react';
 
 const AwsLogo = (props: SVGProps<SVGSVGElement>) => (
@@ -14,12 +15,29 @@ const GoogleCloudLogo = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const MicrosoftLogo = (props: SVGProps<SVGSVGElement>) => (
-  <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" {...props}>
-    <path fill="#f1511b" d="M121.666 121.666H0V0h121.666z" />
-    <path fill="#80cc28" d="M256 121.666H134.335V0H256z" />
-    <path fill="#00adef" d="M121.663 256.002H0V134.336h121.663z" />
-    <path fill="#fbbc09" d="M256 256.002H134.335V134.336H256z" />
+const AzureLogo = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <defs>
+      <linearGradient id="azure-a" x1="60.919" x2="18.667" y1="9.602" y2="134.423" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#114a8b" />
+        <stop offset="1" stopColor="#0669bc" />
+      </linearGradient>
+      <linearGradient id="azure-b" x1="74.117" x2="64.344" y1="67.772" y2="71.076" gradientUnits="userSpaceOnUse">
+        <stop stopOpacity=".3" />
+        <stop offset=".071" stopOpacity=".2" />
+        <stop offset=".321" stopOpacity=".1" />
+        <stop offset=".623" stopOpacity=".05" />
+        <stop offset="1" stopOpacity="0" />
+      </linearGradient>
+      <linearGradient id="azure-c" x1="68.742" x2="115.122" y1="5.961" y2="129.525" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#3ccbf4" />
+        <stop offset="1" stopColor="#2892df" />
+      </linearGradient>
+    </defs>
+    <path fill="url(#azure-a)" d="M46.09.002h40.685L44.541 125.137a6.485 6.485 0 0 1-6.146 4.413H6.733a6.48 6.48 0 0 1-5.262-2.699a6.47 6.47 0 0 1-.876-5.848L39.944 4.414A6.49 6.49 0 0 1 46.09 0z" transform="translate(.587 4.468)scale(.91904)" />
+    <path fill="#0078d4" d="M97.28 81.607H37.987a2.743 2.743 0 0 0-1.874 4.751l38.1 35.562a6 6 0 0 0 4.087 1.61h33.574z" />
+    <path fill="url(#azure-b)" d="M46.09.002A6.43 6.43 0 0 0 39.93 4.5L.644 120.897a6.47 6.47 0 0 0 6.106 8.653h32.48a6.94 6.94 0 0 0 5.328-4.531l7.834-23.089l27.985 26.101a6.62 6.62 0 0 0 4.165 1.519h36.396l-15.963-45.616l-46.533.011L86.922.002z" transform="translate(.587 4.468)scale(.91904)" />
+    <path fill="url(#azure-c)" d="M98.055 4.408A6.48 6.48 0 0 0 91.917.002H46.575a6.48 6.48 0 0 1 6.137 4.406l39.35 116.594a6.476 6.476 0 0 1-6.137 8.55h45.344a6.48 6.48 0 0 0 6.136-8.55z" transform="translate(.587 4.468)scale(.91904)" />
   </svg>
 );
 
@@ -52,7 +70,7 @@ export const BRANDS: Record<string, Brand> = {
   aliyun: { name: 'Alibaba Cloud', color: '#FF6A00', Logo: AlibabaCloudLogo },
   huawei: { name: 'Huawei Cloud', color: '#C7000B', Logo: HuaweiCloudLogo },
   tencent: { name: 'Tencent Cloud', color: '#00A3FF', Logo: TencentCloudLogo },
-  azure: { name: 'Microsoft Azure', color: '#0078D4', Logo: MicrosoftLogo },
+  azure: { name: 'Microsoft Azure', color: '#0078D4', Logo: AzureLogo },
 };
 
 const SIZES = {

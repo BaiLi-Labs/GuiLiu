@@ -42,7 +42,7 @@ Azure 使用 Service Principal，或未配置 Client ID/Secret 时使用 Default
 - MCP：API Key 创建 / 吊销、HTTP / stdio 配置、工具清单
 - 深浅色自动跟随浏览器主题，也可手动锁定
 
-品牌图标使用开源 [theSVG](https://github.com/glincker/thesvg)（MIT），内置在 React 工程中，不依赖外部 CDN。
+品牌图标使用开源 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），内置在 React 工程中，不依赖外部 CDN。
 
 ## 快速体验
 
