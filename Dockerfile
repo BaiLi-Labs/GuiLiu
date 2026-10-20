@@ -26,6 +26,7 @@ RUN apk add --no-cache ca-certificates \
     && mkdir -p /data \
     && chown guiliu:guiliu /data
 COPY --from=build /out/guiliu /usr/local/bin/guiliu
+COPY LICENSE NOTICE /licenses/
 
 USER guiliu
 WORKDIR /app

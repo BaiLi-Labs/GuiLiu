@@ -143,6 +143,12 @@ docker run --rm -p 8080:8080 \
 - [连接器开发指南](docs/connector-guide.md)：新增云厂商、mapper、分页、错误分类
 - [Mock 数据说明](internal/mock/README.md)：fixture 格式、脱敏规则、增加样本
 
+## License
+
+Apache License 2.0，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+
+厂商名称与 Logo 归各自所有者所有；本项目的许可证不授予其商标使用权。
+
 ---
 
 如果这个项目对你有帮助，欢迎提交 Issue 或 PR。
