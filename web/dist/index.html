@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" id="theme-color" content="#080b11" />
+    <meta name="description" content="GuiLiu 把多家云厂商的安全告警统一接入、归一化为 OCSF，并提供控制台、REST API 和只读 MCP。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>GuiLiu · 云安全告警枢纽</title>
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('guiliu_theme') || 'auto';
+          if (mode !== 'auto' && mode !== 'light' && mode !== 'dark') mode = 'auto';
+          var light = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+          var theme = mode === 'light' || (mode === 'auto' && light) ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', theme === 'light' ? '#f4f7fb' : '#080b11');
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-DohaArG2.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DAlIZHx_.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

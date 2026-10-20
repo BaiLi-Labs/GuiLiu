@@ -42,7 +42,9 @@
       "access_key_id": "mock-ak",
       "access_key_secret": "mock-sk",
       "options": {
-        "page_size": "100"
+        "page_size": "100",
+        "project_id": "mock-project",
+        "workspace_id": "mock-workspace"
       }
     },
     {
@@ -64,7 +66,8 @@
       "access_key_id": "mock-ak",
       "access_key_secret": "mock-sk",
       "options": {
-        "page_size": "100"
+        "page_size": "100",
+        "parent": "organizations/123456789"
       }
     }
   ]

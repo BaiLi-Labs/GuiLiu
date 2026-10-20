@@ -46,6 +46,31 @@ type spec struct {
 	normalize  func(json.RawMessage) (model.Alert, error)
 }
 
+var akCredential = []connector.CredentialField{
+	{Name: "access_key_id", Label: "Access Key ID", Required: true},
+	{Name: "access_key_secret", Label: "Secret Access Key", Secret: true, Required: true},
+	{Name: "session_token", Label: "Session Token", Secret: true},
+}
+
+var awsCredential = []connector.CredentialField{
+	{Name: "access_key_id", Label: "Access Key ID", Help: "留空使用 IAM Role / 默认凭据"},
+	{Name: "access_key_secret", Label: "Secret Access Key", Secret: true, Help: "留空使用 IAM Role / 默认凭据"},
+	{Name: "session_token", Label: "Session Token", Secret: true, Help: "可选，临时凭据"},
+}
+
+var huaweiOptions = []connector.OptionField{
+	{Name: "project_id", Label: "Project ID", Required: true, Placeholder: "例如 cn-north-4 项目 ID"},
+	{Name: "workspace_id", Label: "Workspace ID", Required: true, Placeholder: "SecMaster 工作空间 ID"},
+}
+
+var gcpCredential = []connector.CredentialField{
+	{Name: "service_account_json", Label: "Service Account JSON", Secret: true, Multiline: true, Help: "Mock 模式忽略；真实模式需要 SCC findings.list 权限"},
+}
+
+var gcpOptions = []connector.OptionField{
+	{Name: "parent", Label: "SCC Parent", Required: true, Placeholder: "organizations/123456 或 projects/my-project"},
+}
+
 var specs = []spec{
 	{
 		id: "tencent",
@@ -58,6 +83,7 @@ var specs = []spec{
 				{Code: "CFW", Name: "Cloud Firewall"},
 				{Code: "WAF", Name: "Web Application Firewall"},
 			},
+			akCredential, nil,
 		),
 		fixture:   tencentFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&tencent.Connector{}).Normalize(raw) },
@@ -68,6 +94,7 @@ var specs = []spec{
 			"aliyun", "Alibaba Cloud", "Alibaba Cloud",
 			"Cloud Security Center (SAS)", "aliyun.sas", "aliyun-sas/v1",
 			[]connector.Product{{Code: "SAS", Name: "Cloud Security Center"}},
+			akCredential, nil,
 		),
 		fixture:   aliyunFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&aliyun.Connector{}).Normalize(raw) },
@@ -83,6 +110,7 @@ var specs = []spec{
 				{Code: "CFW", Name: "Cloud Firewall"},
 				{Code: "WAF", Name: "Web Application Firewall"},
 			},
+			akCredential, huaweiOptions,
 		),
 		fixture:   huaweiFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&huawei.Connector{}).Normalize(raw) },
@@ -98,6 +126,7 @@ var specs = []spec{
 				{Code: "Inspector", Name: "Inspector"},
 				{Code: "Macie", Name: "Macie"},
 			},
+			awsCredential, nil,
 		),
 		fixture:   awsFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&aws.Connector{}).Normalize(raw) },
@@ -108,6 +137,7 @@ var specs = []spec{
 			"gcp", "Google Cloud", "Google Cloud",
 			"Security Command Center", "gcp.scc", "gcp-scc/v1",
 			[]connector.Product{{Code: "SCC", Name: "Security Command Center"}},
+			gcpCredential, gcpOptions,
 		),
 		fixture:   gcpFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&gcp.Connector{}).Normalize(raw) },
@@ -122,7 +152,7 @@ var specByID = func() map[string]*spec {
 	return out
 }()
 
-func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string, products []connector.Product) connector.Descriptor {
+func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string, products []connector.Product, credential []connector.CredentialField, options []connector.OptionField) connector.Descriptor {
 	return connector.Descriptor{
 		ID:            id,
 		Name:          name,
@@ -131,11 +161,9 @@ func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string,
 		ProductUID:    productUID,
 		APIVersion:    "mock",
 		MapperVersion: mapperVersion,
-		Credential: []connector.CredentialField{
-			{Name: "access_key_id", Label: "Mock Access Key ID", Help: "Mock mode ignores credentials"},
-			{Name: "access_key_secret", Label: "Mock Secret Key", Secret: true, Help: "Mock mode ignores credentials"},
-		},
-		Products: products,
+		Credential:    credential,
+		OptionFields:  options,
+		Products:      products,
 	}
 }
 

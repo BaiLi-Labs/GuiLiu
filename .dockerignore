@@ -1,8 +1,11 @@
-bin/
-data/
-.git/
-.env
+.git
+bin
+data
+web/node_modules
+web/dist
 guiliu.json
+.env
 *.db
 *.db-wal
 *.db-shm
+.DS_Store

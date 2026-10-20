@@ -21,7 +21,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/version"
-	"github.com/BaiLi-Labs/GuiLiu/internal/webui"
+	"github.com/BaiLi-Labs/GuiLiu/web"
 )
 
 // Server wires the HTTP surface.
@@ -92,7 +92,7 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/api/v1/", http.StripPrefix("/api/v1", s.requireAuth(api)))
 	root.Handle("/mcp", s.requireAuth(http.HandlerFunc(s.mcp.ServeHTTP)))
 	root.Handle("/mcp/", s.requireAuth(http.HandlerFunc(s.mcp.ServeHTTP)))
-	root.Handle("/", webui.Handler())
+	root.Handle("/", web.Handler())
 
 	return s.recoverer(s.accessLog(root))
 }

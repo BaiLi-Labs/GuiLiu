@@ -7,9 +7,17 @@ LDFLAGS := -s -w \
 	-X github.com/BaiLi-Labs/GuiLiu/internal/version.Commit=$(COMMIT) \
 	-X github.com/BaiLi-Labs/GuiLiu/internal/version.BuildDate=$(BUILD_DATE)
 
-.PHONY: build run dev mock admin test vet fmt tidy clean docker
+.PHONY: build web web-dev run dev mock admin test vet fmt tidy clean docker
 
-build:
+# The React build is embedded by Go. Run it before the Go binary so a clean
+# checkout always ships the exact assets that are in this commit.
+web:
+	cd web && npm install --no-audit --no-fund && npm run build
+
+web-dev:
+	cd web && npm run dev
+
+build: web
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/guiliu
 
 # Production-like: login is required.
@@ -37,7 +45,7 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -w ./cmd ./internal
+	gofmt -w ./cmd ./internal ./web
 
 tidy:
 	go mod tidy
