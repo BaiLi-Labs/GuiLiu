@@ -2,7 +2,7 @@
 
 **把多家云的安全告警，汇成一份可查询、可追溯、可交给 Agent 使用的数据。**
 
-GuiLiu 接入腾讯云、阿里云、华为云、AWS、Google Cloud 的安全告警，统一转换成 OCSF Detection Finding，保留厂商原始 JSON，并提供控制台、REST API 和只读 MCP。
+GuiLiu 接入腾讯云、阿里云、华为云、AWS、Google Cloud、Microsoft Azure 的安全告警，统一转换成 OCSF Detection Finding，保留厂商原始 JSON，并提供控制台、REST API 和只读 MCP。
 
 > 不替代云安全产品，不做 SIEM，不做 SOAR，也不内置 Agent。  
 > 只解决四件事：**可靠接入、字段归一、统一查询、同步健康**。
@@ -11,14 +11,14 @@ GuiLiu 接入腾讯云、阿里云、华为云、AWS、Google Cloud 的安全告
 
 ## 它能做什么
 
-- **一个入口看多云告警**：腾讯云 CSIP / 阿里云 SAS / 华为云 SecMaster / AWS Security Hub / GCP SCC。
+- **一个入口看多云告警**：腾讯云 CSIP / 阿里云 SAS / 华为云 SecMaster / AWS Security Hub / GCP SCC / Azure Defender for Cloud。
 - **字段统一**：等级、状态、资产、IP、账号、ATT&CK 等映射到 OCSF `class_uid=2004`。
 - **证据可追溯**：每条告警保留原始厂商 JSON、`mapper_version` 和完整证据，可重放映射；实质变更写入版本历史。
 - **双视图聚合**：原始告警与查询时分组（同类重复 / 资产 / 攻击源）并存，分组可展开全部成员。
 - **增量同步**：时间窗口、重叠回看、分页游标、去重 upsert、页级断点续传。
 - **失败可恢复**：单条记录失败会持久化原始 payload，先重试再推进游标，不把漏数伪装成同步成功。
 - **给人和 Agent 同一份数据**：控制台查询，REST API，以及 10 个只读 MCP 工具。
-- **离线可演示**：`make mock` 内置五家云、48 条合成告警，不需要任何云账号。
+- **离线可演示**：`make mock` 内置六家云、56 条合成告警，不需要任何云账号。
 
 ## 支持的云
 
@@ -29,14 +29,15 @@ GuiLiu 接入腾讯云、阿里云、华为云、AWS、Google Cloud 的安全告
 | 华为云 | 安全云脑 SecMaster `ListAlerts` | 连接器完成，待真实账号校准 |
 | AWS | Security Hub `GetFindingsV2`（OCSF） | 连接器完成，待真实账号校准 |
 | Google Cloud | Security Command Center `ListFindings` | 连接器完成，待真实账号校准 |
+| Microsoft Azure | Defender for Cloud `Alerts - List` | 连接器完成，待真实账号校准 |
 
-Azure / Microsoft Defender 尚未接入。
+Azure 使用 Service Principal，或未配置 Client ID/Secret 时使用 DefaultAzureCredential / Managed Identity。
 
 ## 控制台
 
 - 概览：告警总量、等级分布、厂商分布、最近告警、账号健康
 - 统一告警：原始告警 / 聚合视图切换，按同类重复 / 资产 / 攻击源分组，分组展开成员；详情抽屉含原始 JSON、OCSF 与版本历史
-- 云账号：接入、检测、同步、停用、编辑、删除；华为云 `project_id` / `workspace_id`、GCP `parent` 等厂商字段按连接器动态渲染
+- 云账号：接入、检测、同步、停用、编辑、删除；华为云 `project_id` / `workspace_id`、GCP `parent`、Azure `subscription_id` / `tenant_id` 等厂商字段按连接器动态渲染
 - 接入状态：账号游标、连续失败、限流 / 续传状态、最近同步运行
 - MCP：API Key 创建 / 吊销、HTTP / stdio 配置、工具清单
 - 深浅色自动跟随浏览器主题，也可手动锁定
@@ -52,7 +53,7 @@ make mock
 # 打开 http://127.0.0.1:8081
 ```
 
-Mock 模式会启动 5 个厂商、48 条告警，关闭登录和定时同步，使用内存数据库。只用于本地开发和演示。
+Mock 模式会启动 6 个厂商、56 条告警，关闭登录和定时同步，使用内存数据库。只用于本地开发和演示。
 
 ## 生产运行
 
@@ -111,7 +112,7 @@ docker run --rm -p 8080:8080 \
 ## 架构
 
 ```text
-腾讯云 / 阿里云 / 华为云 / AWS / GCP
+腾讯云 / 阿里云 / 华为云 / AWS / GCP / Azure
               │
               ▼
       Connector 插件层
@@ -136,8 +137,8 @@ docker run --rm -p 8080:8080 \
 - 腾讯云：真实账号完成 24h 回填、增量同步、限流与断点续传验证
 - 同步可靠性：单条失败原始 payload 持久化、失败记录优先重试、游标不越过未落库数据
 - 数据追溯：告警版本历史只记录实质变化；查询时分组不改变原始告警
-- 五家云：统一 mapper、离线 Mock、单元测试和 UI 已完成
-- 下一步：用真实凭据校准华为云 / AWS / GCP / 阿里云字段；补 Azure；做跨厂商同资产告警聚合
+- 六家云：统一 mapper、离线 Mock、单元测试和 UI 已完成
+- 下一步：用真实凭据校准华为云 / AWS / GCP / Azure / 阿里云字段；做跨厂商同资产告警聚合
 
 ## 文档
 

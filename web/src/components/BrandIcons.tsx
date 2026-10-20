@@ -14,6 +14,15 @@ const GoogleCloudLogo = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+const MicrosoftLogo = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <path fill="#f1511b" d="M121.666 121.666H0V0h121.666z" />
+    <path fill="#80cc28" d="M256 121.666H134.335V0H256z" />
+    <path fill="#00adef" d="M121.663 256.002H0V134.336h121.663z" />
+    <path fill="#fbbc09" d="M256 256.002H134.335V134.336H256z" />
+  </svg>
+);
+
 const AlibabaCloudLogo = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="-0.8 3.84 25.6 16.735" xmlns="http://www.w3.org/2000/svg" {...props}>
     <path fill="#ff6a00" d="M14.752 4.64h5.274C22.242 4.64 24 6.475 24 8.691V15.8a3.947 3.947 0 0 1-3.974 3.975h-5.274l1.299-1.835l3.822-1.222c.688-.23 1.146-.918 1.146-1.605v-5.81c0-.687-.458-1.375-1.146-1.605L16.05 6.475l-1.3-1.835zM2.98 15.111c0 .688.46 1.376 1.147 1.606l3.822 1.146l1.3 1.835H3.974A3.947 3.947 0 0 1 0 15.723V8.69c0-2.216 1.758-4.05 3.975-4.05h5.273L7.95 6.474L4.127 7.697c-.688.23-1.146.918-1.146 1.606z"/><path fill="#ff6a00" d="M16.051 11.213H8.025v1.835h8.026z"/>
@@ -43,6 +52,7 @@ export const BRANDS: Record<string, Brand> = {
   aliyun: { name: 'Alibaba Cloud', color: '#FF6A00', Logo: AlibabaCloudLogo },
   huawei: { name: 'Huawei Cloud', color: '#C7000B', Logo: HuaweiCloudLogo },
   tencent: { name: 'Tencent Cloud', color: '#00A3FF', Logo: TencentCloudLogo },
+  azure: { name: 'Microsoft Azure', color: '#0078D4', Logo: MicrosoftLogo },
 };
 
 const SIZES = {

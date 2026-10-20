@@ -1,0 +1,491 @@
+[
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234501_mock1",
+    "name": "2512345678901234501_mock1",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Suspicious process executed on virtual machine",
+      "alertType": "VM_SuspiciousProcess",
+      "description": "Mock Azure Defender alert for VM_SuspiciousProcess.",
+      "severity": "High",
+      "status": "Active",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "vm-web-01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "Execution",
+      "techniques": [
+        "T1059"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234501_mock1",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0001",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234501_mock1",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-web-01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "vm-web-01"
+        },
+        {
+          "type": "Ip",
+          "address": "203.0.113.42"
+        },
+        {
+          "type": "File",
+          "filePath": "C:\\Windows\\Temp\\update.exe",
+          "sha256": "2f4f5b6c7d8e9f00112233445566778899aabbccddeeff001122334455667788"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234502_mock2",
+    "name": "2512345678901234502_mock2",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "SSH brute force attempts against virtual machine",
+      "alertType": "VM_SSHBruteForce",
+      "description": "Mock Azure Defender alert for VM_SSHBruteForce.",
+      "severity": "High",
+      "status": "Active",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "vm-web-02",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "CredentialAccess",
+      "techniques": [
+        "T1110"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234502_mock2",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0002",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234502_mock2",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-web-02"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "vm-web-02"
+        },
+        {
+          "type": "Ip",
+          "address": "198.51.100.77"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234503_mock3",
+    "name": "2512345678901234503_mock3",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "SQL injection attempt against Azure SQL database",
+      "alertType": "SQL_InjectionAttempt",
+      "description": "Mock Azure Defender alert for SQL_InjectionAttempt.",
+      "severity": "Medium",
+      "status": "Active",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "sql-prod-01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "InitialAccess",
+      "techniques": [
+        "T1190"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234503_mock3",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0003",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234503_mock3",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Sql/servers/sql-prod-01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "sql-prod-01"
+        },
+        {
+          "type": "Ip",
+          "address": "192.0.2.55"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Sql/servers",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234504_mock4",
+    "name": "2512345678901234504_mock4",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Anomalous sign-in from unfamiliar location",
+      "alertType": "AnomalousSignIn",
+      "description": "Mock Azure Defender alert for AnomalousSignIn.",
+      "severity": "Low",
+      "status": "Active",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "user-auditor01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "InitialAccess",
+      "techniques": [
+        "T1078"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234504_mock4",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0004",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234504_mock4",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/user-auditor01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "user-auditor01"
+        },
+        {
+          "type": "Ip",
+          "address": "203.0.113.88"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234505_mock5",
+    "name": "2512345678901234505_mock5",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Suspicious inbox forwarding rule created",
+      "alertType": "SuspiciousInboxRule",
+      "description": "Mock Azure Defender alert for SuspiciousInboxRule.",
+      "severity": "Informational",
+      "status": "Active",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "mbx-finance01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "Persistence",
+      "techniques": [
+        "T1114"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234505_mock5",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0005",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234505_mock5",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/mbx-finance01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "mbx-finance01"
+        },
+        {
+          "type": "Ip",
+          "address": "198.51.100.91"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234506_mock6",
+    "name": "2512345678901234506_mock6",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Crypto mining activity detected on virtual machine",
+      "alertType": "CryptoMining",
+      "description": "Mock Azure Defender alert for CryptoMining.",
+      "severity": "High",
+      "status": "Resolved",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "vm-build-03",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "Impact",
+      "techniques": [
+        "T1496"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234506_mock6",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0006",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234506_mock6",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-build-03"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "vm-build-03"
+        },
+        {
+          "type": "Ip",
+          "address": "203.0.113.66"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234507_mock7",
+    "name": "2512345678901234507_mock7",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Network port scanning detected",
+      "alertType": "PortScanning",
+      "description": "Mock Azure Defender alert for PortScanning.",
+      "severity": "Medium",
+      "status": "Dismissed",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "vm-bastion-01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "Discovery",
+      "techniques": [
+        "T1046"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234507_mock7",
+      "isIncident": false,
+      "correlationKey": "corr-azure-0007",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234507_mock7",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-bastion-01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "vm-bastion-01"
+        },
+        {
+          "type": "Ip",
+          "address": "192.0.2.10"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234508_mock8",
+    "name": "2512345678901234508_mock8",
+    "type": "Microsoft.Security/locations/alerts",
+    "properties": {
+      "alertDisplayName": "Multiple failed privileged logins",
+      "alertType": "MultipleFailedLogins",
+      "description": "Mock Azure Defender alert for MultipleFailedLogins.",
+      "severity": "High",
+      "status": "InProgress",
+      "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+      "startTimeUtc": "2026-10-20T08:12:00Z",
+      "endTimeUtc": "2026-10-20T08:15:00Z",
+      "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+      "compromisedEntity": "vm-dc-01",
+      "productName": "Microsoft Defender for Cloud",
+      "productComponentName": "Virtual Machines",
+      "vendorName": "Microsoft",
+      "intent": "CredentialAccess",
+      "techniques": [
+        "T1110"
+      ],
+      "subTechniques": [
+        "T1059.001"
+      ],
+      "systemAlertId": "2512345678901234508_mock8",
+      "isIncident": true,
+      "correlationKey": "corr-azure-0008",
+      "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234508_mock8",
+      "resourceIdentifiers": [
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-dc-01"
+        },
+        {
+          "type": "AzureResource",
+          "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Network/networkInterfaces/nic-dc-01"
+        }
+      ],
+      "entities": [
+        {
+          "type": "Host",
+          "hostName": "vm-dc-01"
+        },
+        {
+          "type": "Ip",
+          "address": "198.51.100.123"
+        }
+      ],
+      "extendedProperties": {
+        "resourceType": "Microsoft.Compute/virtualMachines",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "workspaceId": "mock-workspace"
+      },
+      "supportingEvidence": {
+        "type": "Process",
+        "processCommandLine": "powershell.exe -enc SQBFAFgA"
+      },
+      "remediationSteps": [
+        "Review the process tree and isolate the virtual machine if needed."
+      ],
+      "version": "1.0"
+    }
+  }
+]

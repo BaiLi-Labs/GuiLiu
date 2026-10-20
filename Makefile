@@ -28,9 +28,9 @@ run: build
 dev: build
 	GUILIU_DEV=1 ./$(BINARY) serve
 
-# Synthetic alerts from five clouds, in-memory DB, no login.
+# Synthetic alerts from six clouds, in-memory DB, no login.
 mock: build
-	@echo "Mock console: http://127.0.0.1:8081 (no login, 5 cloud providers)"
+	@echo "Mock console: http://127.0.0.1:8081 (no login, 6 cloud providers)"
 	GUILIU_CONFIG=configs/mock.json ./$(BINARY) serve
 
 # First admin bootstrap. Reads the password from the environment, not argv.

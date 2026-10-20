@@ -26,6 +26,7 @@ export const PROVIDER_SHORT: Record<string, string> = {
   huawei: 'Huawei',
   aws: 'AWS',
   gcp: 'Google Cloud',
+  azure: 'Microsoft Azure',
 };
 
 export const PROVIDER_LABEL: Record<string, string> = {
@@ -34,6 +35,7 @@ export const PROVIDER_LABEL: Record<string, string> = {
   huawei: 'Huawei Cloud',
   aws: 'AWS',
   gcp: 'Google Cloud',
+  azure: 'Microsoft Azure',
 };
 
 export function providerShort(id: string): string {

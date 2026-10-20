@@ -5,6 +5,7 @@ package all
 import (
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/aliyun"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/aws"
+	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/azure"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/gcp"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/huawei"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/tencent"

@@ -30,6 +30,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 华为云 | 安全云脑 SecMaster `ListAlerts` |
 | AWS | Security Hub `GetFindingsV2`（原生 OCSF） |
 | Google Cloud | Security Command Center `ListFindings` |
+| Microsoft Azure | Defender for Cloud `Alerts - List`（ARM 2022-01-01） |
 | 统一模型 | OCSF Detection Finding (`class_uid=2004`) + 平台扩展字段 |
 | 原始证据 | 每条告警保留厂商原始 JSON 与 `mapper_version`，可重放映射 |
 | 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，失败不推进游标；支持页级断点续传 |
@@ -37,11 +38,11 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 查询 | 按厂商 / 账号 / 等级 / 状态 / 时间 / IP / 资产 / 关键词过滤，统计聚合 |
 | 生命周期 | 平台侧 `open / acknowledged / suppressed / closed`，不覆盖厂商原始状态 |
 | 控制台 | React + Tailwind 控制台：登录、概览、告警、详情抽屉、账号接入、同步健康、API Key、MCP 配置；深浅色自动跟随系统 |
-| 品牌图标 | 五家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg)（MIT），内嵌为本地 `brands.svg`，不依赖外部 CDN |
+| 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg)（MIT），以 React 组件内嵌，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，10 个只读工具；HTTP 使用 API Key |
-| Mock | `make mock` 启动免登录的五家云合成数据（48 条），用于前端、API、MCP 与映射开发 |
+| Mock | `make mock` 启动免登录的六家云合成数据（56 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
 
@@ -88,7 +89,7 @@ export TENCENT_SECRET_KEY='...'
 
 ```bash
 make dev     # 等价于 GUILIU_DEV=1，认证关闭，仅用于本机
-make mock    # 五家云合成数据 + 内存库 + 免登录，见下文 Mock
+make mock    # 六家云合成数据 + 内存库 + 免登录，见下文 Mock
 ```
 
 > 生产模式必须登录；没有用户且未设置 `GUILIU_ADMIN_PASSWORD` 时，服务会拒绝启动，而不是以匿名方式运行。
@@ -102,8 +103,9 @@ make mock    # 五家云合成数据 + 内存库 + 免登录，见下文 Mock
 | 华为云 | SecMaster `ListAlerts` | AK / SK | Region、`project_id`、`workspace_id` |
 | AWS | Security Hub `GetFindingsV2` | AK / SK，或 IAM Role | Region；AK/SK 留空时使用实例角色/环境默认凭据 |
 | Google Cloud | SCC `ListFindings` | Service Account JSON，或 ADC / Workload Identity | `parent`，如 `organizations/123456`、`projects/my-project`、`folders/456` |
+| Microsoft Azure | Defender for Cloud `Alerts - List` | Service Principal Client ID / Secret，或 DefaultAzureCredential | `subscription_id`；使用 Client Secret 时还需 `tenant_id` |
 
-华为云的 `project_id` / `workspace_id` 和 GCP 的 `parent` 在控制台接入表单中填写；GCP Service Account JSON 会加密存储。
+华为云的 `project_id` / `workspace_id`、GCP 的 `parent` 和 Azure 的 `subscription_id` / `tenant_id` 在控制台接入表单中填写；GCP Service Account JSON 会加密存储。
 
 ### Docker
 
@@ -200,13 +202,14 @@ make mock
 # http://127.0.0.1:8081
 ```
 
-- 免登录、内存 SQLite，启动即注入 **48 条**合成告警：
+- 免登录、内存 SQLite，启动即注入 **56 条**合成告警：
   - `tencent` 10 条：CSIP / CWP / CFW / WAF
   - `aliyun` 9 条：SAS 主机、容器、K8s、漏洞、基线、网络
   - `huawei` 10 条：SecMaster HSS / CFW / WAF / CSIP
   - `aws` 10 条：Security Hub、GuardDuty、Inspector、Macie、IAM
   - `gcp` 9 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
-- Mock 模式会用合成连接器替换同名 provider，因此厂商筛选器和「已内置连接器」里只有一套腾讯云/阿里云/华为云/AWS/GCP，不会出现 `xxx (Mock)` 重复项。
+  - `azure` 8 条：Defender for Cloud 可疑进程、SSH 暴力破解、SQL 注入、异常登录、邮件规则、挖矿、端口扫描、失败登录
+- Mock 模式会用合成连接器替换同名 provider，因此厂商筛选器和「已内置连接器」里只有一套腾讯云/阿里云/华为云/AWS/GCP/Azure，不会出现 `xxx (Mock)` 重复项。
 - 原始 JSON 在 `internal/mock/fixtures/<cloud>.json`，字段按对应 SDK 的响应结构构造；加载时把时间改写成相对当前时间。
 - 归一化分别调用真实 `tencent.Normalize`、`aliyun.Normalize`、`huawei.Normalize`、`aws.Normalize`、`gcp.Normalize`，因此 Mock 和真实接入走同一条 mapper / OCSF 路径。
 - 所有数据均为虚构：文档保留 IP、`mock-*` 资产、`Mock Corp`、`example.com`、假账号 ID。
@@ -249,7 +252,8 @@ make mock
 阿里云 SAS  ─────┤
 华为云 SecMaster ─┤   Connector 插件层
 AWS Security Hub ─┤   AK/SK · 分页 · 限流 · 重试 · 错误分类
-GCP SCC  ────────┘
+GCP SCC  ────────┤
+Azure Defender ──┘
                        │  raw vendor JSON
                        ▼
               Normalization 层
@@ -275,6 +279,7 @@ internal/app/                进程装配与声明式账号 bootstrap
 internal/config/             JSON 配置 + 环境变量覆盖
 internal/connector/          Connector 接口、注册表、限流、错误分类
 internal/connector/tencent/  腾讯云 CSIP 接入 + 映射
+internal/connector/azure/    Azure Defender for Cloud 接入 + 映射
 internal/connector/aliyun/   阿里云 SAS 接入 + 映射
 internal/connector/all/      统一 blank import，注册内置连接器
 internal/normalize/          唯一的 OCSF 序列化实现
@@ -589,7 +594,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 - **不写回云厂商**：平台状态独立，避免误操作与权限扩张。
 - **单实例 SQLite**：适合单机/小团队与 POC；数据量上来后替换 `store.Store` 为 PostgreSQL / ClickHouse。
 - **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据；API Key 尚未支持按云账号范围授权。
-- **Azure 尚未实现**：接口已就绪，见 `docs/connector-guide.md`。AWS / 华为云 / GCP 已完成连接器与单元测试，但仍需真实凭据做一轮字段校准。
+- **Azure 已完成连接器与单元测试**：使用 ARM `Alerts - List`；该 API 没有服务端时间过滤或页大小参数，连接器会按 `nextLink` 逐页读取并在客户端按 UTC 时间过滤。大订阅建议先用 `probe` 验证页数与耗时，并通过账号级 `max_pages` 控制单轮预算。
 - **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 已取消 `ACTIVE` 硬过滤，但 `event_time` 不是更新时间，早期 finding 的状态变化仍需周期性全量对账；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
 - **阿里云状态**：`status` option 留空表示不限制 `DescribeSuspEvents.Status`，填 `0` 等值则只采集对应状态。
 - **OCSF 映射仍需真实样本**：新连接器的时间字段、资源类型、证据结构按官方 SDK/文档实现，真实账号下建议先用 `probe -raw` 抽样核对再开持续同步。
@@ -635,7 +640,7 @@ make run      # 本地启动
 
 ## 路线图
 
-1. Azure Defender / Microsoft Defender for Cloud；AWS Organizations `Scopes`、GCP folder/多 parent 支持。
+1. AWS Organizations `Scopes`、GCP folder/多 parent 支持；Azure 按资源组/多订阅的接入方式。
 2. 官方 OCSF Schema 校验进入 CI，对每个 mapper 的输出做结构校验。
 3. PostgreSQL / ClickHouse 存储实现（接口已隔离）。
 4. 基于 `raw + mapper_version` 的重放/重建索引任务。

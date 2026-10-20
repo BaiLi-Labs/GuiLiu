@@ -1,0 +1,51 @@
+{
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/locations/centralus/alerts/2512345678901234567_abc123",
+  "name": "2512345678901234567_abc123",
+  "type": "Microsoft.Security/locations/alerts",
+  "properties": {
+    "alertDisplayName": "Suspicious process executed on virtual machine",
+    "alertType": "VM_SuspiciousProcess",
+    "description": "A process with suspicious command line behavior was detected on the virtual machine.",
+    "severity": "High",
+    "status": "Active",
+    "timeGeneratedUtc": "2026-10-20T08:15:30Z",
+    "startTimeUtc": "2026-10-20T08:12:00Z",
+    "endTimeUtc": "2026-10-20T08:15:00Z",
+    "processingEndTimeUtc": "2026-10-20T08:16:00Z",
+    "compromisedEntity": "vm-web-01",
+    "productName": "Microsoft Defender for Cloud",
+    "productComponentName": "Virtual Machines",
+    "vendorName": "Microsoft",
+    "intent": "Execution",
+    "techniques": ["T1059"],
+    "subTechniques": ["T1059.001"],
+    "systemAlertId": "2512345678901234567_abc123",
+    "isIncident": false,
+    "correlationKey": "corr-azure-0001",
+    "alertUri": "https://portal.azure.com/#blade/Microsoft_Azure_Security/AlertBlade/alertId/2512345678901234567_abc123",
+    "resourceIdentifiers": [
+      {
+        "type": "AzureResource",
+        "azureResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-web-01"
+      }
+    ],
+    "entities": [
+      {"type": "Host", "hostName": "vm-web-01"},
+      {"type": "Ip", "address": "203.0.113.42"},
+      {"type": "File", "filePath": "C:\\Windows\\Temp\\update.exe", "sha256": "2f4f5b6c7d8e9f00112233445566778899aabbccddeeff001122334455667788"}
+    ],
+    "extendedProperties": {
+      "resourceType": "Microsoft.Compute/virtualMachines",
+      "subscriptionId": "00000000-0000-0000-0000-000000000001",
+      "workspaceId": "mock-workspace"
+    },
+    "supportingEvidence": {
+      "type": "Process",
+      "processCommandLine": "powershell.exe -enc SQBFAFgA"
+    },
+    "remediationSteps": [
+      "Review the process tree and isolate the virtual machine if needed."
+    ],
+    "version": "1.0"
+  }
+}

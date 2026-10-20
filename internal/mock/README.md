@@ -1,6 +1,6 @@
 # Mock fixtures
 
-`make mock` 注册五家云的 mock connector，使用内存库、关闭认证，并直接注入 fixtures 中的合成告警。每个 mock connector 都调用对应厂商的**生产 mapper**，所以 mock 数据和真实 SDK 响应走同一条归一化与 OCSF 路径。
+`make mock` 注册六家云的 mock connector，使用内存库、关闭认证，并直接注入 fixtures 中的合成告警。每个 mock connector 都调用对应厂商的**生产 mapper**，所以 mock 数据和真实 SDK 响应走同一条归一化与 OCSF 路径。
 
 ## Provider 与数据
 
@@ -11,12 +11,13 @@
 | `huawei` | `fixtures/huawei.json` | SecMaster `ListAlerts` 的 `ListAlertRsp` | HSS 反弹 Shell / Webshell / 暴力破解、CFW 端口扫描、WAF SQL/命令注入、CSIP 弱口令/漏洞 |
 | `aws` | `fixtures/aws.json` | Security Hub `GetFindingsV2` 返回的 OCSF finding | GuardDuty 未授权访问/钓鱼/挖矿、Inspector CVE、Security Hub S3/安全组、Macie、IAM |
 | `gcp` | `fixtures/gcp.json` | SCC `ListFindings` 的 Finding（protojson） | 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM 外部访问、漏洞、公网 IP |
+| `azure` | `fixtures/azure.json` | ARM `Microsoft.Security/alerts` 的 `Alert` | Defender for Cloud 可疑进程、SSH 暴力破解、SQL 注入、异常登录、邮件规则、挖矿、端口扫描、失败登录 |
 
-Mock 模式使用 `Registry.Replace` 覆盖同名的生产 provider，因此不会出现两套厂商卡片或两个筛选选项；配置文件里的 provider 仍是 `tencent` / `aliyun` / `huawei` / `aws` / `gcp`。
+Mock 模式使用 `Registry.Replace` 覆盖同名的生产 provider，因此不会出现两套厂商卡片或两个筛选选项；配置文件里的 provider 仍是 `tencent` / `aliyun` / `huawei` / `aws` / `gcp` / `azure`。
 
 加载时会把时间字段改写为相对当前时间，避免 fixture 过期后从默认时间窗消失。支持的字段：
 
-- 字符串时间：`CreateTime`、`UpdateTime`、`Date`、`OccurrenceTime`、`LastTime`、`FirstObservedTime`、`LastObservedTime`、`ArriveTime`、`first_observed_time`、`last_observed_time`、`create_time`、`eventTime`、`createTime` 等。
+- 字符串时间：`CreateTime`、`UpdateTime`、`Date`、`OccurrenceTime`、`LastTime`、`FirstObservedTime`、`LastObservedTime`、`ArriveTime`、`first_observed_time`、`last_observed_time`、`create_time`、`eventTime`、`createTime`、`timeGeneratedUtc`、`startTimeUtc`、`endTimeUtc`、`processingEndTimeUtc` 等。
 - 毫秒时间戳：`OccurrenceTimeStamp`、`LastTimeStamp`、`time`、`created_time`、`first_seen_time`、`last_seen_time`、`modified_time` 等。
 
 ## 脱敏规则
@@ -46,6 +47,7 @@ fixture 的字段名必须与 SDK 响应一致：
 - 华为使用 `ListAlertRsp` 的 JSON tag，例如 `handle_status`、`alert_type`、`network_list`。
 - AWS 使用 `GetFindingsV2` 返回的 OCSF 字段，例如 `finding_info.uid`、`severity_id`、`cloud.account.uid`。
 - GCP 使用 `ListFindings` 的 protojson 字段，例如 `resourceName`、`sourceProperties`、`eventTime`。
+- Azure 使用 ARM `Alert` 的 JSON，例如 `properties.systemAlertId`、`properties.timeGeneratedUtc`、`properties.resourceIdentifiers`、`properties.entities`。
 
 ## 验证
 

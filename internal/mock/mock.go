@@ -14,6 +14,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector/aliyun"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector/aws"
+	"github.com/BaiLi-Labs/GuiLiu/internal/connector/azure"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector/gcp"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector/huawei"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector/tencent"
@@ -38,6 +39,9 @@ var awsFixture []byte
 
 //go:embed fixtures/gcp.json
 var gcpFixture []byte
+
+//go:embed fixtures/azure.json
+var azureFixture []byte
 
 type spec struct {
 	id         string
@@ -73,6 +77,17 @@ var gcpCredential = []connector.CredentialField{
 
 var gcpOptions = []connector.OptionField{
 	{Name: "parent", Label: "SCC Parent", Required: true, Placeholder: "organizations/123456 或 projects/my-project"},
+}
+
+var azureCredential = []connector.CredentialField{
+	{Name: "access_key_id", Label: "Client ID", Help: "Mock 模式忽略；真实模式可留空使用 DefaultAzureCredential"},
+	{Name: "access_key_secret", Label: "Client Secret", Secret: true, Help: "Mock 模式忽略"},
+}
+
+var azureOptions = []connector.OptionField{
+	{Name: "subscription_id", Label: "Subscription ID", Required: true, Placeholder: "Azure subscription UUID"},
+	{Name: "tenant_id", Label: "Tenant ID", Placeholder: "使用 Client Secret 时必填"},
+	{Name: "endpoint", Label: "ARM Endpoint", Placeholder: "默认 https://management.azure.com"},
 }
 
 var specs = []spec{
@@ -145,6 +160,23 @@ var specs = []spec{
 		),
 		fixture:   gcpFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&gcp.Connector{}).Normalize(raw) },
+	},
+	{
+		id: "azure",
+		descriptor: mockDescriptor(
+			"azure", "Microsoft Azure", "Microsoft",
+			"Microsoft Defender for Cloud", "azure.defender", "azure-defender/v1",
+			[]connector.Product{
+				{Code: "DefenderForCloud", Name: "Defender for Cloud"},
+				{Code: "DefenderForEndpoint", Name: "Defender for Endpoint"},
+				{Code: "DefenderForIdentity", Name: "Defender for Identity"},
+				{Code: "DefenderForCloudApps", Name: "Defender for Cloud Apps"},
+				{Code: "Sentinel", Name: "Microsoft Sentinel"},
+			},
+			azureCredential, azureOptions,
+		),
+		fixture:   azureFixture,
+		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&azure.Connector{}).Normalize(raw) },
 	},
 }
 
@@ -254,24 +286,30 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 
 var (
 	stringTimeKeys = map[string]bool{
-		"CreateTime":          true,
-		"UpdateTime":          true,
-		"Date":                true,
-		"OccurrenceTime":      true,
-		"LastTime":            true,
-		"FirstObservedTime":   true,
-		"LastObservedTime":    true,
-		"ArriveTime":          true,
-		"CloseTime":           true,
-		"first_observed_time": true,
-		"last_observed_time":  true,
-		"create_time":         true,
-		"update_time":         true,
-		"arrive_time":         true,
-		"close_time":          true,
-		"eventTime":           true,
-		"createTime":          true,
-		"muteUpdateTime":      true,
+		"CreateTime":           true,
+		"UpdateTime":           true,
+		"Date":                 true,
+		"OccurrenceTime":       true,
+		"LastTime":             true,
+		"FirstObservedTime":    true,
+		"LastObservedTime":     true,
+		"ArriveTime":           true,
+		"CloseTime":            true,
+		"first_observed_time":  true,
+		"last_observed_time":   true,
+		"create_time":          true,
+		"update_time":          true,
+		"arrive_time":          true,
+		"close_time":           true,
+		"eventTime":            true,
+		"createTime":           true,
+		"muteUpdateTime":       true,
+		"timeGeneratedUtc":     true,
+		"startTimeUtc":         true,
+		"endTimeUtc":           true,
+		"processingEndTimeUtc": true,
+		"createdDateTime":      true,
+		"lastUpdateDateTime":   true,
 	}
 	millisTimeKeys = map[string]bool{
 		"OccurrenceTimeStamp": true,

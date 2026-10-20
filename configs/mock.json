@@ -69,6 +69,19 @@
         "page_size": "100",
         "parent": "organizations/123456789"
       }
+    },
+    {
+      "name": "mock-azure",
+      "provider": "azure",
+      "account_uid": "00000000-0000-0000-0000-000000000001",
+      "region": "centralus",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {
+        "subscription_id": "00000000-0000-0000-0000-000000000001",
+        "tenant_id": "mock-tenant",
+        "page_size": "100"
+      }
     }
   ]
 }
