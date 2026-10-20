@@ -1,0 +1,221 @@
+package tencent
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
+	"github.com/BaiLi-Labs/GuiLiu/internal/ocsf"
+	csip "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/csip/v20221121"
+)
+
+// Normalize maps one Tencent CSIP alert payload onto the vendor-neutral model.
+// The engine adds OCSF and storage metadata afterwards, so this function stays
+// deterministic and can be replayed against historical raw alerts.
+func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
+	var a csip.AlertInfo
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return model.Alert{}, fmt.Errorf("decode tencent alert: %w", err)
+	}
+
+	externalID := connector.Str(a.ID)
+	if externalID == "" {
+		externalID = connector.Str(a.Key)
+	}
+	if externalID == "" {
+		externalID = connector.HashRaw(raw)
+	}
+
+	firstSeen, _ := connector.ParseVendorTime(connector.Str(a.CreateTime))
+	lastSeen, _ := connector.ParseVendorTime(connector.Str(a.UpdateTime))
+	eventTime := lastSeen
+	if eventTime.IsZero() {
+		eventTime = firstSeen
+	}
+
+	alert := model.Alert{
+		ExternalID:       externalID,
+		Title:            connector.FirstNonEmpty(connector.Str(a.Name), "Tencent Cloud security alert"),
+		Description:      connector.FirstNonEmpty(connector.Str(a.RiskInvestigation), connector.Str(a.UrgentSuggestion), connector.Str(a.RiskTreatment)),
+		Severity:         mapSeverity(connector.Uint64(a.Level)),
+		OriginalSeverity: severityLabel(connector.Uint64(a.Level)),
+		VendorStatus:     mapStatus(connector.Uint64(a.Status)),
+		EventTime:        eventTime,
+		FirstSeenAt:      firstSeen,
+		LastSeenAt:       lastSeen,
+		OriginalTime:     connector.FirstNonEmpty(connector.Str(a.UpdateTime), connector.Str(a.CreateTime)),
+		Product:          sourceProduct(connector.Str(a.Source)),
+		AlertType:        connector.JoinNonEmpty("/", connector.Str(a.Type), connector.Str(a.SubType)),
+		CloudAccountUID:  connector.FirstNonEmpty(connector.Str(a.Uin), connector.Str(a.AppID)),
+		Raw:              append(json.RawMessage(nil), raw...),
+	}
+
+	if a.Attacker != nil {
+		alert.SourceIP = connector.FirstNonEmpty(connector.Str(a.Attacker.IP), connector.Str(a.Attacker.OriginIP))
+	}
+	if a.Victim != nil {
+		alert.DestinationIP = connector.Str(a.Victim.IP)
+		alert.Resource = model.Resource{
+			ID:   connector.Str(a.Victim.InstanceID),
+			Name: connector.FirstNonEmpty(connector.Str(a.Victim.Domain), connector.Str(a.Victim.IP), connector.Str(a.Victim.InstanceID)),
+			Type: assetType(connector.Int64(a.Victim.AssetType)),
+		}
+	}
+
+	alert.Observables = observables(&a, alert)
+	if ev := evidence(&a); ev != nil {
+		alert.Evidences = []model.Evidence{*ev}
+	}
+	if extra := unmapped(&a); len(extra) > 0 {
+		alert.Unmapped = map[string]any{"tencent_csip": extra}
+	}
+	return alert, nil
+}
+
+func mapSeverity(level uint64) model.Severity {
+	switch level {
+	case 1:
+		return model.SeverityInformational
+	case 2:
+		return model.SeverityLow
+	case 3:
+		return model.SeverityMedium
+	case 4:
+		return model.SeverityHigh
+	case 5:
+		return model.SeverityCritical
+	default:
+		return model.SeverityUnknown
+	}
+}
+
+func severityLabel(level uint64) string {
+	if level == 0 {
+		return ""
+	}
+	return strconv.FormatUint(level, 10)
+}
+
+func mapStatus(status uint64) string {
+	switch status {
+	case 0:
+		return "unhandled"
+	case 1:
+		return "ignored"
+	case 2:
+		return "handled"
+	default:
+		return "status_" + strconv.FormatUint(status, 10)
+	}
+}
+
+func assetType(t int64) string {
+	switch t {
+	case 1:
+		return "host"
+	case 2:
+		return "domain"
+	case 3:
+		return "network"
+	default:
+		return ""
+	}
+}
+
+func sourceProduct(source string) string {
+	switch strings.ToUpper(strings.TrimSpace(source)) {
+	case "CSIP":
+		return "Cloud Security Center"
+	case "CWP":
+		return "Host Security (CWP)"
+	case "CFW":
+		return "Cloud Firewall (CFW)"
+	case "WAF":
+		return "Web Application Firewall (WAF)"
+	case "":
+		return ""
+	default:
+		return source
+	}
+}
+
+func observables(a *csip.AlertInfo, alert model.Alert) []model.Observable {
+	out := make([]model.Observable, 0, 6)
+	add := func(name string, typeID int, value string) {
+		if value != "" {
+			out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
+		}
+	}
+	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
+	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	if a.Attacker != nil {
+		add("attacker.domain", 0, connector.Str(a.Attacker.Domain))
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(a.Attacker.MD5))
+		add("file.name", ocsf.ObservableFileName, connector.Str(a.Attacker.FileName))
+	}
+	return out
+}
+
+func evidence(a *csip.AlertInfo) *model.Evidence {
+	data := map[string]any{}
+	if v := connector.Str(a.EvidencePath); v != "" {
+		data["path"] = v
+	}
+	if v := connector.Str(a.EvidenceLocation); v != "" {
+		data["location"] = v
+	}
+	if v := connector.Str(a.EvidenceData); v != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && utf8.Valid(decoded) {
+			text, truncated := connector.Truncate(string(decoded), 16384)
+			data["data"] = text
+			if truncated {
+				data["truncated"] = true
+			}
+		} else {
+			text, truncated := connector.Truncate(v, 16384)
+			data["data_base64"] = text
+			if truncated {
+				data["truncated"] = true
+			}
+		}
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return &model.Evidence{Type: "tencent.csip", Data: data}
+}
+
+func unmapped(a *csip.AlertInfo) map[string]any {
+	extra := map[string]any{}
+	set := func(key, value string) {
+		if value != "" {
+			extra[key] = value
+		}
+	}
+	set("uin", connector.Str(a.Uin))
+	set("app_id", connector.Str(a.AppID))
+	set("nick_name", connector.Str(a.NickName))
+	set("source", connector.Str(a.Source))
+	set("type", connector.Str(a.Type))
+	set("sub_type", connector.Str(a.SubType))
+	set("log_type", connector.Str(a.LogType))
+	set("process_type", connector.Str(a.ProcessType))
+	set("key", connector.Str(a.Key))
+	set("date", connector.Str(a.Date))
+	set("urgent_suggestion", connector.Str(a.UrgentSuggestion))
+	set("remediation_suggestion", connector.Str(a.RemediationSuggestion))
+	set("log_search", connector.Str(a.LogSearch))
+	if a.Count != nil {
+		extra["count"] = *a.Count
+	}
+	if a.Action != nil {
+		extra["action"] = *a.Action
+	}
+	return extra
+}

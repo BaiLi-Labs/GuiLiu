@@ -27,13 +27,15 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 阿里云 | 云安全中心 SAS `DescribeSuspEvents` |
 | 统一模型 | OCSF Detection Finding (`class_uid=2004`) + 平台扩展字段 |
 | 原始证据 | 每条告警保留厂商原始 JSON 与 `mapper_version`，可重放映射 |
-| 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，失败不推进游标 |
+| 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，失败不推进游标；支持页级断点续传 |
 | 可靠性 | 按厂商限速、指数退避重试、错误分类、单账号并发保护、页数上限保护 |
 | 查询 | 按厂商 / 账号 / 等级 / 状态 / 时间 / IP / 资产 / 关键词过滤，统计聚合 |
 | 生命周期 | 平台侧 `open / acknowledged / suppressed / closed`，不覆盖厂商原始状态 |
-| 控制台 | 单页 Web 控制台：概览、告警、详情抽屉、账号接入、同步健康、MCP 配置 |
-| REST API | `/api/v1/*`，Bearer Token |
-| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具 |
+| 控制台 | 单页 Web 控制台：登录、概览、告警、详情抽屉、账号接入、同步健康、API Key、MCP 配置；深浅色自动跟随系统 |
+| 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
+| REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
+| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具；HTTP 使用 API Key |
+| Mock | `make mock` 启动免登录的合成腾讯云数据，用于前端和映射开发 |
 | 凭据安全 | AK/SK 使用 AES-256-GCM 加密存储；API 只返回 `****后四位` |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
 
@@ -44,28 +46,32 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 环境：Go 1.26+（依赖 `modernc.org/sqlite` 的最低要求）。
 
 ```bash
-git clone <this-repo> guiliu && cd guiliu
+git clone https://github.com/BaiLi-Labs/GuiLiu.git guiliu && cd guiliu
 go build -o bin/guiliu ./cmd/guiliu
 
 cp configs/guiliu.example.json guiliu.json
-# 编辑 guiliu.json，或直接用环境变量提供凭据：
-export GUILIU_API_TOKEN='change-me'
+export GUILIU_ADMIN_PASSWORD='a-long-initial-password'   # 首次启动创建 admin
 export TENCENT_SECRET_ID='...'
 export TENCENT_SECRET_KEY='...'
-export ALIYUN_ACCESS_KEY_ID='...'
-export ALIYUN_ACCESS_KEY_SECRET='...'
 
 ./bin/guiliu serve
 ```
 
-打开 <http://127.0.0.1:8080>。
+打开 <http://127.0.0.1:8080>，使用 `admin` + `GUILIU_ADMIN_PASSWORD` 登录。
 
-> 未配置 `api_token` 时认证关闭，服务默认只监听 `127.0.0.1`。对外暴露前务必设置 Token。
+本地开发不想每次登录：
+
+```bash
+make dev     # 等价于 GUILIU_DEV=1，认证关闭，仅用于本机
+make mock    # 合成腾讯云数据 + 内存库 + 免登录，见下文 Mock
+```
+
+> 生产模式必须登录；没有用户且未设置 `GUILIU_ADMIN_PASSWORD` 时，服务会拒绝启动，而不是以匿名方式运行。
 
 ### Docker
 
 ```bash
-export GUILIU_API_TOKEN='change-me'
+export GUILIU_ADMIN_PASSWORD='a-long-initial-password'
 docker compose up -d --build
 ```
 
@@ -101,9 +107,15 @@ docker compose up -d --build
 
 ### 方式三：REST API
 
+先登录拿 Session Token（或使用在控制台/MCP 页面创建的 API Key）：
+
 ```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"你的密码"}' | jq -r .token)
+
 curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
-  -H "Authorization: Bearer $GUILIU_API_TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "prod-aliyun",
@@ -115,7 +127,50 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
   }'
 ```
 
+## 登录认证与用户
+
+- 密码使用 **Argon2id**（64 MiB / 3 轮 / 2 并行）哈希，数据库不保存明文。
+- 浏览器登录后使用 **HttpOnly + SameSite=Lax Session Cookie**；API 客户端使用 `Authorization: Bearer <session-token>`。
+- Session 默认 12 小时，可在 `auth.session_ttl` 调整；改密会吊销该用户全部 Session 与 API Key。
+- 自动化 / MCP 使用 **API Key**（`glk_...`），只在创建时返回一次，数据库只保存 SHA-256 哈希，可独立吊销，默认 90 天过期。
+- 登录失败按用户名限流：15 分钟内 10 次失败后暂时拒绝；同时最多 4 个并发密码校验，避免 Argon2 内存被打爆。
+- 角色：
+  - `admin`：读写全部数据，管理云账号、触发同步、修改告警状态。
+  - `viewer`：只读告警、统计、账号健康、MCP 查询；不能改账号、同步或告警状态。
+- 首次管理员：`GUILIU_ADMIN_PASSWORD` + `GUILIU_ADMIN_USER`（默认 `admin`），或在启动前运行 CLI：
+
+```bash
+export GUILIU_NEW_PASSWORD='a-long-password'
+./bin/guiliu user add -username admin -role admin
+```
+
+用户管理（本机 CLI，密码只从环境变量读取）：
+
+```bash
+./bin/guiliu user list
+GUILIU_NEW_PASSWORD='...' ./bin/guiliu user add -username alice -role viewer
+GUILIU_NEW_PASSWORD='...' ./bin/guiliu user passwd -username alice
+```
+
+> `GUILIU_DEV=1` / `make dev` 会完全关闭认证；`GUILIU_MOCK=1` / `make mock` 也会关闭认证。两者都只能绑定本机，绝不要暴露到公网。
+
 ---
+
+## Mock 数据
+
+```bash
+make mock
+# http://127.0.0.1:8081
+```
+
+- 免登录、内存 SQLite、启动即注入 10 条合成腾讯云告警。
+- 覆盖 CFW / WAF / CWP / CSIP，`Level` 1–5，`Status` 0/1/2，IP 资产与域名资产，包含证据字段。
+- 原始 JSON 在 `internal/mock/fixtures/tencent.json`；加载时把时间改写成相对当前时间，避免数据“过期”。
+- 归一化调用真实 `tencent.Normalize`，因此 Mock 和真实接入走同一条 OCSF 路径。
+- 所有数据均为虚构：`203.0.113.0/24`、`198.51.100.0/24`、`192.0.2.0/24`、`ins-mockNNNN`、`Mock Corp`、`example.com`。
+- 新增分类样本或接入其他云的 Mock：见 [`internal/mock/README.md`](internal/mock/README.md)。模式是“原始数组 + 复用生产 mapper”，避免 mock 与生产映射分叉。
+
+> Mock 模式会强制关闭认证和定时同步，数据库为内存。只用于本地开发和演示，不要部署到生产。
 
 ## 先验证“能不能查到”，再验证“字段对不对”
 
@@ -297,38 +352,45 @@ internal/secret/             AES-256-GCM 凭据加密
 
 ## REST API
 
-鉴权：`Authorization: Bearer <api_token>` 或 `X-API-Key`。所有接口只读，只有账号配置与告警状态可写。
+鉴权：浏览器使用 Session Cookie；程序使用 `Authorization: Bearer <session-token|api-key>`，也支持 `X-API-Key: <api-key>`。除 `/healthz`、`/api/v1/auth/login` 和静态控制台外，所有接口都需要认证。写操作需要 `admin` 角色。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
+| POST | `/api/v1/auth/login` | 公开；用户名密码登录，返回 Session Token + Set-Cookie |
+| GET | `/api/v1/auth/me` | 当前用户、认证类型、过期时间 |
+| POST | `/api/v1/auth/logout` | 注销当前 Session |
+| POST | `/api/v1/auth/password` | 修改密码（需要当前密码，吊销全部 Session） |
+| GET | `/api/v1/auth/keys` | 列出当前用户的 API Key |
+| POST | `/api/v1/auth/keys` | 创建 API Key（明文只返回一次） |
+| DELETE | `/api/v1/auth/keys/{id}` | 吊销当前用户的 API Key |
 | GET | `/healthz` | 健康检查（无需鉴权） |
 | GET | `/api/v1/meta` | 版本、OCSF 版本、连接器列表、调度配置 |
 | GET | `/api/v1/providers` | 连接器能力与凭据字段 |
-| GET | `/api/v1/accounts` | 账号列表 + 同步状态 |
-| POST | `/api/v1/accounts` | 新增账号（AK/SK 加密存储） |
+| GET | `/api/v1/accounts` | 账号列表 + 同步状态（所有已登录用户） |
+| POST | `/api/v1/accounts` | 新增账号（admin） |
 | GET | `/api/v1/accounts/{id}` | 账号详情 |
-| PATCH | `/api/v1/accounts/{id}` | 修改名称 / 地域 / 启停 / 凭据 / options |
-| DELETE | `/api/v1/accounts/{id}?purge=true` | 删除账号（默认保留历史告警） |
-| POST | `/api/v1/accounts/{id}/check` | 验证凭据与只读权限 |
-| POST | `/api/v1/accounts/{id}/sync` | 异步触发单账号同步 |
+| PATCH | `/api/v1/accounts/{id}` | 修改名称 / 地域 / 启停 / 凭据 / options（admin） |
+| DELETE | `/api/v1/accounts/{id}?purge=true` | 删除账号（admin；默认保留历史告警） |
+| POST | `/api/v1/accounts/{id}/check` | 验证凭据与只读权限（admin） |
+| POST | `/api/v1/accounts/{id}/sync` | 异步触发单账号同步（admin） |
 | GET | `/api/v1/accounts/{id}/health` | 游标、错误、最近运行 |
-| POST | `/api/v1/sync` | 异步同步全部账号 |
+| POST | `/api/v1/sync` | 异步同步全部账号（admin） |
 | GET | `/api/v1/sync-runs` | 同步运行记录 |
 | GET | `/api/v1/alerts` | 告警查询 |
 | GET | `/api/v1/alerts/{id}` | 详情（含 OCSF 与 raw） |
 | GET | `/api/v1/alerts/{id}/raw` | 厂商原始 JSON |
-| PATCH | `/api/v1/alerts/{id}` | 修改平台状态 |
+| PATCH | `/api/v1/alerts/{id}` | 修改平台状态（admin） |
 | GET | `/api/v1/stats` | 聚合统计 |
-| POST | `/mcp` | MCP Streamable HTTP |
+| POST | `/mcp` | MCP Streamable HTTP（Bearer API Key / Session） |
 
 查询参数：`provider`、`account_id`、`severity`（逗号分隔）、`status`、`start`、`end`、`ip`、`resource`、`q`、`sort`、`limit`（≤200）、`offset`。
 
 ```bash
 curl -s "http://127.0.0.1:8080/api/v1/alerts?severity=critical,high&start=2026-10-19T00:00:00Z&limit=20" \
-  -H "Authorization: Bearer $GUILIU_API_TOKEN" | jq .
+  -H "Authorization: Bearer $TOKEN" | jq .
 
 curl -s "http://127.0.0.1:8080/api/v1/alerts?ip=203.0.113.9" \
-  -H "Authorization: Bearer $GUILIU_API_TOKEN" | jq '.total'
+  -H "Authorization: Bearer $TOKEN" | jq '.total'
 ```
 
 ---
@@ -339,13 +401,21 @@ curl -s "http://127.0.0.1:8080/api/v1/alerts?ip=203.0.113.9" \
 
 ### HTTP（推荐）
 
+MCP 客户端使用 API Key，不要复用浏览器 Cookie：
+
+```bash
+API_KEY=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/keys \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"claude-code"}' | jq -r .key)
+```
+
 ```json
 {
   "mcpServers": {
     "guiliu": {
       "type": "http",
       "url": "http://127.0.0.1:8080/mcp",
-      "headers": {"Authorization": "Bearer <API_TOKEN>"}
+      "headers": {"Authorization": "Bearer <API_KEY>"}
     }
   }
 }
@@ -355,8 +425,10 @@ Claude Code：
 
 ```bash
 claude mcp add --transport http guiliu http://127.0.0.1:8080/mcp \
-  --header "Authorization: Bearer $GUILIU_API_TOKEN"
+  --header "Authorization: Bearer $API_KEY"
 ```
+
+API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看前缀和吊销。
 
 ### stdio
 
@@ -390,12 +462,20 @@ claude mcp add --transport http guiliu http://127.0.0.1:8080/mcp \
 
 ## 安全模型
 
-- **最小权限**：只需要各云安全中心的告警只读权限。不要使用主账号 AK。
+- **强制登录**：生产模式没有匿名 API。没有用户且未设置 `GUILIU_ADMIN_PASSWORD` 时拒绝启动。
+- **密码**：Argon2id（64 MiB / 3 轮 / 2 并行），密码至少 12 位；不保存明文，不记录密码。
+- **Session**：HttpOnly + SameSite=Lax Cookie，默认 12 小时；改密吊销该用户全部 Session；HTTPS 下设置 `auth.secure_cookies: true`。
+- **API Key**：`glk_...` 只在创建时返回一次，数据库只存 SHA-256；可独立吊销、默认 90 天过期。
+- **授权**：`admin` 可管理账号、同步、告警状态；`viewer` 只读。所有写接口在后端强制检查角色，不只是前端隐藏按钮。
+- **暴力破解防护**：同一用户名 15 分钟内 10 次失败后限流；最多 4 个并发 Argon2 校验。
+- **CSRF / CORS**：Session 使用 SameSite=Lax，写请求额外校验 `Origin`；不启用通配符 CORS。登录接口同样拒绝跨站 Origin。
+- **最小权限**：云账号只需要安全中心的告警只读权限。不要使用主账号 AK。
 - **静态加密**：AK/SK 使用 AES-256-GCM；主密钥来自 `GUILIU_SECRET_KEY`（base64 32 字节）或 `secret_key_file`（首次启动生成，权限 `0600`）。
 - **不回显**：API 只返回 `access_key_hint`（`****1234`），不返回 Secret。
-- **默认本机**：监听 `127.0.0.1:8080`。对外暴露时设置 `api_token` 并放在反向代理 / 内网之后。
+- **默认本机**：监听 `127.0.0.1:8080`。对外暴露时放在 HTTPS 反向代理之后，并设置 `secure_cookies: true`。
 - **只读数据面**：不提供云 API 写操作、自动封禁、任意 SQL。
-- **多租户未实现**：当前是所有账号共享一个数据集与一个 Token。生产多租户需要额外的 RBAC 与行级隔离。
+- **开发绕过**：`GUILIU_DEV=1` / `make dev` / `make mock` 会关闭认证；只能在本机使用。
+- **多租户未实现**：所有用户共享同一份云账号与告警数据集；已实现基础角色，但没有租户级行级隔离。
 
 ---
 
@@ -405,7 +485,7 @@ claude mcp add --transport http guiliu http://127.0.0.1:8080/mcp \
 
 1. 窗口：`[cursor - overlap, now - 0]`；首次为 `now - initial_lookback`（默认 24h，优先保证当前告警可见；设置更长的回溯会从最早时间开始按 `max_window` 分段追赶）。
 2. 单次最多推进 `max_window`（默认 24h），积压时自动分段追赶。
-3. 每页最多 `page_size`（默认 100），每个窗口最多 `max_pages`（默认 100）。
+3. 每页最多 `page_size`（默认 100），每个 run 最多 `max_pages`（默认 10）。
 4. 页内每条 raw 独立归一化/入库，单条失败记为 `failed`，不阻塞整批。
 5. **所有页成功后**才提交游标；失败时游标不动，下一轮重叠重试。
 6. 去重键：`provider + account_id + external_id`；更新时保留分析人员设置的平台状态。
@@ -433,7 +513,7 @@ claude mcp add --transport http guiliu http://127.0.0.1:8080/mcp \
 - **只做 Detection Finding**：暂不做 Incident 聚合、跨厂商实体消歧。
 - **不写回云厂商**：平台状态独立，避免误操作与权限扩张。
 - **单实例 SQLite**：适合单机/小团队与 POC；数据量上来后替换 `store.Store` 为 PostgreSQL / ClickHouse。
-- **未实现 OIDC / RBAC / 多租户**：当前 Token 是全局的。
+- **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据。
 - **AWS / Azure / 华为云尚未实现**：接口已就绪，见 `docs/connector-guide.md`。
 
 ---
@@ -464,12 +544,15 @@ make run      # 本地启动
 
 ## 真实环境验证记录
 
-2026-10-20 使用真实腾讯云账号做了接入验证：
+2026-10-20 使用真实腾讯云账号做了完整接入验证：
 
 - `DescribeAlertList` 的 `Filter.StartTime/EndTime` **确实生效**：1h / 6h / 24h 分别返回 17 / 746 / 7607 条。
-- `Level` 1–5、`Uin` / `AppID`、`Attacker.IP`、`Victim.IP` / `InstanceID`、`EvidenceLocation`、`Type/SubType` 均按预期映射。
-- 真实告警量级约为 **7.6k 条/天**（该账号当期遭受持续扫描/漏洞利用），SQLite 单机可承受；更大的规模应切 PostgreSQL / ClickHouse。
-- 真实数据暴露并已修复：中文标题按字节截断、厂商账号 UID 未写入 OCSF、空 observable 未过滤、`probe` 未重试限流错误。
+- 完成 24h 全量回填：**7377 条入库**（190 high / 7165 medium / 22 low），77 页；游标正常提交，`pending_token` 清空。
+- 增量同步：13 条拉取、3 条新增、10 条重叠更新，游标推进，去重正确。
+- `Level` 1–5、`Uin` / `AppID`、`Attacker.IP`、`Victim.IP` / `InstanceID`、`EvidenceLocation`、`Type/SubType` 均按预期映射；OCSF `cloud.account.uid` 使用真实 UIN。
+- REST（列表/详情/IP 检索/统计）与 MCP（initialize、list_alerts、search_alerts_by_ip、get_alert_statistics、get_connector_health）均已用真实数据跑通。
+- 限流实测：接近 3 QPS 的连续翻页会被 `RequestLimitExceeded` 拦截；**2 QPS + 每轮 10 页 + 页级断点续传** 可以稳定完成 77 页回填。一次限流不会导致从头重拉。
+- 真实数据暴露并已修复：中文标题按字节截断、厂商账号 UID 未写入 OCSF、空 observable 未过滤、`probe` 未重试限流错误、回填中断后必须从头开始。
 - 阿里云连接器仍需用真实 AK 做同样一轮校准。
 
 ## 路线图

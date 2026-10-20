@@ -1,0 +1,23 @@
+{
+  "listen": "127.0.0.1:8080",
+  "database": "data/guiliu.db",
+  "secret_key_file": "data/secret.key",
+  "log_level": "info",
+  "auth": {
+    "dev_mode": false,
+    "session_ttl": "12h",
+    "secure_cookies": false,
+    "admin_user": "admin"
+  },
+  "sync": {
+    "enabled": true,
+    "interval": "5m",
+    "initial_lookback": "24h",
+    "overlap": "30m",
+    "max_window": "24h",
+    "max_pages": 10,
+    "page_size": 100,
+    "workers": 2
+  },
+  "accounts": []
+}

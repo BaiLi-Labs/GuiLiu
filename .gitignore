@@ -1,0 +1,8 @@
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+guiliu.json
+.env
+.DS_Store

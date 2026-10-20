@@ -1,0 +1,28 @@
+{
+  "mock": true,
+  "listen": "127.0.0.1:8081",
+  "database": ":memory:",
+  "secret_key_file": "data/mock-secret.key",
+  "log_level": "info",
+  "auth": {
+    "dev_mode": true,
+    "admin_user": "admin"
+  },
+  "sync": {
+    "enabled": false
+  },
+  "accounts": [
+    {
+      "name": "mock-tencent",
+      "provider": "tencent-mock",
+      "account_uid": "100000000001",
+      "region": "ap-guangzhou",
+      "access_key_id": "mock-ak",
+      "access_key_secret": "mock-sk",
+      "options": {
+        "rate_limit": "20",
+        "page_size": "100"
+      }
+    }
+  ]
+}

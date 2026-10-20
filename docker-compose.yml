@@ -1,0 +1,23 @@
+services:
+  guiliu:
+    build: .
+    image: guiliu:dev
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      GUILIU_LISTEN: 0.0.0.0:8080
+      GUILIU_DATABASE: /data/guiliu.db
+      GUILIU_SECRET_KEY_FILE: /data/secret.key
+      GUILIU_ADMIN_PASSWORD: ${GUILIU_ADMIN_PASSWORD:?set GUILIU_ADMIN_PASSWORD}
+      GUILIU_SECURE_COOKIES: ${GUILIU_SECURE_COOKIES:-false}
+      GUILIU_LOG_LEVEL: ${GUILIU_LOG_LEVEL:-info}
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      ALIYUN_ACCESS_KEY_ID: ${ALIYUN_ACCESS_KEY_ID:-}
+      ALIYUN_ACCESS_KEY_SECRET: ${ALIYUN_ACCESS_KEY_SECRET:-}
+    volumes:
+      - guiliu-data:/data
+    restart: unless-stopped
+
+volumes:
+  guiliu-data:
