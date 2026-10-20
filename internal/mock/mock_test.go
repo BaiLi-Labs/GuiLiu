@@ -69,7 +69,7 @@ func TestRegisterMockProviders(t *testing.T) {
 			t.Fatalf("IsMockProvider(%s) = false", s.id)
 		}
 	}
-	if IsMockProvider("tencent") {
-		t.Fatal("production provider must not be considered a mock provider")
+	if IsMockProvider("unknown-provider") {
+		t.Fatal("unknown provider must not be considered a mock provider")
 	}
 }

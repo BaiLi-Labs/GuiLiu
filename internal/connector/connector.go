@@ -289,6 +289,22 @@ func (r *Registry) Register(d Descriptor, f Factory) error {
 	return nil
 }
 
+// Replace is used by mock mode to swap a production connector for an
+// offline fixture connector under the same provider ID. Keeping the ID stable
+// avoids duplicate vendor cards and duplicate provider filters.
+func (r *Registry) Replace(d Descriptor, f Factory) error {
+	if d.ID == "" {
+		return fmt.Errorf("connector descriptor missing id")
+	}
+	if f == nil {
+		return fmt.Errorf("connector %s missing factory", d.ID)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries[d.ID] = entry{descriptor: d, factory: f}
+	return nil
+}
+
 func (r *Registry) New(cfg AccountConfig) (Connector, error) {
 	r.mu.RLock()
 	e, ok := r.entries[cfg.Provider]

@@ -179,11 +179,12 @@ make mock
 ```
 
 - 免登录、内存 SQLite，启动即注入 **42 条**合成告警：
-  - `tencent-mock` 10 条：CSIP / CWP / CFW / WAF
-  - `aliyun-mock` 8 条：SAS 主机、容器、K8s、漏洞、基线、网络
-  - `huawei-mock` 8 条：SecMaster HSS / CFW / WAF / CSIP
-  - `aws-mock` 8 条：Security Hub、GuardDuty、Inspector、Macie、IAM
-  - `gcp-mock` 8 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
+  - `tencent` 10 条：CSIP / CWP / CFW / WAF
+  - `aliyun` 8 条：SAS 主机、容器、K8s、漏洞、基线、网络
+  - `huawei` 8 条：SecMaster HSS / CFW / WAF / CSIP
+  - `aws` 8 条：Security Hub、GuardDuty、Inspector、Macie、IAM
+  - `gcp` 8 条：SCC 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM、漏洞、公网 IP
+- Mock 模式会用合成连接器替换同名 provider，因此厂商筛选器和「已内置连接器」里只有一套腾讯云/阿里云/华为云/AWS/GCP，不会出现 `xxx (Mock)` 重复项。
 - 原始 JSON 在 `internal/mock/fixtures/<cloud>.json`，字段按对应 SDK 的响应结构构造；加载时把时间改写成相对当前时间。
 - 归一化分别调用真实 `tencent.Normalize`、`aliyun.Normalize`、`huawei.Normalize`、`aws.Normalize`、`gcp.Normalize`，因此 Mock 和真实接入走同一条 mapper / OCSF 路径。
 - 所有数据均为虚构：文档保留 IP、`mock-*` 资产、`Mock Corp`、`example.com`、假账号 ID。

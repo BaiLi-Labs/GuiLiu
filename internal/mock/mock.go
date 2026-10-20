@@ -20,8 +20,9 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
-// ProviderID is kept for compatibility with older mock configs.
-const ProviderID = "tencent-mock"
+// ProviderID is kept for compatibility with older mock configs. Mock mode now
+// replaces the production providers under their real IDs.
+const ProviderID = "tencent"
 
 //go:embed fixtures/tencent.json
 var tencentFixture []byte
@@ -47,66 +48,66 @@ type spec struct {
 
 var specs = []spec{
 	{
-		id: "tencent-mock",
+		id: "tencent",
 		descriptor: mockDescriptor(
-			"tencent-mock", "Tencent Cloud (Mock)", "Tencent Cloud",
-			"Cloud Security Center (CSIP)", "tencent.csip.mock", "tencent-csip/v1",
+			"tencent", "Tencent Cloud", "Tencent Cloud",
+			"Cloud Security Center (CSIP)", "tencent.csip", "tencent-csip/v1",
 			[]connector.Product{
-				{Code: "CSIP", Name: "Cloud Security Center (mock)"},
-				{Code: "CWP", Name: "Host Security (mock)"},
-				{Code: "CFW", Name: "Cloud Firewall (mock)"},
-				{Code: "WAF", Name: "Web Application Firewall (mock)"},
+				{Code: "CSIP", Name: "Cloud Security Center"},
+				{Code: "CWP", Name: "Host Security"},
+				{Code: "CFW", Name: "Cloud Firewall"},
+				{Code: "WAF", Name: "Web Application Firewall"},
 			},
 		),
 		fixture:   tencentFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&tencent.Connector{}).Normalize(raw) },
 	},
 	{
-		id: "aliyun-mock",
+		id: "aliyun",
 		descriptor: mockDescriptor(
-			"aliyun-mock", "Alibaba Cloud (Mock)", "Alibaba Cloud",
-			"Cloud Security Center (SAS)", "aliyun.sas.mock", "aliyun-sas/v1",
-			[]connector.Product{{Code: "SAS", Name: "Cloud Security Center (mock)"}},
+			"aliyun", "Alibaba Cloud", "Alibaba Cloud",
+			"Cloud Security Center (SAS)", "aliyun.sas", "aliyun-sas/v1",
+			[]connector.Product{{Code: "SAS", Name: "Cloud Security Center"}},
 		),
 		fixture:   aliyunFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&aliyun.Connector{}).Normalize(raw) },
 	},
 	{
-		id: "huawei-mock",
+		id: "huawei",
 		descriptor: mockDescriptor(
-			"huawei-mock", "Huawei Cloud (Mock)", "Huawei Cloud",
-			"SecMaster (安全云脑)", "huawei.secmaster.mock", "huawei-secmaster/v1",
+			"huawei", "Huawei Cloud", "Huawei Cloud",
+			"SecMaster (安全云脑)", "huawei.secmaster", "huawei-secmaster/v1",
 			[]connector.Product{
-				{Code: "SecMaster", Name: "Security Master (mock)"},
-				{Code: "HSS", Name: "Host Security (mock)"},
-				{Code: "CFW", Name: "Cloud Firewall (mock)"},
-				{Code: "WAF", Name: "Web Application Firewall (mock)"},
+				{Code: "SecMaster", Name: "Security Master"},
+				{Code: "HSS", Name: "Host Security"},
+				{Code: "CFW", Name: "Cloud Firewall"},
+				{Code: "WAF", Name: "Web Application Firewall"},
 			},
 		),
 		fixture:   huaweiFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&huawei.Connector{}).Normalize(raw) },
 	},
 	{
-		id: "aws-mock",
+		id: "aws",
 		descriptor: mockDescriptor(
-			"aws-mock", "AWS (Mock)", "Amazon Web Services",
-			"Security Hub", "aws.securityhub.mock", "aws-securityhub-ocsf/v1",
+			"aws", "AWS", "Amazon Web Services",
+			"Security Hub", "aws.securityhub", "aws-securityhub-ocsf/v1",
 			[]connector.Product{
-				{Code: "SecurityHub", Name: "Security Hub (mock)"},
-				{Code: "GuardDuty", Name: "GuardDuty (mock)"},
-				{Code: "Inspector", Name: "Inspector (mock)"},
-				{Code: "Macie", Name: "Macie (mock)"},
+				{Code: "SecurityHub", Name: "Security Hub"},
+				{Code: "GuardDuty", Name: "GuardDuty"},
+				{Code: "Inspector", Name: "Inspector"},
+				{Code: "Macie", Name: "Macie"},
 			},
 		),
 		fixture:   awsFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&aws.Connector{}).Normalize(raw) },
 	},
 	{
-		id: "gcp-mock",
+		id: "gcp",
 		descriptor: mockDescriptor(
-			"gcp-mock", "Google Cloud (Mock)", "Google Cloud",
-			"Security Command Center", "gcp.scc.mock", "gcp-scc/v1",
-			[]connector.Product{{Code: "SCC", Name: "Security Command Center (mock)"}},
+			"gcp", "Google Cloud", "Google Cloud",
+			"Security Command Center", "gcp.scc", "gcp-scc/v1",
+			[]connector.Product{{Code: "SCC", Name: "Security Command Center"}},
 		),
 		fixture:   gcpFixture,
 		normalize: func(raw json.RawMessage) (model.Alert, error) { return (&gcp.Connector{}).Normalize(raw) },
@@ -142,7 +143,7 @@ func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string,
 // ignored so repeated app construction in tests stays safe.
 func Register(reg *connector.Registry) {
 	for i := range specs {
-		_ = reg.Register(specs[i].descriptor, New)
+		_ = reg.Replace(specs[i].descriptor, New)
 	}
 }
 

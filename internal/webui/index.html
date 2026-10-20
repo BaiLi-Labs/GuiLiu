@@ -313,8 +313,18 @@ tbody tr:last-child td{border-bottom:none}
 .provider-logo{
   width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none;
   background:color-mix(in srgb,var(--accent-2) 9%,transparent);border:1px solid color-mix(in srgb,var(--accent-2) 20%,transparent);
-  font-family:var(--mono);font-size:12px;color:var(--accent-2);text-transform:uppercase;
+  font-family:var(--mono);font-size:11px;color:var(--accent-2);text-transform:uppercase;letter-spacing:.2px;
 }
+.provider-logo.brand{background:color-mix(in srgb,var(--brand) 13%,transparent);border-color:color-mix(in srgb,var(--brand) 32%,transparent);color:color-mix(in srgb,var(--brand) 78%,#000)}
+[data-theme="dark"] .provider-logo.brand{color:color-mix(in srgb,var(--brand) 58%,#fff)}
+.provider-logo.brand-tencent{--brand:#0052D9}
+.provider-logo.brand-aliyun{--brand:#FF6A00}
+.provider-logo.brand-huawei{--brand:#CF0A2C}
+.provider-logo.brand-aws{--brand:#FF9900;text-transform:none;font-weight:800;font-size:10px}
+.provider-logo.brand-gcp{background:conic-gradient(from -45deg,#4285F4 0 25%,#EA4335 0 50%,#FBBC05 0 75%,#34A853 0);border-color:transparent;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.28)}
+.provider-logo.sm{width:22px;height:22px;border-radius:6px;font-size:9px}
+.provider-logo.xs{width:18px;height:18px;border-radius:5px;font-size:8px}
+.provider-logo.brand-aws.sm,.provider-logo.brand-aws.xs{font-size:8px;font-weight:800}
 .chips{display:flex;gap:5px;flex-wrap:wrap}
 .chip{font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--chip-bg);border:1px solid var(--line-soft);color:var(--muted)}
 .chip.accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 22%,transparent);background:color-mix(in srgb,var(--accent) 5%,transparent)}
@@ -591,11 +601,30 @@ const providerName = (id) => {
   const p = S.providers.find((x) => x.id === id);
   return p ? p.name : id;
 };
+const PROVIDER_SHORT = {
+  tencent: 'Tencent',
+  aliyun: 'Alibaba',
+  huawei: 'Huawei',
+  aws: 'AWS',
+  gcp: 'Google Cloud',
+};
 const providerShort = (id) => {
+  if (PROVIDER_SHORT[id]) return PROVIDER_SHORT[id];
   const p = S.providers.find((x) => x.id === id);
   if (!p) return id;
   return p.vendor || p.name;
 };
+const BRANDS = {
+  tencent: {mark: 'TC', cls: 'brand-tencent'},
+  aliyun: {mark: 'Ali', cls: 'brand-aliyun'},
+  huawei: {mark: 'HW', cls: 'brand-huawei'},
+  aws: {mark: 'aws', cls: 'brand-aws'},
+  gcp: {mark: 'G', cls: 'brand-gcp'},
+};
+function brandMark(id, size) {
+  const b = BRANDS[id] || {mark: String(id || '?').slice(0, 2), cls: ''};
+  return `<span class="provider-logo brand ${b.cls} ${size || ''}" title="${esc(providerShort(id))}">${esc(b.mark)}</span>`;
+}
 const isAdmin = () => !!(S.me && (S.me.dev_mode || (S.me.user && S.me.user.role === 'admin')));
 const truncate = (s, n) => {
   s = String(s || '');
@@ -761,7 +790,9 @@ async function boot() {
     $('side-version').textContent = 'v' + (data.version || '—') + ' · OCSF ' + (data.ocsf_version || '—');
     $('side-dot').className = 'dot';
     $('side-status').textContent = '服务正常';
-    $('top-pill').innerHTML = '<span class="dot"></span>只读数据面';
+    $('top-pill').innerHTML = data.mock
+      ? '<span class="dot off"></span>Mock 数据'
+      : '<span class="dot"></span>只读数据面';
     $('gate').classList.add('hidden');
   } catch (e) {
     if (e.status === 401) {
@@ -961,7 +992,10 @@ function alertTable(alerts, compact) {
             <div class="cell-sub">${esc(a.alert_type || a.product || '—')}</div>
           </td>
           <td>
-            <div style="font-size:12px">${esc(providerShort(a.provider))}</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              ${brandMark(a.provider, 'xs')}
+              <span style="font-size:12px">${esc(providerShort(a.provider))}</span>
+            </div>
             <div class="cell-sub">${esc(a.account_name || a.account_id)}</div>
           </td>
           <td>
@@ -1067,7 +1101,7 @@ async function openAlert(id) {
     const a = await api('/alerts/' + encodeURIComponent(id));
     S.detail = a;
     $('drawer-title').textContent = a.title || '(无标题)';
-    $('drawer-eyebrow').textContent = (providerShort(a.provider) || '') + ' · ' + (a.product || 'alert');
+    $('drawer-eyebrow').innerHTML = `${brandMark(a.provider, 'xs')} ${esc(providerShort(a.provider) || '')} · ${esc(a.product || 'alert')}`;
     const actions = isAdmin()
       ? ['acknowledged', 'suppressed', 'closed', 'open']
         .filter((s) => s !== a.status)
@@ -1090,7 +1124,7 @@ async function openAlert(id) {
         <dl class="kv">
           <dt>告警 ID</dt><dd class="mono">${esc(a.id)}</dd>
           <dt>外部 ID</dt><dd class="mono">${esc(a.external_id)}</dd>
-          <dt>云 / 账号</dt><dd>${esc(providerName(a.provider))} · ${esc(a.account_name || a.account_id)}${a.account_uid ? ' · <span class="mono">' + esc(a.account_uid) + '</span>' : ''}</dd>
+          <dt>云 / 账号</dt><dd>${brandMark(a.provider, 'xs')} ${esc(providerName(a.provider))} · ${esc(a.account_name || a.account_id)}${a.account_uid ? ' · <span class="mono">' + esc(a.account_uid) + '</span>' : ''}</dd>
           <dt>产品 / 类型</dt><dd>${esc(a.product || '—')} · ${esc(a.alert_type || '—')}</dd>
           <dt>资产</dt><dd>${esc(a.resource && a.resource.name || '—')} <span class="mono">${esc(a.resource && a.resource.id || '')}</span></dd>
           <dt>源 → 目标</dt><dd class="mono">${esc(a.source_ip || '—')} → ${esc(a.destination_ip || '—')}</dd>
@@ -1161,12 +1195,14 @@ async function loadAccounts(seq) {
           <button class="btn primary" onclick="openAccountModal()">接入第一个账号</button>
         </div></div>`}
       <div class="section" style="margin-top:24px">
-        <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin:0 0 10px">已内置连接器</h4>
+        <h4 style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin:0 0 10px">已内置连接器
+          ${S.meta && S.meta.mock ? '<span class="pill" style="margin-left:8px;text-transform:none;letter-spacing:0">Mock 模式：使用合成数据</span>' : ''}
+        </h4>
         <div class="grid cols-2">
           ${S.providers.map((p) => `
             <div class="card provider-card">
               <div class="provider-title">
-                <div class="provider-logo">${esc((p.id || '?').slice(0, 2))}</div>
+                ${brandMark(p.id)}
                 <div>
                   <div style="font-weight:600">${esc(p.name)}</div>
                   <div class="account-meta">${esc(p.product)} · API ${esc(p.api_version || '—')}</div>
@@ -1192,6 +1228,7 @@ function accountCard(a) {
   return `<div class="card account-card">
     <div class="account-head">
       <span class="health-dot ${healthClass}"></span>
+      ${brandMark(a.provider, 'sm')}
       <div style="min-width:0">
         <div class="account-name">${esc(a.name)}</div>
         <div class="account-meta">${esc(a.provider_name || a.provider)} · ${esc(a.account_uid || '未填写账号 ID')}${a.region ? ' · ' + esc(a.region) : ''}</div>

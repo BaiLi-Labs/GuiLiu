@@ -6,11 +6,13 @@
 
 | Provider | fixture | 原始格式 | 覆盖分类 |
 | --- | --- | --- | --- |
-| `tencent-mock` | `fixtures/tencent.json` | CSIP `AlertInfo` | CFW / WAF / CWP / CSIP，SQL 注入、Webshell、反弹 Shell、暴力破解、弱口令、端口扫描、CC |
-| `aliyun-mock` | `fixtures/aliyun.json` | SAS `DescribeSuspEvents` 的 `SuspEvents` 项 | 主机恶意进程、Webshell、SSH 暴力破解、容器逃逸、K8s 特权 Pod、漏洞、基线、网络扫描 |
-| `huawei-mock` | `fixtures/huawei.json` | SecMaster `ListAlerts` 的 `ListAlertRsp` | HSS 反弹 Shell / Webshell / 暴力破解、CFW 端口扫描、WAF SQL/命令注入、CSIP 弱口令/漏洞 |
-| `aws-mock` | `fixtures/aws.json` | Security Hub `GetFindingsV2` 返回的 OCSF finding | GuardDuty 未授权访问/钓鱼/挖矿、Inspector CVE、Security Hub S3/安全组、Macie、IAM |
-| `gcp-mock` | `fixtures/gcp.json` | SCC `ListFindings` 的 Finding（protojson） | 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM 外部访问、漏洞、公网 IP |
+| `tencent` | `fixtures/tencent.json` | CSIP `AlertInfo` | CFW / WAF / CWP / CSIP，SQL 注入、Webshell、反弹 Shell、暴力破解、弱口令、端口扫描、CC |
+| `aliyun` | `fixtures/aliyun.json` | SAS `DescribeSuspEvents` 的 `SuspEvents` 项 | 主机恶意进程、Webshell、SSH 暴力破解、容器逃逸、K8s 特权 Pod、漏洞、基线、网络扫描 |
+| `huawei` | `fixtures/huawei.json` | SecMaster `ListAlerts` 的 `ListAlertRsp` | HSS 反弹 Shell / Webshell / 暴力破解、CFW 端口扫描、WAF SQL/命令注入、CSIP 弱口令/漏洞 |
+| `aws` | `fixtures/aws.json` | Security Hub `GetFindingsV2` 返回的 OCSF finding | GuardDuty 未授权访问/钓鱼/挖矿、Inspector CVE、Security Hub S3/安全组、Macie、IAM |
+| `gcp` | `fixtures/gcp.json` | SCC `ListFindings` 的 Finding（protojson） | 公开 Bucket、开放防火墙、SQL 注入、恶意软件、挖矿、IAM 外部访问、漏洞、公网 IP |
+
+Mock 模式使用 `Registry.Replace` 覆盖同名的生产 provider，因此不会出现两套厂商卡片或两个筛选选项；配置文件里的 provider 仍是 `tencent` / `aliyun` / `huawei` / `aws` / `gcp`。
 
 加载时会把时间字段改写为相对当前时间，避免 fixture 过期后从默认时间窗消失。支持的字段：
 
