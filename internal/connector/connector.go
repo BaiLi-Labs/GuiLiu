@@ -16,11 +16,13 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
-// Credential is the AK/SK pair used by cloud APIs. SessionToken is optional.
+// Credential is the provider credential bundle. Most clouds use AK/SK;
+// GCP uses a service account JSON document.
 type Credential struct {
-	AccessKeyID     string `json:"access_key_id"`
-	AccessKeySecret string `json:"access_key_secret"`
-	SessionToken    string `json:"session_token,omitempty"`
+	AccessKeyID        string `json:"access_key_id,omitempty"`
+	AccessKeySecret    string `json:"access_key_secret,omitempty"`
+	SessionToken       string `json:"session_token,omitempty"`
+	ServiceAccountJSON string `json:"service_account_json,omitempty"`
 }
 
 // AccountConfig is the immutable runtime configuration handed to a factory.
@@ -36,11 +38,22 @@ type AccountConfig struct {
 
 // CredentialField describes one input the console must collect.
 type CredentialField struct {
-	Name     string `json:"name"`
-	Label    string `json:"label"`
-	Secret   bool   `json:"secret"`
-	Required bool   `json:"required"`
-	Help     string `json:"help,omitempty"`
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+	Secret    bool   `json:"secret"`
+	Required  bool   `json:"required"`
+	Multiline bool   `json:"multiline,omitempty"`
+	Help      string `json:"help,omitempty"`
+}
+
+// OptionField describes a non-secret provider setting (project ID, workspace,
+// GCP parent, ...) that the console should collect into account options.
+type OptionField struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Placeholder string `json:"placeholder,omitempty"`
+	Required    bool   `json:"required"`
+	Help        string `json:"help,omitempty"`
 }
 
 // Product describes a sub-product aggregated by the connector.
@@ -60,6 +73,7 @@ type Descriptor struct {
 	DocsURL       string            `json:"docs_url,omitempty"`
 	MapperVersion string            `json:"mapper_version"`
 	Credential    []CredentialField `json:"credential_fields"`
+	OptionFields  []OptionField     `json:"option_fields,omitempty"`
 	Products      []Product         `json:"products"`
 }
 
@@ -191,11 +205,11 @@ func Classify(provider string, err error) error {
 	kind := KindPermanent
 	code := ""
 	switch {
-	case containsAny(lower, "requestlimitexceeded", "throttling", "too many requests", "limit exceeded", "qps", "flowcontrol"):
+	case containsAny(lower, "requestlimitexceeded", "throttling", "too many requests", "limit exceeded", "qps", "flowcontrol", "resourceexhausted", "resource exhausted", "slowdown", "rate exceeded"):
 		kind, code = KindThrottled, "throttled"
-	case containsAny(lower, "authfailure", "unauthorized", "invalidaccesskey", "signature", "forbidden", "access denied", "permission", "not authorized"):
+	case containsAny(lower, "authfailure", "unauthorized", "invalidaccesskey", "signature", "forbidden", "access denied", "permission", "not authorized", "unauthenticated", "invalidclienttokenid", "expiredtoken", "unrecognizedclient"):
 		kind, code = KindAuth, "auth"
-	case containsAny(lower, "timeout", "timed out", "connection reset", "connection refused", "temporarily unavailable", "eof", "server error", "internal error"):
+	case containsAny(lower, "timeout", "timed out", "deadline exceeded", "connection reset", "connection refused", "temporarily unavailable", "unavailable", "eof", "server error", "internal error"):
 		kind, code = KindTransient, "transient"
 	}
 	var ne net.Error
@@ -209,6 +223,17 @@ func Classify(provider string, err error) error {
 // ConfigError builds a configuration error.
 func ConfigError(provider, msg string) error {
 	return &Error{Provider: provider, Kind: KindConfig, Code: "config", Message: msg}
+}
+
+// Close releases optional connector resources (for example a GCP gRPC client).
+func Close(c Connector) error {
+	if c == nil {
+		return nil
+	}
+	if closer, ok := c.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 func containsAny(s string, subs ...string) bool {

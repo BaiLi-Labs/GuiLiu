@@ -1280,7 +1280,7 @@ function openAccountModal(id) {
       <div class="form-grid">
         <div class="full">
           <label class="lbl">云厂商</label>
-          <select class="field" id="f-provider" style="width:100%" onchange="renderCredentialFields(this.value)" ${editing ? 'disabled' : ''}>
+          <select class="field" id="f-provider" style="width:100%" onchange="renderProviderFields(this.value)" ${editing ? 'disabled' : ''}>
             ${S.providers.map((p) => `<option value="${esc(p.id)}" ${p.id === providerId ? 'selected' : ''}>${esc(p.name)} · ${esc(p.product)}</option>`).join('')}
           </select>
         </div>
@@ -1290,17 +1290,18 @@ function openAccountModal(id) {
         </div>
         <div>
           <label class="lbl">云账号 ID</label>
-          <input class="field" id="f-uid" style="width:100%" placeholder="UIN / 阿里云账号 ID" value="${esc(editing ? editing.account_uid : '')}">
+          <input class="field" id="f-uid" style="width:100%" placeholder="可选，云账号 ID / 项目 ID" value="${esc(editing ? editing.account_uid : '')}">
         </div>
         <div>
           <label class="lbl">地域 Region</label>
-          <input class="field" id="f-region" style="width:100%" placeholder="可选，例如 ap-guangzhou" value="${esc(editing ? editing.region : '')}">
+          <input class="field" id="f-region" style="width:100%" placeholder="可选，例如 ap-guangzhou / us-east-1" value="${esc(editing ? editing.region : '')}">
         </div>
         <div>
-          <label class="lbl">AK 后缀</label>
+          <label class="lbl">凭据后缀</label>
           <input class="field" style="width:100%" value="${esc(editing ? editing.access_key_hint || '—' : '接入后自动生成')}" disabled>
         </div>
         <div class="full" id="cred-fields"></div>
+        <div class="full" id="option-fields"></div>
         <div>
           <label class="lbl">Endpoint（可选）</label>
           <input class="field" id="f-endpoint" style="width:100%" placeholder="默认官方 endpoint"
@@ -1308,7 +1309,7 @@ function openAccountModal(id) {
         </div>
         <div>
           <label class="lbl">限速 QPS（可选）</label>
-          <input class="field" id="f-rate" type="number" min="1" step="1" style="width:100%" placeholder="腾讯 2 / 阿里 5"
+          <input class="field" id="f-rate" type="number" min="1" step="1" style="width:100%" placeholder="可选，例如 2"
             value="${esc(editing && editing.options ? editing.options.rate_limit || '' : '')}">
         </div>
         <div>
@@ -1317,30 +1318,57 @@ function openAccountModal(id) {
             value="${esc(editing && editing.options ? editing.options.max_pages || '' : '')}">
         </div>
       </div>
-      ${editing ? '<div class="form-note">留空凭据字段表示保持现有 AK/SK 不变。填写新的 Secret 会覆盖旧凭据。</div>' : '<div class="form-note">建议使用只读子账号；腾讯云需 CSIP 告警读取权限，阿里云需云安全中心告警读取权限。</div>'}
+      ${editing ? '<div class="form-note">留空凭据字段表示保持现有凭据不变。填写新的 Secret 会覆盖旧凭据。</div>' : '<div class="form-note">建议使用只读子账号：腾讯云 CSIP、阿里云 SAS、华为云 SecMaster、AWS Security Hub、GCP Security Command Center 均只需告警读取权限。</div>'}
       <div class="modal-foot">
         <button type="button" class="btn ghost" onclick="closeModal()">取消</button>
         <button type="submit" class="btn primary">${editing ? '保存修改' : '接入并保存'}</button>
       </div>
     </form>`;
   $('modal-mask').classList.add('open');
-  renderCredentialFields(provider ? provider.id : '');
+  renderProviderFields(provider ? provider.id : '', editing);
   if (editing) {
-    document.querySelectorAll('#cred-fields input').forEach((el) => { el.required = false; });
+    document.querySelectorAll('#cred-fields input, #cred-fields textarea').forEach((el) => { el.required = false; });
   }
 }
-function renderCredentialFields(providerId) {
+function renderProviderFields(providerId, editing) {
+  renderCredentialFields(providerId, editing);
+  renderOptionFields(providerId, editing);
+}
+function renderCredentialFields(providerId, editing) {
   const provider = S.providers.find((p) => p.id === providerId);
   const box = $('cred-fields');
   if (!provider) { box.innerHTML = ''; return; }
   box.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    ${(provider.credential_fields || []).map((f) => `
-      <div>
+    ${(provider.credential_fields || []).map((f) => {
+      const control = f.multiline
+        ? `<textarea class="field" id="cred-${esc(f.name)}" style="width:100%;min-height:118px;font-family:var(--mono)"
+             placeholder="${esc(f.help || (f.secret ? '仅写入，不回显' : ''))}" ${f.required && !editing ? 'required' : ''} autocomplete="off"></textarea>`
+        : `<input class="field" id="cred-${esc(f.name)}" style="width:100%" type="${f.secret ? 'password' : 'text'}"
+             placeholder="${esc(f.help || (f.secret ? '仅写入，不回显' : ''))}" ${f.required && !editing ? 'required' : ''} autocomplete="off">`;
+      return `<div ${f.multiline ? 'style="grid-column:1/-1"' : ''}>
         <label class="lbl">${esc(f.label)}${f.required ? ' *' : ''}</label>
-        <input class="field" id="cred-${esc(f.name)}" style="width:100%" type="${f.secret ? 'password' : 'text'}"
-          placeholder="${esc(f.help || (f.secret ? '仅写入，不回显' : ''))}" ${f.required ? 'required' : ''} autocomplete="off">
-      </div>`).join('')}
+        ${control}
+      </div>`;
+    }).join('')}
   </div>`;
+}
+function renderOptionFields(providerId, editing) {
+  const provider = S.providers.find((p) => p.id === providerId);
+  const box = $('option-fields');
+  if (!provider) { box.innerHTML = ''; return; }
+  const fields = provider.option_fields || [];
+  if (!fields.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="hr" style="margin:2px 0 10px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      ${fields.map((f) => `
+        <div>
+          <label class="lbl">${esc(f.label)}${f.required ? ' *' : ''}</label>
+          <input class="field" id="opt-${esc(f.name)}" style="width:100%"
+            value="${esc(editing && editing.options ? editing.options[f.name] || '' : '')}"
+            placeholder="${esc(f.placeholder || '')}" ${f.required ? 'required' : ''} autocomplete="off">
+          ${f.help ? `<div class="form-note" style="margin-top:5px">${esc(f.help)}</div>` : ''}
+        </div>`).join('')}
+    </div>`;
 }
 function closeModal() {
   $('modal-mask').classList.remove('open');
@@ -1366,24 +1394,31 @@ async function submitAccount(ev, id) {
   if (endpoint) body.options.endpoint = endpoint; else delete body.options.endpoint;
   if (rate) body.options.rate_limit = rate; else delete body.options.rate_limit;
   if (maxPages) body.options.max_pages = maxPages; else delete body.options.max_pages;
-  let hasCredential = false;
+  (providerDef.option_fields || []).forEach((f) => {
+    const el = $('opt-' + f.name);
+    if (!el) return;
+    const value = el.value.trim();
+    if (value) body.options[f.name] = value; else delete body.options[f.name];
+  });
   (providerDef.credential_fields || []).forEach((f) => {
     const el = $('cred-' + f.name);
-    if (el && el.value.trim() !== '') {
-      body[f.name] = el.value.trim();
-      if (f.name === 'access_key_secret') hasCredential = true;
-    }
+    if (el && el.value.trim() !== '') body[f.name] = el.value.trim();
   });
   try {
     if (id) {
       const patch = {name: body.name, account_uid: body.account_uid, region: body.region, options: body.options};
-      if (body.access_key_id) patch.access_key_id = body.access_key_id;
-      if (body.access_key_secret) patch.access_key_secret = body.access_key_secret;
-      if (body.session_token) patch.session_token = body.session_token;
+      (providerDef.credential_fields || []).forEach((f) => {
+        if (body[f.name]) patch[f.name] = body[f.name];
+      });
       await api('/accounts/' + encodeURIComponent(id), {method: 'PATCH', body: JSON.stringify(patch)});
       toast('账号已更新');
     } else {
-      if (!body.access_key_id || !body.access_key_secret) throw new Error('请填写 AccessKey ID 与 Secret');
+      const missing = [];
+      (providerDef.credential_fields || []).forEach((f) => { if (f.required && !body[f.name]) missing.push(f.label); });
+      (providerDef.option_fields || []).forEach((f) => {
+        if (f.required && !(body.options && body.options[f.name])) missing.push(f.label);
+      });
+      if (missing.length) throw new Error('请填写：' + missing.join('、'));
       await api('/accounts', {method: 'POST', body: JSON.stringify(body)});
       toast('账号已接入，可点击「立即同步」开始拉取告警');
     }

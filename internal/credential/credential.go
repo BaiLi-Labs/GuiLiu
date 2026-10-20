@@ -48,3 +48,23 @@ func Hint(accessKeyID string) string {
 	}
 	return "****" + accessKeyID[len(accessKeyID)-4:]
 }
+
+// HintFor returns a display-safe hint for any credential kind.
+func HintFor(cred connector.Credential) string {
+	if cred.AccessKeyID != "" {
+		return Hint(cred.AccessKeyID)
+	}
+	if cred.ServiceAccountJSON != "" {
+		var sa struct {
+			ClientEmail string `json:"client_email"`
+		}
+		if err := json.Unmarshal([]byte(cred.ServiceAccountJSON), &sa); err == nil && sa.ClientEmail != "" {
+			if len(sa.ClientEmail) > 8 {
+				return "****" + sa.ClientEmail[len(sa.ClientEmail)-8:]
+			}
+			return "****" + sa.ClientEmail
+		}
+		return "****json"
+	}
+	return "****"
+}

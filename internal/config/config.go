@@ -74,15 +74,16 @@ type SyncConfig struct {
 
 // AccountConfig enables declarative (IaC) account onboarding.
 type AccountConfig struct {
-	Name            string            `json:"name"`
-	Provider        string            `json:"provider"`
-	AccountUID      string            `json:"account_uid"`
-	Region          string            `json:"region"`
-	AccessKeyID     string            `json:"access_key_id"`
-	AccessKeySecret string            `json:"access_key_secret"`
-	SessionToken    string            `json:"session_token"`
-	Enabled         *bool             `json:"enabled"`
-	Options         map[string]string `json:"options"`
+	Name               string            `json:"name"`
+	Provider           string            `json:"provider"`
+	AccountUID         string            `json:"account_uid"`
+	Region             string            `json:"region"`
+	AccessKeyID        string            `json:"access_key_id"`
+	AccessKeySecret    string            `json:"access_key_secret"`
+	SessionToken       string            `json:"session_token"`
+	ServiceAccountJSON string            `json:"service_account_json"`
+	Enabled            *bool             `json:"enabled"`
+	Options            map[string]string `json:"options"`
 }
 
 func (a AccountConfig) IsEnabled() bool {

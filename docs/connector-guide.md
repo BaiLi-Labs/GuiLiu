@@ -70,7 +70,9 @@ func descriptor() connector.Descriptor {
 
 - `ID` 是稳定的短标识，出现在 URL、MCP 参数、数据库里，不要随 UI 改名。
 - `MapperVersion` 写入每条告警与 OCSF `unmapped`。映射语义变化时递增，便于按版本重放。
-- 凭据字段名统一使用 `access_key_id` / `access_key_secret` / `session_token`，这样 API 与 Web 控制台无需特殊逻辑。
+- 凭据字段名由 `CredentialField` 声明，API 与 Web 控制台按 name 原样收集。AK/SK 厂商沿用 `access_key_id` / `access_key_secret` / `session_token`；GCP 使用 `service_account_json`，并设置 `Multiline: true`。
+- 非凭据配置用 `OptionFields` 声明，例如华为云的 `project_id` / `workspace_id`、GCP 的 `parent`。这些值进入 `account.options`，不做加密；不要把 Secret 放进 OptionFields。
+- 连接器如果持有需要释放的客户端（如 GCP gRPC），实现 `Close() error`；引擎、API 探测和 CLI 会调用 `connector.Close`。
 
 ## 4. New：客户端与限速
 

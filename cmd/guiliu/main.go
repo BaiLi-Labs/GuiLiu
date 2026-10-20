@@ -252,6 +252,7 @@ func runProbe(args []string) int {
 		fmt.Fprintln(os.Stderr, "connector:", err)
 		return 1
 	}
+	defer connector.Close(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

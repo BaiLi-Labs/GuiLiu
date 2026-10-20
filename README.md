@@ -25,6 +25,9 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 插件化接入 | 每个云厂商实现一个 `connector.Connector`，`init()` 自注册，新增厂商不改核心 |
 | 腾讯云 | 云安全中心 CSIP `DescribeAlertList`（聚合 CWP / CFW / WAF / CSIP 告警） |
 | 阿里云 | 云安全中心 SAS `DescribeSuspEvents` |
+| 华为云 | 安全云脑 SecMaster `ListAlerts` |
+| AWS | Security Hub `GetFindingsV2`（原生 OCSF） |
+| Google Cloud | Security Command Center `ListFindings` |
 | 统一模型 | OCSF Detection Finding (`class_uid=2004`) + 平台扩展字段 |
 | 原始证据 | 每条告警保留厂商原始 JSON 与 `mapper_version`，可重放映射 |
 | 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，失败不推进游标；支持页级断点续传 |
@@ -36,7 +39,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，8 个只读工具；HTTP 使用 API Key |
 | Mock | `make mock` 启动免登录的合成腾讯云数据，用于前端和映射开发 |
-| 凭据安全 | AK/SK 使用 AES-256-GCM 加密存储；API 只返回 `****后四位` |
+| 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
 
 ---
@@ -67,6 +70,18 @@ make mock    # 合成腾讯云数据 + 内存库 + 免登录，见下文 Mock
 ```
 
 > 生产模式必须登录；没有用户且未设置 `GUILIU_ADMIN_PASSWORD` 时，服务会拒绝启动，而不是以匿名方式运行。
+
+### 已支持的云
+
+| 厂商 | 告警 API | 凭据 | 额外配置 |
+| --- | --- | --- | --- |
+| 腾讯云 | CSIP `DescribeAlertList` | SecretId / SecretKey | Region，可选 SessionToken |
+| 阿里云 | SAS `DescribeSuspEvents` | AccessKey ID / Secret | Region |
+| 华为云 | SecMaster `ListAlerts` | AK / SK | Region、`project_id`、`workspace_id` |
+| AWS | Security Hub `GetFindingsV2` | AK / SK，或 IAM Role | Region；AK/SK 留空时使用实例角色/环境默认凭据 |
+| Google Cloud | SCC `ListFindings` | Service Account JSON，或 ADC / Workload Identity | `parent`，如 `organizations/123456`、`projects/my-project`、`folders/456` |
+
+华为云的 `project_id` / `workspace_id` 和 GCP 的 `parent` 在控制台接入表单中填写；GCP Service Account JSON 会加密存储。
 
 ### Docker
 
@@ -203,9 +218,11 @@ make mock
 ## 架构
 
 ```text
-腾讯云 CSIP ─┐
-阿里云 SAS  ─┤   Connector 插件层
-AWS / Azure ─┘   AK/SK · 分页 · 限流 · 重试 · 错误分类
+腾讯云 CSIP ─────┐
+阿里云 SAS  ─────┤
+华为云 SecMaster ─┤   Connector 插件层
+AWS Security Hub ─┤   AK/SK · 分页 · 限流 · 重试 · 错误分类
+GCP SCC  ────────┘
                        │  raw vendor JSON
                        ▼
               Normalization 层
@@ -470,7 +487,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 - **暴力破解防护**：同一用户名 15 分钟内 10 次失败后限流；最多 4 个并发 Argon2 校验。
 - **CSRF / CORS**：Session 使用 SameSite=Lax，写请求额外校验 `Origin`；不启用通配符 CORS。登录接口同样拒绝跨站 Origin。
 - **最小权限**：云账号只需要安全中心的告警只读权限。不要使用主账号 AK。
-- **静态加密**：AK/SK 使用 AES-256-GCM；主密钥来自 `GUILIU_SECRET_KEY`（base64 32 字节）或 `secret_key_file`（首次启动生成，权限 `0600`）。
+- **静态加密**：AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM；主密钥来自 `GUILIU_SECRET_KEY`（base64 32 字节）或 `secret_key_file`（首次启动生成，权限 `0600`）。
 - **不回显**：API 只返回 `access_key_hint`（`****1234`），不返回 Secret。
 - **默认本机**：监听 `127.0.0.1:8080`。对外暴露时放在 HTTPS 反向代理之后，并设置 `secure_cookies: true`。
 - **只读数据面**：不提供云 API 写操作、自动封禁、任意 SQL。
@@ -514,7 +531,9 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 - **不写回云厂商**：平台状态独立，避免误操作与权限扩张。
 - **单实例 SQLite**：适合单机/小团队与 POC；数据量上来后替换 `store.Store` 为 PostgreSQL / ClickHouse。
 - **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据。
-- **AWS / Azure / 华为云尚未实现**：接口已就绪，见 `docs/connector-guide.md`。
+- **Azure 尚未实现**：接口已就绪，见 `docs/connector-guide.md`。AWS / 华为云 / GCP 已完成连接器与单元测试，但仍需真实凭据做一轮字段校准。
+- **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 只拉取 `ACTIVE` findings，按 `event_time` 过滤；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
+- **OCSF 映射仍需真实样本**：新连接器的时间字段、资源类型、证据结构按官方 SDK/文档实现，真实账号下建议先用 `probe -raw` 抽样核对再开持续同步。
 
 ---
 
@@ -557,7 +576,7 @@ make run      # 本地启动
 
 ## 路线图
 
-1. AWS Security Hub（`GetFindingsV2` / OCSF 原生）、Azure Defender、华为云 SecMaster。
+1. Azure Defender / Microsoft Defender for Cloud；AWS Organizations `Scopes`、GCP folder/多 parent 支持。
 2. 官方 OCSF Schema 校验进入 CI，对每个 mapper 的输出做结构校验。
 3. PostgreSQL / ClickHouse 存储实现（接口已隔离）。
 4. 基于 `raw + mapper_version` 的重放/重建索引任务。

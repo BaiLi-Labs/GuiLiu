@@ -1,0 +1,247 @@
+package gcp
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+	"time"
+
+	"cloud.google.com/go/securitycenter/apiv1/securitycenterpb"
+	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
+	"github.com/BaiLi-Labs/GuiLiu/internal/ocsf"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+func normalizeFinding(f *securitycenterpb.Finding, raw json.RawMessage) model.Alert {
+	externalID := connector.FirstNonEmpty(f.GetName(), f.GetCanonicalName())
+	if externalID == "" {
+		externalID = connector.HashRaw(raw)
+	}
+	eventTime := timestamp(f.GetEventTime())
+	if eventTime.IsZero() {
+		eventTime = timestamp(f.GetCreateTime())
+	}
+	firstSeen := timestamp(f.GetCreateTime())
+	if firstSeen.IsZero() {
+		firstSeen = eventTime
+	}
+	lastSeen := eventTime
+	severity := mapSeverity(f.GetSeverity().String())
+	resource := resourceFromName(f.GetResourceName())
+	project := projectFromFinding(f)
+
+	alert := model.Alert{
+		ExternalID:       externalID,
+		Title:            connector.FirstNonEmpty(f.GetCategory(), sourceString(f, "finding_name", "title", "description"), "GCP Security Command Center finding"),
+		Description:      connector.FirstNonEmpty(f.GetDescription(), sourceString(f, "description")),
+		Severity:         severity,
+		OriginalSeverity: f.GetSeverity().String(),
+		VendorStatus:     strings.ToLower(f.GetState().String()),
+		EventTime:        eventTime,
+		FirstSeenAt:      firstSeen,
+		LastSeenAt:       lastSeen,
+		OriginalTime:     formatTimestamp(f.GetCreateTime()),
+		Product:          connector.FirstNonEmpty(sourceString(f, "source", "scanner_name", "product"), "Security Command Center"),
+		AlertType:        connector.FirstNonEmpty(f.GetCategory(), f.GetFindingClass().String()),
+		Region:           regionFromResource(f.GetResourceName()),
+		CloudAccountUID:  project,
+		Resource:         resource,
+		Raw:              append(json.RawMessage(nil), raw...),
+	}
+	if m := f.GetMitreAttack(); m != nil {
+		if tactic := m.GetPrimaryTactic().String(); !strings.Contains(tactic, "UNSPECIFIED") {
+			alert.Tactic = tactic
+		}
+		if techniques := m.GetPrimaryTechniques(); len(techniques) > 0 {
+			alert.Technique = techniques[0].String()
+		}
+	}
+	if connections := f.GetConnections(); len(connections) > 0 && connections[0] != nil {
+		alert.SourceIP = connections[0].GetSourceIp()
+		alert.DestinationIP = connections[0].GetDestinationIp()
+	}
+	if alert.SourceIP == "" {
+		alert.SourceIP = sourceString(f, "source_ip", "src_ip", "remote_ip")
+	}
+	if alert.DestinationIP == "" {
+		alert.DestinationIP = sourceString(f, "destination_ip", "dest_ip", "local_ip")
+	}
+	alert.Observables = observables(f, alert)
+	if ev := evidence(f); ev != nil {
+		alert.Evidences = []model.Evidence{*ev}
+	}
+	alert.Unmapped = map[string]any{"gcp_scc": map[string]any{
+		"parent":         f.GetParent(),
+		"canonical_name": f.GetCanonicalName(),
+		"finding_class":  f.GetFindingClass().String(),
+		"external_uri":   f.GetExternalUri(),
+		"mute":           f.GetMute().String(),
+		"next_steps":     f.GetNextSteps(),
+	}}
+	return alert
+}
+
+func mapSeverity(severity string) model.Severity {
+	switch strings.ToUpper(severity) {
+	case "CRITICAL":
+		return model.SeverityCritical
+	case "HIGH":
+		return model.SeverityHigh
+	case "MEDIUM":
+		return model.SeverityMedium
+	case "LOW":
+		return model.SeverityLow
+	default:
+		return model.SeverityUnknown
+	}
+}
+
+func observables(f *securitycenterpb.Finding, alert model.Alert) []model.Observable {
+	out := make([]model.Observable, 0, 6)
+	seen := map[string]bool{}
+	add := func(name string, typeID int, value string) {
+		if value == "" || seen[name+"|"+value] {
+			return
+		}
+		seen[name+"|"+value] = true
+		out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
+	}
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
+	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
+	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID)
+	add("hostname", ocsf.ObservableHostname, sourceString(f, "hostname", "instance_name", "resource_name"))
+	return out
+}
+
+func evidence(f *securitycenterpb.Finding) *model.Evidence {
+	data := map[string]any{}
+	if len(f.GetSourceProperties()) > 0 {
+		props := map[string]any{}
+		for k, v := range f.GetSourceProperties() {
+			if v != nil {
+				props[k] = v.AsInterface()
+			}
+		}
+		data["source_properties"] = props
+	}
+	if connections := f.GetConnections(); len(connections) > 0 {
+		items := make([]map[string]any, 0, len(connections))
+		for _, c := range connections {
+			if c == nil {
+				continue
+			}
+			items = append(items, map[string]any{
+				"source_ip":        c.GetSourceIp(),
+				"source_port":      c.GetSourcePort(),
+				"destination_ip":   c.GetDestinationIp(),
+				"destination_port": c.GetDestinationPort(),
+				"protocol":         c.GetProtocol().String(),
+			})
+		}
+		data["connections"] = items
+	}
+	if m := f.GetMitreAttack(); m != nil {
+		data["mitre_attack"] = map[string]any{
+			"tactic":     m.GetPrimaryTactic().String(),
+			"techniques": enumStrings(m.GetPrimaryTechniques()),
+			"version":    m.GetVersion(),
+		}
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return &model.Evidence{Type: "gcp.scc", Data: data}
+}
+
+func enumStrings[T interface{ String() string }](values []T) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, v.String())
+	}
+	return out
+}
+
+func sourceString(f *securitycenterpb.Finding, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := f.GetSourceProperties()[key]; ok && v != nil {
+			if s := valueString(v.AsInterface()); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func valueString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		if x == float64(int64(x)) {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	case []any:
+		for _, item := range x {
+			if s := valueString(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func timestamp(ts *timestamppb.Timestamp) time.Time {
+	if ts == nil {
+		return time.Time{}
+	}
+	return ts.AsTime().UTC()
+}
+
+func formatTimestamp(ts *timestamppb.Timestamp) string {
+	t := timestamp(ts)
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
+func resourceFromName(name string) model.Resource {
+	if name == "" {
+		return model.Resource{}
+	}
+	parts := strings.Split(strings.TrimPrefix(name, "//"), "/")
+	resourceName := parts[len(parts)-1]
+	resourceType := "gcp_resource"
+	if len(parts) >= 2 {
+		resourceType = parts[len(parts)-2]
+	}
+	return model.Resource{ID: name, Name: resourceName, Type: resourceType}
+}
+
+func regionFromResource(name string) string {
+	parts := strings.Split(strings.TrimPrefix(name, "//"), "/")
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "regions" || parts[i] == "zones" || parts[i] == "locations" {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func projectFromFinding(f *securitycenterpb.Finding) string {
+	if p := sourceString(f, "project_id", "project", "projectId"); p != "" {
+		return p
+	}
+	parts := strings.Split(strings.TrimPrefix(f.GetResourceName(), "//"), "/")
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "projects" {
+			return parts[i+1]
+		}
+	}
+	return ""
+}

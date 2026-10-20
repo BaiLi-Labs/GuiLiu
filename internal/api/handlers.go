@@ -82,15 +82,16 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 type createAccountRequest struct {
-	Name            string            `json:"name"`
-	Provider        string            `json:"provider"`
-	AccountUID      string            `json:"account_uid"`
-	Region          string            `json:"region"`
-	AccessKeyID     string            `json:"access_key_id"`
-	AccessKeySecret string            `json:"access_key_secret"`
-	SessionToken    string            `json:"session_token"`
-	Enabled         *bool             `json:"enabled"`
-	Options         map[string]string `json:"options"`
+	Name               string            `json:"name"`
+	Provider           string            `json:"provider"`
+	AccountUID         string            `json:"account_uid"`
+	Region             string            `json:"region"`
+	AccessKeyID        string            `json:"access_key_id"`
+	AccessKeySecret    string            `json:"access_key_secret"`
+	SessionToken       string            `json:"session_token"`
+	ServiceAccountJSON string            `json:"service_account_json"`
+	Enabled            *bool             `json:"enabled"`
+	Options            map[string]string `json:"options"`
 }
 
 func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -104,15 +105,29 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "name is required")
 		return
 	}
-	if _, ok := s.registry.Descriptor(req.Provider); !ok {
+	desc, ok := s.registry.Descriptor(req.Provider)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid_request", "unknown provider: "+req.Provider)
 		return
 	}
-	if req.AccessKeyID == "" || req.AccessKeySecret == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "access_key_id and access_key_secret are required")
+	cred := connector.Credential{
+		AccessKeyID:        req.AccessKeyID,
+		AccessKeySecret:    req.AccessKeySecret,
+		SessionToken:       req.SessionToken,
+		ServiceAccountJSON: req.ServiceAccountJSON,
+	}
+	if missing := missingCredentialFields(desc, cred); len(missing) > 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "missing required credential: "+strings.Join(missing, ", "))
 		return
 	}
-	enc, err := s.encryptCredential(req.AccessKeyID, req.AccessKeySecret, req.SessionToken)
+	if req.Options == nil {
+		req.Options = map[string]string{}
+	}
+	if missing := missingOptionFields(desc, req.Options); len(missing) > 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "missing required option: "+strings.Join(missing, ", "))
+		return
+	}
+	enc, err := s.encryptCredential(cred)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "cannot encrypt credential")
 		return
@@ -120,9 +135,6 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
-	}
-	if req.Options == nil {
-		req.Options = map[string]string{}
 	}
 	acct := &model.Account{
 		Name:                req.Name,
@@ -132,7 +144,7 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Enabled:             enabled,
 		Options:             req.Options,
 		CredentialEncrypted: enc,
-		AccessKeyHint:       keyHint(req.AccessKeyID),
+		AccessKeyHint:       credential.HintFor(cred),
 		CredentialSet:       true,
 	}
 	if err := s.store.CreateAccount(r.Context(), acct); err != nil {
@@ -144,14 +156,15 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchAccountRequest struct {
-	Name            *string           `json:"name"`
-	AccountUID      *string           `json:"account_uid"`
-	Region          *string           `json:"region"`
-	Enabled         *bool             `json:"enabled"`
-	Options         map[string]string `json:"options"`
-	AccessKeyID     *string           `json:"access_key_id"`
-	AccessKeySecret *string           `json:"access_key_secret"`
-	SessionToken    *string           `json:"session_token"`
+	Name               *string           `json:"name"`
+	AccountUID         *string           `json:"account_uid"`
+	Region             *string           `json:"region"`
+	Enabled            *bool             `json:"enabled"`
+	Options            map[string]string `json:"options"`
+	AccessKeyID        *string           `json:"access_key_id"`
+	AccessKeySecret    *string           `json:"access_key_secret"`
+	SessionToken       *string           `json:"session_token"`
+	ServiceAccountJSON *string           `json:"service_account_json"`
 }
 
 func (s *Server) handlePatchAccount(w http.ResponseWriter, r *http.Request) {
@@ -184,30 +197,44 @@ func (s *Server) handlePatchAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Options != nil {
 		acct.Options = req.Options
 	}
+	desc, ok := s.registry.Descriptor(acct.Provider)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "unknown provider: "+acct.Provider)
+		return
+	}
+	if missing := missingOptionFields(desc, acct.Options); len(missing) > 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "missing required option: "+strings.Join(missing, ", "))
+		return
+	}
 	var encoded *string
-	if req.AccessKeyID != nil || req.AccessKeySecret != nil || req.SessionToken != nil {
-		ak := plainValue(req.AccessKeyID)
-		sk := plainValue(req.AccessKeySecret)
-		token := plainValue(req.SessionToken)
-		if ak == "" && sk == "" {
-			// Rotating only the session token keeps the existing AK/SK.
-			cred, err := s.decryptCredential(r.Context(), acct.ID)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid_request", "cannot update session token without existing credentials")
-				return
-			}
-			ak, sk = cred.AccessKeyID, cred.AccessKeySecret
-		}
-		if ak == "" || sk == "" {
-			writeError(w, http.StatusBadRequest, "invalid_request", "access_key_id and access_key_secret must be provided together")
+	if req.AccessKeyID != nil || req.AccessKeySecret != nil || req.SessionToken != nil || req.ServiceAccountJSON != nil {
+		cred, err := s.decryptCredential(r.Context(), acct.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "cannot update credentials: "+err.Error())
 			return
 		}
-		enc, err := s.encryptCredential(ak, sk, token)
+		if req.AccessKeyID != nil {
+			cred.AccessKeyID = *req.AccessKeyID
+		}
+		if req.AccessKeySecret != nil {
+			cred.AccessKeySecret = *req.AccessKeySecret
+		}
+		if req.SessionToken != nil {
+			cred.SessionToken = *req.SessionToken
+		}
+		if req.ServiceAccountJSON != nil {
+			cred.ServiceAccountJSON = *req.ServiceAccountJSON
+		}
+		if missing := missingCredentialFields(desc, *cred); len(missing) > 0 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "missing required credential: "+strings.Join(missing, ", "))
+			return
+		}
+		enc, err := s.encryptCredential(*cred)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "cannot encrypt credential")
 			return
 		}
-		acct.AccessKeyHint = keyHint(ak)
+		acct.AccessKeyHint = credential.HintFor(*cred)
 		acct.CredentialSet = true
 		encoded = &enc
 	}
@@ -239,6 +266,7 @@ func (s *Server) handleCheckAccount(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorError(w, err)
 		return
 	}
+	defer connector.Close(conn)
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
 	if err := conn.Check(ctx); err != nil {
@@ -578,12 +606,43 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // ----------------------------------------------------------------- helpers
 
-func (s *Server) encryptCredential(ak, sk, token string) (string, error) {
-	return credential.Encrypt(s.cipher, connector.Credential{
-		AccessKeyID:     ak,
-		AccessKeySecret: sk,
-		SessionToken:    token,
-	})
+func (s *Server) encryptCredential(cred connector.Credential) (string, error) {
+	return credential.Encrypt(s.cipher, cred)
+}
+
+func credentialFieldValue(cred connector.Credential, name string) string {
+	switch name {
+	case "access_key_id":
+		return cred.AccessKeyID
+	case "access_key_secret":
+		return cred.AccessKeySecret
+	case "session_token":
+		return cred.SessionToken
+	case "service_account_json":
+		return cred.ServiceAccountJSON
+	default:
+		return ""
+	}
+}
+
+func missingCredentialFields(desc connector.Descriptor, cred connector.Credential) []string {
+	missing := []string{}
+	for _, f := range desc.Credential {
+		if f.Required && strings.TrimSpace(credentialFieldValue(cred, f.Name)) == "" {
+			missing = append(missing, f.Name)
+		}
+	}
+	return missing
+}
+
+func missingOptionFields(desc connector.Descriptor, options map[string]string) []string {
+	missing := []string{}
+	for _, f := range desc.OptionFields {
+		if f.Required && strings.TrimSpace(options[f.Name]) == "" {
+			missing = append(missing, f.Name)
+		}
+	}
+	return missing
 }
 
 func (s *Server) decryptCredential(ctx context.Context, accountID string) (*connector.Credential, error) {
@@ -610,8 +669,6 @@ func (s *Server) buildConnector(ctx context.Context, acct *model.Account) (conne
 	})
 }
 
-func keyHint(accessKeyID string) string { return credential.Hint(accessKeyID) }
-
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {
@@ -626,11 +683,4 @@ func formatOptional(t *time.Time) string {
 		return ""
 	}
 	return timeutil.Format(*t)
-}
-
-func plainValue(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return strings.TrimSpace(*p)
 }

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/api"
@@ -209,8 +210,29 @@ func bootstrapAccounts(ctx context.Context, cfg *config.Config, st *store.SQLite
 			return err
 		}
 		exists := err == nil
-		if !exists && (ac.AccessKeyID == "" || ac.AccessKeySecret == "") {
-			return fmt.Errorf("account %q: access_key_id and access_key_secret are required for first-time configuration", ac.Name)
+		cred := connector.Credential{
+			AccessKeyID:        ac.AccessKeyID,
+			AccessKeySecret:    ac.AccessKeySecret,
+			SessionToken:       ac.SessionToken,
+			ServiceAccountJSON: ac.ServiceAccountJSON,
+		}
+		provided := map[string]string{
+			"access_key_id":        cred.AccessKeyID,
+			"access_key_secret":    cred.AccessKeySecret,
+			"session_token":        cred.SessionToken,
+			"service_account_json": cred.ServiceAccountJSON,
+		}
+		if !exists {
+			for _, f := range desc.Credential {
+				if f.Required && strings.TrimSpace(provided[f.Name]) == "" {
+					return fmt.Errorf("account %q: %s is required for first-time configuration", ac.Name, f.Name)
+				}
+			}
+			for _, f := range desc.OptionFields {
+				if f.Required && strings.TrimSpace(ac.Options[f.Name]) == "" {
+					return fmt.Errorf("account %q: option %s is required for first-time configuration", ac.Name, f.Name)
+				}
+			}
 		}
 
 		acct := &model.Account{
@@ -221,17 +243,14 @@ func bootstrapAccounts(ctx context.Context, cfg *config.Config, st *store.SQLite
 			Enabled:    ac.IsEnabled(),
 			Options:    ac.Options,
 		}
-		if ac.AccessKeyID != "" {
-			enc, err := credential.Encrypt(cipher, connector.Credential{
-				AccessKeyID:     ac.AccessKeyID,
-				AccessKeySecret: ac.AccessKeySecret,
-				SessionToken:    ac.SessionToken,
-			})
+		if provided["access_key_id"] != "" || provided["access_key_secret"] != "" ||
+			provided["session_token"] != "" || provided["service_account_json"] != "" {
+			enc, err := credential.Encrypt(cipher, cred)
 			if err != nil {
 				return fmt.Errorf("account %q: encrypt credential: %w", ac.Name, err)
 			}
 			acct.CredentialEncrypted = enc
-			acct.AccessKeyHint = credential.Hint(ac.AccessKeyID)
+			acct.AccessKeyHint = credential.HintFor(cred)
 			acct.CredentialSet = true
 		} else if exists {
 			acct.AccessKeyHint = existing.AccessKeyHint

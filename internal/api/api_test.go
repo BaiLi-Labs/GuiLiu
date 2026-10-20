@@ -40,14 +40,22 @@ func setup(t *testing.T, devMode bool) (*httptest.Server, store.Store, *auth.Ser
 		t.Fatal(err)
 	}
 	reg := connector.NewRegistry()
+	fakeFactory := func(connector.AccountConfig) (connector.Connector, error) { return nil, nil }
 	desc := connector.Descriptor{
 		ID: "fake", Name: "Fake Cloud", Vendor: "Fake Cloud", Product: "Fake SIEM",
 		ProductUID: "fake.siem", MapperVersion: "fake/v1",
 		Credential: []connector.CredentialField{{Name: "access_key_id", Label: "AK", Required: true}},
 	}
-	if err := reg.Register(desc, func(connector.AccountConfig) (connector.Connector, error) {
-		return nil, nil
-	}); err != nil {
+	if err := reg.Register(desc, fakeFactory); err != nil {
+		t.Fatal(err)
+	}
+	descGCP := connector.Descriptor{
+		ID: "fake-gcp", Name: "Fake GCP", Vendor: "Fake", Product: "Fake SCC",
+		ProductUID: "fake.scc", MapperVersion: "fake/v1",
+		Credential:   []connector.CredentialField{{Name: "service_account_json", Label: "SA JSON", Required: true, Multiline: true}},
+		OptionFields: []connector.OptionField{{Name: "parent", Label: "Parent", Required: true}},
+	}
+	if err := reg.Register(descGCP, fakeFactory); err != nil {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -359,6 +367,44 @@ func TestAuthenticationSessionsAndAPIKeys(t *testing.T) {
 	}
 	if resp, _ := do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts", login.Token, ""); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("after logout = %d", resp.StatusCode)
+	}
+}
+
+func TestCredentialAndOptionValidation(t *testing.T) {
+	ts, _, _ := setup(t, true)
+	client := newClient(t)
+
+	if resp, body := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts", "",
+		`{"name":"gcp","provider":"fake-gcp","options":{"parent":"organizations/1"}}`); resp.StatusCode != http.StatusBadRequest ||
+		!strings.Contains(string(body), "service_account_json") {
+		t.Fatalf("missing credential = %d: %s", resp.StatusCode, body)
+	}
+	if resp, body := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts", "",
+		`{"name":"gcp","provider":"fake-gcp","service_account_json":"{\"client_email\":\"mock@example.iam.gserviceaccount.com\"}"}`); resp.StatusCode != http.StatusBadRequest ||
+		!strings.Contains(string(body), "parent") {
+		t.Fatalf("missing option = %d: %s", resp.StatusCode, body)
+	}
+	resp, body := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts", "",
+		`{"name":"gcp","provider":"fake-gcp","service_account_json":"{\"client_email\":\"mock@example.iam.gserviceaccount.com\"}","options":{"parent":"organizations/1"}}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d: %s", resp.StatusCode, body)
+	}
+	var acct struct {
+		ID            string            `json:"id"`
+		Options       map[string]string `json:"options"`
+		AccessKeyHint string            `json:"access_key_hint"`
+	}
+	if err := json.Unmarshal(body, &acct); err != nil {
+		t.Fatal(err)
+	}
+	if acct.Options["parent"] != "organizations/1" || !strings.Contains(acct.AccessKeyHint, "ount.com") {
+		t.Fatalf("account = %+v", acct)
+	}
+
+	resp, body = do(t, client, http.MethodPatch, ts.URL+"/api/v1/accounts/"+acct.ID, "",
+		`{"service_account_json":"{\"client_email\":\"rotated@example.iam.gserviceaccount.com\"}"}`)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"parent":"organizations/1"`) {
+		t.Fatalf("patch = %d: %s", resp.StatusCode, body)
 	}
 }
 

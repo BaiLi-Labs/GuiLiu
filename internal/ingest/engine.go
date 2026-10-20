@@ -255,6 +255,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		e.store.SaveSyncState(ctx, state)
 		return finish(err, 0, 0, 0, 0, 0, "")
 	}
+	defer connector.Close(conn)
 
 	// An interrupted window resumes from the last successfully stored page so
 	// a throttled backfill does not restart from page one and burn the quota.
