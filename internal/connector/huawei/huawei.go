@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 
 const (
 	providerID      = "huawei"
-	mapperVersion   = "huawei-secmaster/v1"
+	mapperVersion   = "huawei-secmaster/v3"
 	defaultRegion   = "cn-north-4"
 	defaultPageSize = 100
 	defaultQPS      = 2
@@ -32,6 +33,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "SecMaster ListAlerts",
 		ID:            providerID,
 		Name:          "Huawei Cloud",
 		Vendor:        "Huawei Cloud",
@@ -57,7 +59,7 @@ func descriptor() connector.Descriptor {
 
 // Connector talks to Huawei Cloud SecMaster.
 type Connector struct {
-	client      *secmaster.SecMasterClient
+	fetchJSON   func(*secmastermodel.ListAlertsRequest) (json.RawMessage, error)
 	limiter     *connector.Limiter
 	workspaceID string
 	pageSize    int
@@ -101,7 +103,19 @@ func New(cfg connector.AccountConfig) (connector.Connector, error) {
 		WithHttpConfig(httpConfig).
 		Build()
 	return &Connector{
-		client:      secmaster.NewSecMasterClient(hcClient),
+		fetchJSON: func(req *secmastermodel.ListAlertsRequest) (json.RawMessage, error) {
+			definition := secmaster.GenReqDefForListAlerts()
+			response := &streamResponse{}
+			definition.Response = response
+			if _, err := hcClient.Sync(req, definition); err != nil {
+				return nil, err
+			}
+			if response.Body == nil {
+				return nil, fmt.Errorf("Huawei API returned no response stream")
+			}
+			defer response.Body.Close()
+			return connector.ReadSourceBody(response.Body)
+		},
 		limiter:     connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
 		workspaceID: workspaceID,
 		pageSize:    connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
@@ -155,34 +169,37 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 			ToDate:   &to,
 		},
 	}
-	resp, err := c.client.ListAlerts(req)
+	payload, err := c.fetchJSON(req)
 	if err != nil {
 		return connector.Page{}, connector.Classify(providerID, err)
 	}
-	if resp == nil {
-		return connector.Page{}, connector.ConfigError(providerID, "empty response")
+	var resp struct {
+		Total   int               `json:"total"`
+		Data    []json.RawMessage `json:"data"`
+		Code    string            `json:"code"`
+		Success *bool             `json:"success"`
+		Message string            `json:"message"`
 	}
-	if resp.Code != nil && *resp.Code != "" && (resp.Success == nil || !*resp.Success) {
-		msg := ""
-		if resp.Message != nil {
-			msg = *resp.Message
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return connector.Page{}, fmt.Errorf("decode huawei page: %w", err)
+	}
+	if resp.Code != "" && (resp.Success == nil || !*resp.Success) {
+		return connector.Page{}, fmt.Errorf("Huawei API %s: %s", resp.Code, resp.Message)
+	}
+	records := make([]connector.RawAlert, 0, len(resp.Data))
+	for _, raw := range resp.Data {
+		var item struct {
+			DataObject json.RawMessage `json:"data_object"`
 		}
-		return connector.Page{}, connector.Classify(providerID, fmt.Errorf("%s: %s", *resp.Code, msg))
-	}
-	records := []connector.RawAlert{}
-	if resp.Data != nil {
-		for _, item := range *resp.Data {
-			if item.DataObject == nil {
-				continue
-			}
-			raw, err := json.Marshal(item.DataObject)
-			if err != nil {
-				return connector.Page{}, err
-			}
-			records = append(records, connector.RawAlert{Raw: raw})
+		if err := json.Unmarshal(raw, &item); err != nil || len(item.DataObject) == 0 || string(item.DataObject) == "null" {
+			return connector.Page{}, fmt.Errorf("huawei returned an alert without data_object")
 		}
+		records = append(records, connector.RawAlert{Raw: raw})
 	}
-	apiTotal := int(connector.Int32(resp.Total))
+	apiTotal := resp.Total
+	if len(records) == 0 && int(offset) < apiTotal {
+		return connector.Page{}, fmt.Errorf("huawei returned an empty page before total %d", apiTotal)
+	}
 	nextOffset := int(offset) + len(records)
 	total := apiTotal
 	if total == 0 {
@@ -200,9 +217,27 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 }
 
 func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
+	var envelope struct {
+		DataObject json.RawMessage `json:"data_object"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return model.Alert{}, fmt.Errorf("decode huawei alert: %w", err)
+	}
+	payload := raw
+	if envelope.DataObject != nil {
+		if string(envelope.DataObject) == "null" {
+			return model.Alert{}, fmt.Errorf("huawei alert has no data_object")
+		}
+		payload = envelope.DataObject
+	}
 	var a secmastermodel.ListAlertRsp
-	if err := json.Unmarshal(raw, &a); err != nil {
+	if err := json.Unmarshal(payload, &a); err != nil {
 		return model.Alert{}, fmt.Errorf("decode huawei alert: %w", err)
 	}
 	return normalizeAlert(&a, raw), nil
+}
+
+type streamResponse struct {
+	Body           io.ReadCloser
+	HttpStatusCode int
 }

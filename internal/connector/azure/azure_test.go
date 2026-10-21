@@ -13,6 +13,29 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 )
 
+type testServer struct {
+	URL     string
+	handler http.Handler
+}
+
+func newTestServer(handler http.Handler) *testServer {
+	return &testServer{URL: "https://azure.test", handler: handler}
+}
+func (s *testServer) Close() {}
+func (s *testServer) Client() *http.Client {
+	return &http.Client{Transport: handlerTransport{s.handler}}
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (tr handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	tr.handler.ServeHTTP(w, r)
+	resp := w.Result()
+	resp.Request = r
+	return resp, nil
+}
+
 type fakeCredential struct{}
 
 func (fakeCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
@@ -25,8 +48,8 @@ func TestFetchPaginatesAndFiltersTimeWindow(t *testing.T) {
 	inside := `{"id":"/subscriptions/sub/providers/Microsoft.Security/locations/centralus/alerts/a1","name":"a1","properties":{"timeGeneratedUtc":"2026-10-20T08:15:00Z","startTimeUtc":"2026-10-20T08:10:00Z","endTimeUtc":"2026-10-20T08:20:00Z"}}`
 	outside := `{"id":"/subscriptions/sub/providers/Microsoft.Security/locations/centralus/alerts/a2","name":"a2","properties":{"timeGeneratedUtc":"2026-10-19T08:15:00Z"}}`
 
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *testServer
+	server = newTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
 		}
@@ -74,7 +97,7 @@ func TestFetchPaginatesAndFiltersTimeWindow(t *testing.T) {
 }
 
 func TestFetchClassifiesHTTPErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
 	defer server.Close()

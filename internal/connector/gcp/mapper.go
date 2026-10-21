@@ -15,33 +15,22 @@ import (
 
 func normalizeFinding(f *securitycenterpb.Finding, raw json.RawMessage) model.Alert {
 	externalID := connector.FirstNonEmpty(f.GetName(), f.GetCanonicalName())
-	if externalID == "" {
-		externalID = connector.HashRaw(raw)
-	}
 	eventTime := timestamp(f.GetEventTime())
-	if eventTime.IsZero() {
-		eventTime = timestamp(f.GetCreateTime())
-	}
-	firstSeen := timestamp(f.GetCreateTime())
-	if firstSeen.IsZero() {
-		firstSeen = eventTime
-	}
-	lastSeen := eventTime
 	severity := mapSeverity(f.GetSeverity().String())
 	resource := resourceFromName(f.GetResourceName())
 	project := projectFromFinding(f)
 
 	alert := model.Alert{
 		ExternalID:       externalID,
+		FindingKind:      model.FindingOther,
+		SourceCreatedAt:  timestamp(f.GetCreateTime()),
 		Title:            connector.FirstNonEmpty(f.GetCategory(), sourceString(f, "finding_name", "title", "description"), "GCP Security Command Center finding"),
 		Description:      connector.FirstNonEmpty(f.GetDescription(), sourceString(f, "description")),
 		Severity:         severity,
-		OriginalSeverity: f.GetSeverity().String(),
-		VendorStatus:     strings.ToLower(f.GetState().String()),
+		OriginalSeverity: connector.SourceScalar(raw, "/finding/severity", "/severity"),
+		VendorStatus:     connector.SourceScalar(raw, "/finding/state", "/state"),
 		EventTime:        eventTime,
-		FirstSeenAt:      firstSeen,
-		LastSeenAt:       lastSeen,
-		OriginalTime:     formatTimestamp(f.GetCreateTime()),
+		OriginalTime:     formatTimestamp(f.GetEventTime()),
 		Product:          connector.FirstNonEmpty(sourceString(f, "source", "scanner_name", "product"), "Security Command Center"),
 		AlertType:        connector.FirstNonEmpty(f.GetCategory(), f.GetFindingClass().String()),
 		Region:           regionFromResource(f.GetResourceName()),
@@ -49,12 +38,18 @@ func normalizeFinding(f *securitycenterpb.Finding, raw json.RawMessage) model.Al
 		Resource:         resource,
 		Raw:              append(json.RawMessage(nil), raw...),
 	}
+	switch f.GetFindingClass().String() {
+	case "THREAT":
+		alert.FindingKind = model.FindingDetection
+	case "VULNERABILITY":
+		alert.FindingKind = model.FindingVulnerability
+	}
 	if m := f.GetMitreAttack(); m != nil {
 		if tactic := m.GetPrimaryTactic().String(); !strings.Contains(tactic, "UNSPECIFIED") {
 			alert.Tactic = tactic
 		}
 		if techniques := m.GetPrimaryTechniques(); len(techniques) > 0 {
-			alert.Technique = techniques[0].String()
+			alert.Technique = strings.Join(enumStrings(techniques), ",")
 		}
 	}
 	if connections := f.GetConnections(); len(connections) > 0 && connections[0] != nil {
@@ -62,10 +57,10 @@ func normalizeFinding(f *securitycenterpb.Finding, raw json.RawMessage) model.Al
 		alert.DestinationIP = connections[0].GetDestinationIp()
 	}
 	if alert.SourceIP == "" {
-		alert.SourceIP = sourceString(f, "source_ip", "src_ip", "remote_ip")
+		alert.SourceIP = sourceString(f, "source_ip", "src_ip")
 	}
 	if alert.DestinationIP == "" {
-		alert.DestinationIP = sourceString(f, "destination_ip", "dest_ip", "local_ip")
+		alert.DestinationIP = sourceString(f, "destination_ip", "dest_ip")
 	}
 	alert.Observables = observables(f, alert)
 	if ev := evidence(f); ev != nil {
@@ -79,6 +74,11 @@ func normalizeFinding(f *securitycenterpb.Finding, raw json.RawMessage) model.Al
 		"mute":           f.GetMute().String(),
 		"next_steps":     f.GetNextSteps(),
 	}}
+	if v := f.GetVulnerability(); v != nil && alert.FindingKind == model.FindingVulnerability {
+		if cve := v.GetCve(); cve != nil && cve.GetId() != "" {
+			alert.Unmapped["ocsf_vulnerabilities"] = []any{map[string]any{"cve": map[string]any{"uid": cve.GetId()}}}
+		}
+	}
 	return alert
 }
 
@@ -110,8 +110,39 @@ func observables(f *securitycenterpb.Finding, alert model.Alert) []model.Observa
 	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
 	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
+	for _, connection := range f.GetConnections() {
+		if connection == nil {
+			continue
+		}
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connection.GetSourceIp())
+		add("dst_endpoint.ip", ocsf.ObservableIPAddress, connection.GetDestinationIp())
+	}
+	if indicator := f.GetIndicator(); indicator != nil {
+		for _, ip := range indicator.GetIpAddresses() {
+			add("indicator.ip", ocsf.ObservableIPAddress, ip)
+		}
+		for _, domain := range indicator.GetDomains() {
+			add("indicator.domain", 0, domain)
+		}
+	}
 	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID)
+	add("remote.ip", ocsf.ObservableIPAddress, sourceString(f, "remote_ip"))
+	add("local.ip", ocsf.ObservableIPAddress, sourceString(f, "local_ip"))
 	add("hostname", ocsf.ObservableHostname, sourceString(f, "hostname", "instance_name", "resource_name"))
+	for _, file := range f.GetFiles() {
+		if file == nil {
+			continue
+		}
+		name := "file.hash.sha256"
+		if file.GetPartiallyHashed() {
+			name = "file.prefix_hash.sha256"
+		}
+		add(name, ocsf.ObservableFileHash, file.GetSha256())
+		add("file.name", ocsf.ObservableFileName, file.GetPath())
+	}
+	if access := f.GetAccess(); access != nil {
+		add("user.name", ocsf.ObservableUserName, access.GetPrincipalEmail())
+	}
 	return out
 }
 

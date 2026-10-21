@@ -12,11 +12,10 @@ import (
 func TestBuildDetectionFinding(t *testing.T) {
 	now := time.Date(2026, 10, 20, 6, 0, 0, 0, time.UTC)
 	alert := model.Alert{
-		ExternalID:    "alert-1",
+		FindingKind: model.FindingDetection, EventTime: time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), ExternalID: "alert-1",
 		Title:         "Reverse shell",
 		Description:   "cmd spawned by nginx",
 		Severity:      model.SeverityCritical,
-		EventTime:     now,
 		FirstSeenAt:   now.Add(-time.Hour),
 		LastSeenAt:    now,
 		OriginalTime:  "2026-10-20 14:00:00",
@@ -48,7 +47,7 @@ func TestBuildDetectionFinding(t *testing.T) {
 	if got["class_uid"].(float64) != ocsf.ClassUID {
 		t.Fatalf("class_uid = %v", got["class_uid"])
 	}
-	if got["type_uid"].(float64) != ocsf.TypeUIDFindingCreate {
+	if got["type_uid"].(float64) != ocsf.ClassUID*100 {
 		t.Fatalf("type_uid = %v", got["type_uid"])
 	}
 	if got["severity_id"].(float64) != 5 || got["severity"] != "Critical" {
@@ -85,7 +84,33 @@ func TestBuildDetectionFinding(t *testing.T) {
 	if _, ok := unmapped["tencent_csip"]; !ok {
 		t.Fatalf("vendor extension lost: %v", unmapped)
 	}
-	if got["is_alert"] != true {
+	if got["is_alert"] != nil {
 		t.Fatalf("is_alert = %v", got["is_alert"])
+	}
+}
+
+func TestMultipleTacticsAndResources(t *testing.T) {
+	a := model.Alert{
+		FindingKind: model.FindingDetection, EventTime: time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), ExternalID: "a", Tactic: "TA0002,TA0005,TA0002", Technique: "T1059",
+		Resources: []model.Resource{{ID: "host-1", Type: "host"}, {ID: "host-2", Type: "host"}},
+	}
+	raw, err := Build(a, model.Account{ID: "account"}, Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ocsf.Finding
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.FindingInfo.Attacks) != 3 || len(got.Resources) != 2 {
+		t.Fatalf("payload=%s", raw)
+	}
+	for _, attack := range got.FindingInfo.Attacks {
+		if attack.Version != "" {
+			t.Fatal("unknown ATT&CK version must not be fabricated")
+		}
+		if attack.Tactic != nil && attack.Tactic.UID != "TA0002" && attack.Tactic.UID != "TA0005" {
+			t.Fatalf("invalid tactic: %+v", attack)
+		}
 	}
 }

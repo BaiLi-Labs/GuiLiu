@@ -2,6 +2,8 @@ package aliyun
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -69,8 +71,8 @@ func TestNormalize(t *testing.T) {
 	if alert.SourceIP != "198.51.100.7" {
 		t.Fatalf("source ip = %q", alert.SourceIP)
 	}
-	if alert.DestinationIP != "47.0.0.1" {
-		t.Fatalf("destination ip = %q", alert.DestinationIP)
+	if alert.DestinationIP != "" {
+		t.Fatalf("asset public IP was incorrectly given a traffic role: %q", alert.DestinationIP)
 	}
 	if alert.Resource.ID != "i-bp1xxxx" || alert.Resource.Type != "host" {
 		t.Fatalf("resource = %+v", alert.Resource)
@@ -78,7 +80,7 @@ func TestNormalize(t *testing.T) {
 	if alert.Tactic != "TA0001" {
 		t.Fatalf("tactic = %q", alert.Tactic)
 	}
-	if alert.VendorStatus != "unhandled" {
+	if alert.VendorStatus != "1" {
 		t.Fatalf("vendor status = %q", alert.VendorStatus)
 	}
 	if len(alert.Evidences) != 2 {
@@ -90,5 +92,30 @@ func TestNormalize(t *testing.T) {
 	}
 	if len(alert.Observables) < 3 {
 		t.Fatalf("observables = %+v", alert.Observables)
+	}
+}
+
+func TestVendorStatusesAndExactSourceLabels(t *testing.T) {
+	for _, status := range []int32{0, 1, 2, 4, 8, 16, 32, 64, 128, 512, 513, 604, 999} {
+		alert, err := (&Connector{}).Normalize(json.RawMessage(fmt.Sprintf(`{"Id":42,"EventStatus":%d}`, status)))
+		if err != nil || alert.VendorStatus != strconv.FormatInt(int64(status), 10) {
+			t.Errorf("status=%d got=%s err=%v", status, alert.VendorStatus, err)
+		}
+	}
+	alert, err := (&Connector{}).Normalize(json.RawMessage(`{"Id":42,"ContainerId":"container-1","InstanceId":"host-1","K8sClusterId":"cluster-1","InternetIp":"203.0.113.1","IntranetIp":"10.0.0.1","Details":[{"NameDisplay":"description mentioning source ip","Value":"203.0.113.2"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.SourceIP != "" || alert.DestinationIP != "" || alert.Resource.ID != "container-1" || len(alert.Resources) != 3 {
+		t.Fatalf("roles/resources = %+v", alert)
+	}
+	values := map[string]bool{}
+	for _, o := range alert.Observables {
+		values[o.Value] = true
+	}
+	for _, value := range []string{"203.0.113.1", "10.0.0.1", "cluster-1"} {
+		if !values[value] {
+			t.Errorf("missing observable %s", value)
+		}
 	}
 }

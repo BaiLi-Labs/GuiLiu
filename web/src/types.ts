@@ -2,6 +2,9 @@ export type Severity = 'critical' | 'fatal' | 'high' | 'medium' | 'low' | 'infor
 export type AlertStatus = 'open' | 'acknowledged' | 'suppressed' | 'closed';
 
 export interface SyncState {
+ coverage_start?: string;
+	status?: 'healthy' | 'failed' | 'pending' | 'never_synced' | 'stale' | 'partial';
+	failed_records?: number;
   cursor_end?: string;
   pending?: boolean;
   pending_count?: number;
@@ -13,6 +16,16 @@ export interface SyncState {
   items_last_run?: number;
   consecutive_failures?: number;
   healthy?: boolean;
+}
+
+export interface IngestFailure {
+  id: string;
+  account_id: string;
+  raw: unknown;
+  error: string;
+  attempts: number;
+  mapper_version: string;
+  last_attempt_at: string;
 }
 
 export interface Account {
@@ -114,17 +127,25 @@ export interface Evidence {
   data?: unknown;
 }
 
-export type AlertGroupBy = 'signature' | 'asset' | 'source';
+export type AlertGroupBy = 'type_asset' | 'signature' | 'asset' | 'source';
+
+export interface QueryWindow {
+ time_field?: string;
+ snapshot_sequence?: number;
+  start?: string;
+  end?: string;
+}
 
 export interface AlertGroup {
   id: string;
   group_by: AlertGroupBy;
   key: Record<string, string>;
   title: string;
-  count: number;
+  finding_count: number;
+  revision_count: number;
   max_severity: Severity;
-  first_seen_at: string;
-  last_seen_at: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
   providers?: string[];
   resource_id?: string;
   resource_name?: string;
@@ -133,14 +154,21 @@ export interface AlertGroup {
 }
 
 export interface AlertGroupList {
+ snapshot_sequence?: number;
+ coverage?: Coverage;
   groups: AlertGroup[];
   total: number;
   group_by: AlertGroupBy;
   limit: number;
   offset: number;
+  window?: QueryWindow;
 }
 
 export interface AlertRevision {
+ record?: Alert;
+ sequence?: number;
+ raw_hash?: string;
+ raw_url?: string;
   id: string;
   alert_id: string;
   revision: number;
@@ -153,6 +181,21 @@ export interface AlertRevision {
 }
 
 export interface Alert {
+ rule_id?: string;
+ finding_kind?: string;
+ source_created_at?: string;
+ source_updated_at?: string;
+ ingested_at?: string;
+ last_ingested_at?: string;
+ raw_hash?: string;
+ raw_url?: string;
+ revision?: number;
+ sequence?: number;
+ provenance?: Record<string, { source: string; paths: string[]; transform: string }>;
+ occurrence_count?: number;
+ occurrence_scope?: string;
+ ocsf_omission_reason?: string;
+
   id: string;
   provider: string;
   account_id: string;
@@ -173,6 +216,7 @@ export interface Alert {
   last_seen_at?: string;
   region?: string;
   resource?: Resource;
+  resources?: Resource[];
   source_ip?: string;
   destination_ip?: string;
   tactic?: string;
@@ -187,10 +231,13 @@ export interface Alert {
 }
 
 export interface AlertList {
+ snapshot_sequence?: number;
+ coverage?: Coverage;
   alerts: Alert[];
   total: number;
   limit: number;
   offset: number;
+  window?: QueryWindow;
 }
 
 export interface DayCount {
@@ -274,3 +321,9 @@ export interface AccountPayload {
 }
 
 export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp';
+
+export interface Coverage {
+ complete: boolean;
+ boundary: string;
+ accounts: Array<{account_id: string;provider: string;name: string;status: string;complete: boolean;api: string;api_version: string;scope: Record<string,string>;time_basis: string;coverage_start: string | null;watermark: string | null;failed_records: number;limitations: string[]}>;
+}

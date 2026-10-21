@@ -11,13 +11,14 @@ import (
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
+	tchttp "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/http"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
 	csip "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/csip/v20221121"
 )
 
 const (
 	providerID      = "tencent"
-	mapperVersion   = "tencent-csip/v1"
+	mapperVersion   = "tencent-csip/v3"
 	defaultEndpoint = "csip.tencentcloudapi.com"
 	// The official limit is 3 requests/second. Use 2 QPS for headroom: a fixed
 	// interval at exactly 3 QPS still allows four calls in a sliding second.
@@ -31,6 +32,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "CSIP DescribeAlertList",
 		ID:            providerID,
 		Name:          "Tencent Cloud",
 		Vendor:        "Tencent Cloud",
@@ -54,9 +56,9 @@ func descriptor() connector.Descriptor {
 
 // Connector talks to Tencent Cloud CSIP.
 type Connector struct {
-	client   *csip.Client
-	limiter  *connector.Limiter
-	pageSize int
+	fetchJSON func(context.Context, *csip.DescribeAlertListRequest) (json.RawMessage, error)
+	limiter   *connector.Limiter
+	pageSize  int
 }
 
 // New builds a Tencent connector from an account configuration.
@@ -87,7 +89,14 @@ func New(cfg connector.AccountConfig) (connector.Connector, error) {
 		return nil, connector.ConfigError(providerID, fmt.Sprintf("create client: %v", err))
 	}
 	return &Connector{
-		client:   client,
+		fetchJSON: func(ctx context.Context, req *csip.DescribeAlertListRequest) (json.RawMessage, error) {
+			req.SetContext(ctx)
+			response := &rawResponse{}
+			if err := client.Send(req, response); err != nil {
+				return nil, err
+			}
+			return response.Response, nil
+		},
 		limiter:  connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
 		pageSize: connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
 	}, nil
@@ -137,30 +146,32 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		EndTime:   common.StringPtr(connector.FormatBeijing(q.End)),
 	}
 
-	resp, err := c.client.DescribeAlertListWithContext(ctx, req)
+	payload, err := c.fetchJSON(ctx, req)
 	if err != nil {
 		return connector.Page{}, connector.Classify(providerID, err)
 	}
-	if resp == nil || resp.Response == nil {
-		return connector.Page{}, &connector.Error{Provider: providerID, Kind: connector.KindTransient, Code: "empty_response", Message: "empty response"}
+	var resp struct {
+		TotalCount int               `json:"TotalCount"`
+		AlertList  []json.RawMessage `json:"AlertList"`
+		ReturnCode int               `json:"ReturnCode"`
+		ReturnMsg  string            `json:"ReturnMsg"`
 	}
-	if resp.Response.ReturnCode != nil && *resp.Response.ReturnCode != 0 {
-		return connector.Page{}, &connector.Error{
-			Provider: providerID,
-			Kind:     connector.KindTransient,
-			Code:     "api_error",
-			Message:  connector.FirstNonEmpty(connector.Str(resp.Response.ReturnMsg), "API returned an error"),
-		}
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return connector.Page{}, fmt.Errorf("decode tencent page: %w", err)
 	}
-
-	total := int(connector.Uint64(resp.Response.TotalCount))
-	out := make([]connector.RawAlert, 0, len(resp.Response.AlertList))
-	for _, item := range resp.Response.AlertList {
-		raw, err := json.Marshal(item)
-		if err != nil {
-			continue
+	if resp.ReturnCode != 0 {
+		return connector.Page{}, fmt.Errorf("Tencent API %d: %s", resp.ReturnCode, resp.ReturnMsg)
+	}
+	total := resp.TotalCount
+	out := make([]connector.RawAlert, 0, len(resp.AlertList))
+	for _, raw := range resp.AlertList {
+		if len(raw) == 0 || string(raw) == "null" {
+			return connector.Page{}, fmt.Errorf("tencent returned a nil alert")
 		}
 		out = append(out, connector.RawAlert{Raw: raw})
+	}
+	if len(out) == 0 && offset < int64(total) {
+		return connector.Page{}, fmt.Errorf("tencent returned an empty page before total %d", total)
 	}
 
 	next := ""
@@ -168,4 +179,9 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		next = strconv.FormatInt(offset+int64(len(out)), 10)
 	}
 	return connector.Page{Records: out, NextToken: next, Total: total}, nil
+}
+
+type rawResponse struct {
+	tchttp.BaseResponse
+	Response json.RawMessage `json:"Response"`
 }

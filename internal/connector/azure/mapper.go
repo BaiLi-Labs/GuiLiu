@@ -3,6 +3,7 @@ package azure
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,19 +22,16 @@ func normalizeAlert(raw json.RawMessage) (model.Alert, error) {
 	if p == nil {
 		p = &armsecurity.AlertProperties{}
 	}
-	externalID := firstNonEmpty(connector.Str(p.SystemAlertID), connector.Str(a.Name), connector.Str(a.ID), connector.HashRaw(raw))
+	externalID := firstNonEmpty(connector.Str(p.SystemAlertID), connector.Str(a.Name), connector.Str(a.ID))
 	title := firstNonEmpty(connector.Str(p.AlertDisplayName), connector.Str(p.AlertType), "Microsoft Defender alert")
-	eventTime := firstTime(p.TimeGeneratedUTC, p.StartTimeUTC, p.EndTimeUTC, p.ProcessingEndTimeUTC)
-	firstSeen := firstTime(p.StartTimeUTC, p.TimeGeneratedUTC, systemCreatedAt(a.SystemData))
-	lastSeen := firstTime(p.EndTimeUTC, p.ProcessingEndTimeUTC, p.TimeGeneratedUTC)
+	eventTime := firstTime(p.TimeGeneratedUTC)
+	firstSeen := firstTime(p.StartTimeUTC)
+	lastSeen := firstTime(p.EndTimeUTC)
 	resourceID := azureResourceID(p)
 	resourceName := firstNonEmpty(connector.Str(p.CompromisedEntity), nameFromResourceID(resourceID))
 	resourceType := resourceTypeFromID(resourceID)
 	if resourceType == "" {
 		resourceType = "azure_entity"
-	}
-	if resourceID == "" {
-		resourceID = resourceName
 	}
 	hostname, sourceIP, destinationIP, fileName, fileHash := entities(p.Entities)
 	subscriptionID := firstNonEmpty(subscriptionFromID(connector.Str(a.ID)), subscriptionFromID(resourceID), extendedProperty(p, "subscriptionId", "subscription_id"))
@@ -42,21 +40,24 @@ func normalizeAlert(raw json.RawMessage) (model.Alert, error) {
 	if p.Intent != nil && *p.Intent != armsecurity.IntentUnknown {
 		tactic = string(*p.Intent)
 	}
-	technique := ""
-	if len(p.Techniques) > 0 {
-		technique = connector.Str(p.Techniques[0])
-	}
-	if technique == "" && len(p.SubTechniques) > 0 {
-		technique = connector.Str(p.SubTechniques[0])
+	var techniques []string
+	for _, values := range [][]*string{p.Techniques, p.SubTechniques} {
+		for _, value := range values {
+			if v := connector.Str(value); v != "" {
+				techniques = append(techniques, v)
+			}
+		}
 	}
 
 	alert := model.Alert{
 		ExternalID:       externalID,
+		FindingKind:      model.FindingDetection,
+		RuleID:           connector.Str(p.AlertType),
 		Title:            title,
 		Description:      connector.Str(p.Description),
 		Severity:         mapSeverity(p.Severity),
 		OriginalSeverity: severityString(p.Severity),
-		VendorStatus:     strings.ToLower(statusString(p.Status)),
+		VendorStatus:     statusString(p.Status),
 		EventTime:        eventTime,
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
@@ -72,12 +73,25 @@ func normalizeAlert(raw json.RawMessage) (model.Alert, error) {
 		},
 		SourceIP:      sourceIP,
 		DestinationIP: destinationIP,
-		Actor:         firstNonEmpty(hostname, resourceName),
 		Tactic:        tactic,
-		Technique:     technique,
+		Technique:     strings.Join(techniques, ","),
 		Raw:           append(json.RawMessage(nil), raw...),
 	}
-	alert.Observables = observables(alert, fileName, fileHash)
+	if a.SystemData != nil {
+		alert.SourceCreatedAt = firstTime(a.SystemData.CreatedAt)
+		alert.SourceUpdatedAt = firstTime(a.SystemData.LastModifiedAt)
+	}
+	if externalID == "" {
+		return model.Alert{}, fmt.Errorf("Azure source record has no native alert ID")
+	}
+	for _, identifier := range p.ResourceIdentifiers {
+		if resource, ok := identifier.(*armsecurity.AzureResourceIdentifier); ok {
+			if id := connector.Str(resource.AzureResourceID); id != "" {
+				alert.Resources = append(alert.Resources, model.Resource{ID: id, Name: nameFromResourceID(id), Type: resourceTypeFromID(id)})
+			}
+		}
+	}
+	alert.Observables = observables(alert, hostname, fileName, fileHash, p.Entities)
 	if evidence := evidence(p); evidence != nil {
 		alert.Evidences = []model.Evidence{*evidence}
 	}
@@ -218,8 +232,13 @@ func entities(items []*armsecurity.AlertEntity) (hostname, sourceIP, destination
 		if item == nil {
 			continue
 		}
-		entityType := strings.ToLower(connector.Str(item.Type))
-		for key, raw := range item.AdditionalProperties {
+		keys := make([]string, 0, len(item.AdditionalProperties))
+		for key := range item.AdditionalProperties {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			raw := item.AdditionalProperties[key]
 			value, ok := raw.(string)
 			if !ok || strings.TrimSpace(value) == "" {
 				continue
@@ -228,10 +247,6 @@ func entities(items []*armsecurity.AlertEntity) (hostname, sourceIP, destination
 			case "hostname", "devicename", "dnsname":
 				if hostname == "" {
 					hostname = value
-				}
-			case "address", "ipaddress":
-				if strings.Contains(entityType, "ip") && sourceIP == "" {
-					sourceIP = value
 				}
 			case "sourceaddress", "sourceip", "source_ip":
 				if sourceIP == "" {
@@ -255,7 +270,7 @@ func entities(items []*armsecurity.AlertEntity) (hostname, sourceIP, destination
 	return hostname, sourceIP, destinationIP, fileName, fileHash
 }
 
-func observables(alert model.Alert, fileName, fileHash string) []model.Observable {
+func observables(alert model.Alert, hostname, fileName, fileHash string, items []*armsecurity.AlertEntity) []model.Observable {
 	out := make([]model.Observable, 0, 7)
 	seen := map[string]bool{}
 	add := func(name string, typeID int, value string) {
@@ -269,9 +284,49 @@ func observables(alert model.Alert, fileName, fileHash string) []model.Observabl
 	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
 	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID)
-	add("hostname", ocsf.ObservableHostname, alert.Actor)
+	add("hostname", ocsf.ObservableHostname, hostname)
 	add("file.name", ocsf.ObservableFileName, fileName)
 	add("file.hash.sha256", ocsf.ObservableFileHash, fileHash)
+	for _, r := range alert.Resources {
+		add("resources.uid", ocsf.ObservableResourceUID, r.ID)
+	}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		keys := make([]string, 0, len(item.AdditionalProperties))
+		for key := range item.AdditionalProperties {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			value, ok := item.AdditionalProperties[key].(string)
+			if !ok {
+				continue
+			}
+			switch strings.ToLower(key) {
+			case "address", "ipaddress":
+				if strings.EqualFold(connector.Str(item.Type), "ip") {
+					// A generic IP entity carries no source/destination role.
+					add("entity.ip", ocsf.ObservableIPAddress, value)
+				}
+			case "sourceaddress", "sourceip", "source_ip":
+				add("src_endpoint.ip", ocsf.ObservableIPAddress, value)
+			case "destinationaddress", "destinationip", "destination_ip":
+				add("dst_endpoint.ip", ocsf.ObservableIPAddress, value)
+			case "filepath", "filename":
+				add("file.name", ocsf.ObservableFileName, value)
+			case "username", "userprincipalname":
+				add("user.name", ocsf.ObservableUserName, value)
+			case "md5":
+				add("file.hash.md5", ocsf.ObservableFileHash, value)
+			case "sha1":
+				add("file.hash.sha1", ocsf.ObservableFileHash, value)
+			case "sha256":
+				add("file.hash.sha256", ocsf.ObservableFileHash, value)
+			}
+		}
+	}
 	return out
 }
 
@@ -300,6 +355,9 @@ func evidence(p *armsecurity.AlertProperties) *model.Evidence {
 	}
 	if len(p.Techniques) > 0 {
 		data["techniques"] = p.Techniques
+	}
+	if len(p.SubTechniques) > 0 {
+		data["sub_techniques"] = p.SubTechniques
 	}
 	if len(data) == 0 {
 		return nil

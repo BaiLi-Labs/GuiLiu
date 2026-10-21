@@ -150,46 +150,61 @@ type Evidence struct {
 // Normalize method. Raw always contains the vendor payload so that a mapping
 // bug can be fixed later and history can be re-normalized.
 type Alert struct {
-	ExternalID       string          `json:"external_id"`
-	Title            string          `json:"title"`
-	Description      string          `json:"description"`
-	Severity         Severity        `json:"severity"`
-	OriginalSeverity string          `json:"original_severity,omitempty"`
-	VendorStatus     string          `json:"vendor_status,omitempty"`
-	EventTime        time.Time       `json:"event_time"`
-	FirstSeenAt      time.Time       `json:"first_seen_at"`
-	LastSeenAt       time.Time       `json:"last_seen_at"`
-	OriginalTime     string          `json:"original_time,omitempty"`
-	Product          string          `json:"product,omitempty"`
-	AlertType        string          `json:"alert_type,omitempty"`
-	Region           string          `json:"region,omitempty"`
-	CloudAccountUID  string          `json:"cloud_account_uid,omitempty"`
-	Resource         Resource        `json:"resource"`
-	SourceIP         string          `json:"source_ip,omitempty"`
-	DestinationIP    string          `json:"destination_ip,omitempty"`
-	Actor            string          `json:"actor,omitempty"`
-	Tactic           string          `json:"tactic,omitempty"`
-	Technique        string          `json:"technique,omitempty"`
-	Observables      []Observable    `json:"observables,omitempty"`
-	Evidences        []Evidence      `json:"evidences,omitempty"`
-	Unmapped         map[string]any  `json:"unmapped,omitempty"`
-	Raw              json.RawMessage `json:"raw,omitempty"`
-	OCSF             json.RawMessage `json:"ocsf,omitempty"`
-	MapperVersion    string          `json:"mapper_version,omitempty"`
+	SourceAPI        string                 `json:"source_api"`
+	SourceAPIVersion string                 `json:"source_api_version"`
+	RuleID           string                 `json:"rule_id,omitempty"`
+	FindingKind      string                 `json:"finding_kind"`
+	SourceCreatedAt  time.Time              `json:"source_created_at,omitempty"`
+	SourceUpdatedAt  time.Time              `json:"source_updated_at,omitempty"`
+	OccurrenceCount  *int64                 `json:"occurrence_count,omitempty"`
+	OccurrenceScope  string                 `json:"occurrence_scope,omitempty"`
+	Provenance       map[string]FieldOrigin `json:"provenance,omitempty"`
+	ExternalID       string                 `json:"external_id"`
+	Title            string                 `json:"title"`
+	Description      string                 `json:"description"`
+	Severity         Severity               `json:"severity"`
+	OriginalSeverity string                 `json:"original_severity,omitempty"`
+	VendorStatus     string                 `json:"vendor_status,omitempty"`
+	EventTime        time.Time              `json:"event_time"`
+	FirstSeenAt      time.Time              `json:"first_seen_at"`
+	LastSeenAt       time.Time              `json:"last_seen_at"`
+	OriginalTime     string                 `json:"original_time,omitempty"`
+	Product          string                 `json:"product,omitempty"`
+	AlertType        string                 `json:"alert_type,omitempty"`
+	Region           string                 `json:"region,omitempty"`
+	CloudAccountUID  string                 `json:"cloud_account_uid,omitempty"`
+	Resource         Resource               `json:"resource"`
+	Resources        []Resource             `json:"resources,omitempty"`
+	SourceIP         string                 `json:"source_ip,omitempty"`
+	DestinationIP    string                 `json:"destination_ip,omitempty"`
+	Actor            string                 `json:"actor,omitempty"`
+	Tactic           string                 `json:"tactic,omitempty"`
+	Technique        string                 `json:"technique,omitempty"`
+	Observables      []Observable           `json:"observables,omitempty"`
+	Evidences        []Evidence             `json:"evidences,omitempty"`
+	Unmapped         map[string]any         `json:"unmapped,omitempty"`
+	Raw              json.RawMessage        `json:"raw,omitempty"`
+	OCSF             json.RawMessage        `json:"ocsf,omitempty"`
+	MapperVersion    string                 `json:"mapper_version,omitempty"`
 }
 
 // AlertRevision is a material change to an alert's vendor payload or mapping.
 // Identical syncs do not create a new revision.
 type AlertRevision struct {
-	ID           string          `json:"id"`
-	AlertID      string          `json:"alert_id"`
-	Revision     int             `json:"revision"`
-	CapturedAt   time.Time       `json:"captured_at"`
-	Title        string          `json:"title,omitempty"`
-	Severity     Severity        `json:"severity"`
-	VendorStatus string          `json:"vendor_status,omitempty"`
-	Raw          json.RawMessage `json:"raw,omitempty"`
-	OCSF         json.RawMessage `json:"ocsf,omitempty"`
+	Record        *AlertRecord    `json:"record,omitempty"`
+	ID            string          `json:"id"`
+	AlertID       string          `json:"alert_id"`
+	Revision      int             `json:"revision"`
+	Sequence      int64           `json:"sequence"`
+	RawHash       string          `json:"raw_hash"`
+	MapperVersion string          `json:"mapper_version"`
+	ChangeType    string          `json:"change_type"`
+	CapturedAt    time.Time       `json:"captured_at"`
+	Title         string          `json:"title,omitempty"`
+	Severity      Severity        `json:"severity"`
+	VendorStatus  string          `json:"vendor_status,omitempty"`
+	Raw           json.RawMessage `json:"raw,omitempty"`
+	OCSF          json.RawMessage `json:"ocsf,omitempty"`
 }
 
 // AlertRecord is a stored alert: the normalized alert plus platform metadata.
@@ -200,9 +215,15 @@ type AlertRecord struct {
 	Provider    string `json:"provider"`
 	AccountUID  string `json:"account_uid,omitempty"`
 	Alert
-	Status    AlertStatus `json:"status"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	Changed        bool        `json:"-"`
+	RawHash        string      `json:"raw_hash"`
+	Revision       int         `json:"revision"`
+	Sequence       int64       `json:"sequence"`
+	IngestedAt     time.Time   `json:"ingested_at"`
+	LastIngestedAt time.Time   `json:"last_ingested_at"`
+	Status         AlertStatus `json:"status"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
 // DedupeKey is the stable identity of an alert inside one cloud account.
@@ -230,30 +251,62 @@ type Account struct {
 
 // SyncState is the per-account incremental cursor and health snapshot.
 type SyncState struct {
-	AccountID string    `json:"account_id"`
-	CursorEnd time.Time `json:"cursor_end,omitempty"`
+	AccountID     string    `json:"account_id"`
+	CoverageStart time.Time `json:"coverage_start,omitempty"`
+	CursorEnd     time.Time `json:"cursor_end,omitempty"`
 	// Pending* resume an interrupted window from the last successful page.
 	// They are cleared only after the whole window has been committed.
-	PendingStart time.Time `json:"pending_start,omitempty"`
-	PendingEnd   time.Time `json:"pending_end,omitempty"`
-	PendingToken string    `json:"pending_token,omitempty"`
-	// PendingRecords are vendor payloads whose normalization or storage failed.
-	// They are persisted before the cursor can advance and are retried before
-	// the next page is fetched, so a bad record cannot be silently skipped.
-	PendingRecords      []json.RawMessage `json:"pending_records,omitempty"`
-	LastSuccessAt       *time.Time        `json:"last_success_at,omitempty"`
-	LastAttemptAt       *time.Time        `json:"last_attempt_at,omitempty"`
-	LastError           string            `json:"last_error,omitempty"`
-	LastErrorAt         *time.Time        `json:"last_error_at,omitempty"`
-	LastDurationMS      int64             `json:"last_duration_ms"`
-	ItemsLastRun        int               `json:"items_last_run"`
-	ConsecutiveFailures int               `json:"consecutive_failures"`
-	UpdatedAt           time.Time         `json:"updated_at"`
+	PendingStart        time.Time  `json:"pending_start,omitempty"`
+	PendingEnd          time.Time  `json:"pending_end,omitempty"`
+	PendingToken        string     `json:"pending_token,omitempty"`
+	FailedRecords       int        `json:"failed_records"`
+	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
+	LastAttemptAt       *time.Time `json:"last_attempt_at,omitempty"`
+	LastError           string     `json:"last_error,omitempty"`
+	LastErrorAt         *time.Time `json:"last_error_at,omitempty"`
+	LastDurationMS      int64      `json:"last_duration_ms"`
+	ItemsLastRun        int        `json:"items_last_run"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // Healthy reports whether the last sync succeeded recently.
 func (s SyncState) Healthy() bool {
-	return s.LastSuccessAt != nil && s.ConsecutiveFailures == 0
+	return s.Health(time.Now().UTC(), 15*time.Minute) == "healthy"
+}
+
+// Health describes data freshness as well as collection errors. maxAge should
+// allow several scheduled intervals before declaring a quiet account stale.
+func (s SyncState) Health(now time.Time, maxAge time.Duration) string {
+	if s.LastError != "" || s.ConsecutiveFailures > 0 {
+		return "failed"
+	}
+	if !s.PendingEnd.IsZero() || s.PendingToken != "" {
+		return "pending"
+	}
+	if s.LastSuccessAt == nil || s.CursorEnd.IsZero() {
+		return "never_synced"
+	}
+	if now.Sub(*s.LastSuccessAt) > maxAge || now.Sub(s.CursorEnd) > maxAge {
+		return "stale"
+	}
+	if s.FailedRecords > 0 {
+		return "partial"
+	}
+	return "healthy"
+}
+
+// IngestFailure preserves an unprocessed payload independently of the cursor.
+type IngestFailure struct {
+	ID            string          `json:"id"`
+	AccountID     string          `json:"account_id"`
+	Raw           json.RawMessage `json:"raw"`
+	IngestedAt    time.Time       `json:"ingested_at"`
+	MapperVersion string          `json:"mapper_version"`
+	Error         string          `json:"error"`
+	Attempts      int             `json:"attempts"`
+	CreatedAt     time.Time       `json:"created_at"`
+	LastAttemptAt time.Time       `json:"last_attempt_at"`
 }
 
 // SyncRun is one execution of the ingest loop for an account.
@@ -276,20 +329,28 @@ type SyncRun struct {
 
 // AlertFilter is shared by REST, MCP and the store.
 type AlertFilter struct {
-	Provider   string
-	AccountID  string
-	Severities []Severity
-	Statuses   []AlertStatus
-	Keyword    string
-	IP         string
-	Resource   string
-	Start      *time.Time
-	End        *time.Time
-	Sort       string
-	GroupBy    AlertGroupBy
-	GroupKey   map[string]string
-	Limit      int
-	Offset     int
+	TimeField        string
+	Provider         string
+	AccountID        string
+	Severities       []Severity
+	Statuses         []AlertStatus
+	Keyword          string
+	IP               string
+	ObservableType   *int
+	ObservableValue  string
+	RuleID           string
+	FindingKind      string
+	VendorStatus     string
+	SnapshotSequence *int64
+	AfterID          string
+	Resource         string
+	Start            *time.Time
+	End              *time.Time
+	Sort             string
+	GroupBy          AlertGroupBy
+	GroupKey         map[string]string
+	Limit            int
+	Offset           int
 }
 
 // AlertGroupBy is a read-only alert grouping strategy. Grouping never changes
@@ -297,6 +358,7 @@ type AlertFilter struct {
 type AlertGroupBy string
 
 const (
+	GroupByTypeAsset AlertGroupBy = "type_asset"
 	GroupBySignature AlertGroupBy = "signature"
 	GroupByAsset     AlertGroupBy = "asset"
 	GroupBySource    AlertGroupBy = "source"
@@ -304,6 +366,8 @@ const (
 
 func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
 	switch AlertGroupBy(strings.ToLower(strings.TrimSpace(v))) {
+	case GroupByTypeAsset:
+		return GroupByTypeAsset, true
 	case GroupBySignature:
 		return GroupBySignature, true
 	case GroupByAsset:
@@ -318,19 +382,20 @@ func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
 // AlertGroup is one query-time grouping result. Key is the exact, explainable
 // grouping key; members remain available through the normal alerts query.
 type AlertGroup struct {
-	ID           string            `json:"id"`
-	GroupBy      AlertGroupBy      `json:"group_by"`
-	Key          map[string]string `json:"key"`
-	Title        string            `json:"title"`
-	Count        int               `json:"count"`
-	MaxSeverity  Severity          `json:"max_severity"`
-	FirstSeenAt  time.Time         `json:"first_seen_at"`
-	LastSeenAt   time.Time         `json:"last_seen_at"`
-	Providers    []string          `json:"providers,omitempty"`
-	ResourceID   string            `json:"resource_id,omitempty"`
-	ResourceName string            `json:"resource_name,omitempty"`
-	SourceIP     string            `json:"source_ip,omitempty"`
-	AlertType    string            `json:"alert_type,omitempty"`
+	ID            string            `json:"id"`
+	GroupBy       AlertGroupBy      `json:"group_by"`
+	Key           map[string]string `json:"key"`
+	Title         string            `json:"title"`
+	FindingCount  int               `json:"finding_count"`
+	RevisionCount int               `json:"revision_count"`
+	MaxSeverity   Severity          `json:"max_severity"` // Maximum vendor-mapped severity among members.
+	FirstSeenAt   *time.Time        `json:"first_seen_at"`
+	LastSeenAt    *time.Time        `json:"last_seen_at"`
+	Providers     []string          `json:"providers,omitempty"`
+	ResourceID    string            `json:"resource_id,omitempty"`
+	ResourceName  string            `json:"resource_name,omitempty"`
+	SourceIP      string            `json:"source_ip,omitempty"`
+	AlertType     string            `json:"alert_type,omitempty"`
 }
 
 // GroupID is stable for a group_by strategy and canonical key, independent of

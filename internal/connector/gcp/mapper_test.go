@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestNormalizeGCPFinding(t *testing.T) {
 	if alert.Severity.String() != "high" || alert.OriginalSeverity != "HIGH" {
 		t.Fatalf("severity = %s / %s", alert.Severity, alert.OriginalSeverity)
 	}
-	if alert.VendorStatus != "active" {
+	if alert.VendorStatus != "ACTIVE" {
 		t.Fatalf("status = %q", alert.VendorStatus)
 	}
 	if alert.SourceIP != "203.0.113.10" || alert.DestinationIP != "10.0.0.5" {
@@ -66,5 +67,41 @@ func TestNormalizeGCPFinding(t *testing.T) {
 	}
 	if len(alert.Observables) == 0 || len(alert.Evidences) != 1 {
 		t.Fatalf("observables/evidence missing")
+	}
+}
+
+func TestMissingTimesAndNeutralNetworkRolesStayUnknown(t *testing.T) {
+	raw := json.RawMessage(`{"name":"projects/p/sources/s/findings/f","createTime":"2026-10-20T09:00:00Z","sourceProperties":{"remote_ip":"203.0.113.1","local_ip":"10.0.0.1"}}`)
+	a, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SourceIP != "" || a.DestinationIP != "" || !a.EventTime.IsZero() || !a.FirstSeenAt.IsZero() || !a.LastSeenAt.IsZero() || a.SourceCreatedAt.IsZero() || a.VendorStatus != "" || a.OriginalSeverity != "" {
+		t.Fatalf("missing or neutral fields became definite facts: %+v", a)
+	}
+	values := map[string]string{}
+	for _, o := range a.Observables {
+		values[o.Name] = o.Value
+	}
+	if values["remote.ip"] != "203.0.113.1" || values["local.ip"] != "10.0.0.1" {
+		t.Fatalf("neutral IP values lost: %+v", values)
+	}
+}
+
+func TestV2ResourceContextAllConnectionsAndNativeIdentity(t *testing.T) {
+	raw := json.RawMessage(`{"finding":{"name":"organizations/123/sources/s/locations/global/findings/a","category":"new-vendor-type","connections":[{"sourceIp":"203.0.113.1"},{"sourceIp":"203.0.113.2","destinationIp":"10.0.0.1"}],"indicator":{"ipAddresses":["203.0.113.3"]},"vulnerability":{"cve":{"id":"CVE-2026-12345"}}},"resource":{"name":"resource-id","displayName":"display-name","type":"compute.Instance","location":"us-central1","gcpMetadata":{"project":"projects/123"}}}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.ExternalID != "organizations/123/sources/s/locations/global/findings/a" || alert.Resource.Name != "display-name" || alert.CloudAccountUID != "projects/123" || alert.Region != "us-central1" || string(alert.Raw) != string(raw) {
+		t.Fatalf("alert=%+v", alert)
+	}
+	values := map[string]bool{}
+	for _, o := range alert.Observables {
+		values[o.Value] = true
+	}
+	if !values["203.0.113.2"] || !values["203.0.113.3"] {
+		t.Fatalf("secondary values lost: %+v", alert.Observables)
 	}
 }

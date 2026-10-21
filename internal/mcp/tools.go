@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sort"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
+	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
@@ -19,6 +22,7 @@ import (
 const maxRange = 90 * 24 * time.Hour
 
 func (s *Server) registerTools() {
+	s.registerDataTools()
 	s.register(Tool{
 		Name:        "list_cloud_accounts",
 		Description: "List configured cloud accounts with ingestion health. Credentials are never returned.",
@@ -27,14 +31,14 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "list_alerts",
-		Description: "List normalized cloud security alerts. Use this for cross-cloud triage and filtering by provider, severity, status, asset or keyword.",
+		Description: "List normalized cloud security alerts. Use this for cross-cloud fact retrieval and filtering by provider, severity, status, asset or keyword.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"provider":   strProp("Provider id, e.g. tencent or aliyun"),
 			"account_id": strProp("Configured account id"),
 			"severity":   severityProp(),
 			"status":     statusProp(),
 			"keyword":    strProp("Full-text search across title, description, alert type and asset name"),
-			"ip":         strProp("Exact match on source or destination IP"),
+			"ip":         strProp("Exact match on source, destination or observable IP"),
 			"resource":   strProp("Asset id (exact) or asset name (substring)"),
 			"sort":       strProp("event_time (default), severity, last_seen, first_seen"),
 		}, mergeProps(timeProps(), map[string]any{
@@ -45,7 +49,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "list_alert_groups",
-		Description: "Group alerts by signature, asset or source IP. Grouping is a read-only view; it never deletes or suppresses the original alerts.",
+		Description: "Group findings by exact fields: native rule/account/region/asset/source signature, type and asset, asset, or source. Counts are stored alert records, not attack occurrences. max_severity is the maximum vendor-mapped severity among members. No verdicts or filtering are inferred. Reuse the returned snapshot_sequence and window.start/end when expanding or paging.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"group_by":   groupByProp(),
 			"provider":   strProp("Provider id"),
@@ -63,7 +67,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert_group",
-		Description: "Get the original alerts that belong to one alert group. group_key comes from list_alert_groups.",
+		Description: "Get original alerts in a group. Copy group_by, group_key and window.start/end from list_alert_groups to keep membership within the same time range.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"group_by":   groupByProp(),
 			"group_key":  groupKeyProp(),
@@ -82,7 +86,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert",
-		Description: "Get one alert with its full OCSF Detection Finding payload and the original vendor JSON.",
+		Description: "Get one alert with its source-appropriate OCSF payload (when available) and the original vendor JSON.",
 		InputSchema: obj(map[string]any{"alert_id": strProp("Alert id returned by list_alerts")}, "alert_id"),
 		Handler:     s.toolGetAlert,
 	})
@@ -94,7 +98,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "search_alerts_by_ip",
-		Description: "Find alerts where an IP is the source or destination. Defaults to the last 7 days.",
+		Description: "Find alerts matching a source, destination or observable IP. Defaults to the last 7 days.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"ip": strProp("IPv4 or IPv6 address"),
 		}, mergeProps(timeProps(), map[string]any{
@@ -134,7 +138,7 @@ func (s *Server) registerTools() {
 }
 
 func (s *Server) toolListAlerts(ctx context.Context, args map[string]any) (any, error) {
-	f, err := s.filterFromArgs(args, 0)
+	f, err := s.filterFromArgs(args, 7*24*time.Hour)
 	if err != nil {
 		return nil, err
 	}
@@ -147,13 +151,22 @@ func (s *Server) toolListAlertGroups(ctx context.Context, args map[string]any) (
 		return nil, err
 	}
 	if f.GroupBy == "" {
-		f.GroupBy = model.GroupBySignature
+		f.GroupBy = model.GroupByTypeAsset
+	}
+	if err := query.PinSnapshot(ctx, s.store, &f); err != nil {
+		return nil, err
 	}
 	groups, total, err := s.store.ListAlertGroups(ctx, f)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	coverage, err := s.coverage(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"snapshot_sequence": f.SnapshotSequence,
+		"coverage": coverage,
+		"window":   view.WindowFromFilter(f),
 		"total":    total,
 		"group_by": f.GroupBy,
 		"limit":    f.Limit,
@@ -189,6 +202,16 @@ func (s *Server) toolGetAlert(ctx context.Context, args map[string]any) (any, er
 		return nil, errors.New("alert_id is required")
 	}
 	rec, err := s.store.GetAlert(ctx, id)
+	if seq, ok := args["snapshot_sequence"]; ok {
+		n, e := parseInteger(seq)
+		if e != nil || n < 0 {
+			return nil, fmt.Errorf("invalid snapshot_sequence")
+		}
+		rec, err = s.store.GetAlertAtSnapshot(ctx, id, n)
+	}
+	if rev := argInt(args, "revision", 0, 0, 2147483647); rev > 0 {
+		rec, err = s.store.GetAlertRevision(ctx, id, rev)
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("alert %s not found", id)
@@ -263,11 +286,19 @@ func (s *Server) toolStatistics(ctx context.Context, args map[string]any) (any, 
 		return nil, err
 	}
 	f.Limit = 1
+	if err := query.PinSnapshot(ctx, s.store, &f); err != nil {
+		return nil, err
+	}
 	stats, err := s.store.AlertStats(ctx, f)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	coverage, err := s.coverage(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"snapshot_sequence": f.SnapshotSequence,
+		"coverage": coverage,
 		"window": map[string]any{
 			"start": timeutil.Format(derefTime(f.Start)),
 			"end":   timeutil.Format(derefTime(f.End)),
@@ -305,7 +336,8 @@ func (s *Server) toolHealth(ctx context.Context, args map[string]any) (any, erro
 		if err != nil {
 			return nil, err
 		}
-		if a.Enabled && state.ConsecutiveFailures > 0 {
+		sv := view.SyncStateFromModel(state, s.maxAge)
+		if a.Enabled && !sv.Healthy {
 			status = "degraded"
 		}
 		runViews := make([]view.SyncRun, 0, len(runs))
@@ -314,7 +346,7 @@ func (s *Server) toolHealth(ctx context.Context, args map[string]any) (any, erro
 		}
 		items = append(items, map[string]any{
 			"account":     view.AccountFromModel(a),
-			"sync_state":  view.SyncStateFromModel(state),
+			"sync_state":  sv,
 			"recent_runs": runViews,
 		})
 	}
@@ -354,7 +386,7 @@ func (s *Server) accountsWithState(ctx context.Context) ([]view.Account, error) 
 		if err != nil {
 			return nil, err
 		}
-		sv := view.SyncStateFromModel(state)
+		sv := view.SyncStateFromModel(state, s.maxAge)
 		v.SyncState = &sv
 		out = append(out, v)
 	}
@@ -362,6 +394,9 @@ func (s *Server) accountsWithState(ctx context.Context) ([]view.Account, error) 
 }
 
 func (s *Server) listAlerts(ctx context.Context, f model.AlertFilter) (any, error) {
+	if err := query.PinSnapshot(ctx, s.store, &f); err != nil {
+		return nil, err
+	}
 	items, total, err := s.store.ListAlerts(ctx, f)
 	if err != nil {
 		return nil, err
@@ -370,24 +405,59 @@ func (s *Server) listAlerts(ctx context.Context, f model.AlertFilter) (any, erro
 	for i := range items {
 		alerts = append(alerts, view.AlertFromRecord(&items[i], false))
 	}
-	return map[string]any{
-		"total":  total,
-		"limit":  f.Limit,
-		"offset": f.Offset,
-		"alerts": alerts,
+	coverage, err := s.coverage(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	next := ""
+	hasMore := f.Offset+len(items) < total
+	if f.Sort == "id" && len(items) > 0 && hasMore {
+		next = items[len(items)-1].ID
+	}
+	return map[string]any{"snapshot_sequence": f.SnapshotSequence, "next_cursor": next, "has_more": hasMore,
+		"coverage": coverage,
+		"window":   view.WindowFromFilter(f),
+		"total":    total,
+		"limit":    f.Limit,
+		"offset":   f.Offset,
+		"alerts":   alerts,
 	}, nil
+}
+
+// Freshness is advisory, not a claim that a historical query is fully covered.
+func (s *Server) coverage(ctx context.Context, f model.AlertFilter) (any, error) {
+	return query.Coverage(ctx, s.store, s.registry, f, s.maxAge)
 }
 
 func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration) (model.AlertFilter, error) {
 	f := model.AlertFilter{
-		Provider:  argString(args, "provider"),
+		TimeField: argString(args, "time_field"), Provider: argString(args, "provider"),
 		AccountID: argString(args, "account_id"),
 		Keyword:   argString(args, "keyword"),
 		IP:        argString(args, "ip"),
 		Resource:  argString(args, "resource"),
 		Sort:      argString(args, "sort"),
 		Limit:     argInt(args, "limit", 20, 1, 200),
-		Offset:    argInt(args, "offset", 0, 0, 10000),
+		Offset:    argInt(args, "offset", 0, 0, int(^uint(0)>>1)),
+		RuleID:    argString(args, "rule_id"), FindingKind: argString(args, "finding_kind"), VendorStatus: argString(args, "vendor_status"), ObservableValue: argString(args, "observable_value"), AfterID: argString(args, "after_id"),
+	}
+	if _, ok := args["observable_type"]; ok {
+		v, e := parseInteger(args["observable_type"])
+		if e != nil || v < 0 || v > 999 {
+			return f, fmt.Errorf("invalid observable_type")
+		}
+		n := int(v)
+		f.ObservableType = &n
+	}
+	if raw, ok := args["snapshot_sequence"]; ok {
+		n, err := parseInteger(raw)
+		if err != nil || n < 0 {
+			return f, fmt.Errorf("invalid snapshot_sequence")
+		}
+		f.SnapshotSequence = &n
+	}
+	if f.AfterID != "" {
+		f.Sort = "id"
 	}
 	if raw := argString(args, "group_by"); raw != "" {
 		groupBy, ok := model.ParseAlertGroupBy(raw)
@@ -422,10 +492,13 @@ func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration
 	if f.IP != "" && net.ParseIP(f.IP) == nil {
 		return f, fmt.Errorf("ip %q is not a valid IP address", f.IP)
 	}
-	return f, nil
+	return f, query.ValidateFilter(f)
 }
 
 func parseRange(args map[string]any, defaultWindow time.Duration) (*time.Time, *time.Time, error) {
+	if defaultWindow <= 0 {
+		defaultWindow = 7 * 24 * time.Hour
+	}
 	now := time.Now().UTC()
 	var start, end *time.Time
 
@@ -444,6 +517,9 @@ func parseRange(args map[string]any, defaultWindow time.Duration) (*time.Time, *
 		end = &t
 	}
 	if v := argString(args, "since"); v != "" {
+		if start != nil {
+			return nil, nil, errors.New("use start or since, not both")
+		}
 		d, ok := timeutil.ParseDuration(v)
 		if !ok {
 			return nil, nil, fmt.Errorf("invalid since %q", v)
@@ -459,11 +535,13 @@ func parseRange(args map[string]any, defaultWindow time.Duration) (*time.Time, *
 		e := now
 		end = &e
 	}
-	if start == nil && end == nil && defaultWindow > 0 {
-		s := now.Add(-defaultWindow)
-		start = &s
+	if end == nil {
 		e := now
 		end = &e
+	}
+	if start == nil {
+		s := end.Add(-defaultWindow)
+		start = &s
 	}
 	if start != nil && end != nil {
 		if end.Before(*start) {
@@ -566,5 +644,19 @@ func argList(args map[string]any, key string) []string {
 		return out
 	default:
 		return nil
+	}
+}
+
+func parseInteger(value any) (int64, error) {
+	switch v := value.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < 0 || v > 9007199254740991 {
+			return 0, fmt.Errorf("invalid integer")
+		}
+		return int64(v), nil
+	case json.Number:
+		return v.Int64()
+	default:
+		return strconv.ParseInt(fmt.Sprint(value), 10, 64)
 	}
 }

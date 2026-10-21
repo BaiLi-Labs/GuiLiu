@@ -104,12 +104,12 @@ export function cx(...values: Array<string | false | null | undefined>): string 
   return values.filter(Boolean).join(' ');
 }
 
-export function rangeStart(range: string): string | undefined {
+export function rangeStart(range: string, end = new Date().toISOString()): string | undefined {
   if (!range || range === 'all') return undefined;
   const hours: Record<string, number> = { '10m': 10 / 60, '1h': 1, '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
   const h = hours[range];
   if (!h) return undefined;
-  return new Date(Date.now() - h * 3600_000).toISOString();
+  return new Date(new Date(end).getTime() - h * 3600_000).toISOString();
 }
 
 export const RANGE_OPTIONS = [
@@ -149,6 +149,13 @@ export function useHashPage(): [Page, (page: Page, params?: RouteParams) => void
 export function accountStatus(account: Account): string {
   if (!account.enabled) return '已停用';
   const state = account.sync_state;
+  if (state?.status) {
+    const labels = {
+      healthy: '已同步', failed: '同步失败', pending: '续传中',
+      never_synced: '等待首次同步', stale: '同步延迟', partial: '部分失败',
+    };
+    return labels[state.status];
+  }
   if ((state?.consecutive_failures || 0) > 0) return '同步失败';
   if (state?.pending) return '续传中';
   return state?.last_success_at ? '已同步' : '等待首次同步';

@@ -74,7 +74,7 @@ export function Overview() {
   const accounts = health?.accounts || [];
   const enabled = accounts.filter((account) => account.enabled);
   const successful = enabled.filter((account) => accountStatus(account) === '已同步').length;
-  const failures = enabled.filter((account) => accountStatus(account) === '同步失败').length;
+  const failures = enabled.filter((account) => ['同步失败', '同步延迟', '部分失败'].includes(accountStatus(account))).length;
   const providerIDs = [...new Set(accounts.map((account) => account.provider))];
   const counts = stats?.by_provider || {};
   const high = (severities.critical || 0) + (severities.fatal || 0) + (severities.high || 0);

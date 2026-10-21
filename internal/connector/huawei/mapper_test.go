@@ -37,7 +37,7 @@ func TestNormalizeHuaweiAlert(t *testing.T) {
 	if alert.Severity.String() != "high" || alert.OriginalSeverity != "High" {
 		t.Fatalf("severity = %s / %s", alert.Severity, alert.OriginalSeverity)
 	}
-	if alert.VendorStatus != "unhandled" {
+	if alert.VendorStatus != "Open" {
 		t.Fatalf("status = %q", alert.VendorStatus)
 	}
 	if alert.SourceIP != "203.0.113.10" || alert.DestinationIP != "10.0.0.5" {
@@ -52,10 +52,31 @@ func TestNormalizeHuaweiAlert(t *testing.T) {
 	if alert.Product != "HSS" || alert.AlertType != "Host/BruteForce" {
 		t.Fatalf("product/type = %s / %s", alert.Product, alert.AlertType)
 	}
-	if !alert.EventTime.Equal(time.Date(2026, 10, 20, 2, 5, 0, 0, time.UTC)) {
+	if !alert.EventTime.Equal(time.Date(2026, 10, 20, 2, 0, 0, 0, time.UTC)) {
 		t.Fatalf("event time = %s", alert.EventTime)
 	}
 	if len(alert.Observables) < 3 || len(alert.Evidences) != 1 {
 		t.Fatalf("observables/evidence = %d / %d", len(alert.Observables), len(alert.Evidences))
+	}
+}
+
+func TestEnvelopeAndMultipleResources(t *testing.T) {
+	raw := json.RawMessage(`{"id":"envelope-id","project_id":"p","workspace_id":"w","data_object":{"id":"alert-id","actor":"vendor-user","resource_list":[{"id":"one"},{"id":"two"}],"network_list":[{"src_ip":"203.0.113.1"},{"src_ip":"203.0.113.2","dest_ip":"10.0.0.1"}]}}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.ExternalID != "alert-id" || alert.Actor != "vendor-user" || len(alert.Resources) != 2 || string(alert.Raw) != string(raw) {
+		t.Fatalf("alert=%+v", alert)
+	}
+	values := map[string]bool{}
+	for _, o := range alert.Observables {
+		values[o.Value] = true
+	}
+	if !values["two"] || !values["203.0.113.2"] {
+		t.Fatalf("secondary values lost: %+v", alert.Observables)
+	}
+	if _, err := (&Connector{}).Normalize(json.RawMessage(`{"data_object":null}`)); err == nil {
+		t.Fatal("missing data_object accepted")
 	}
 }

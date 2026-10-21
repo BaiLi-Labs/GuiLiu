@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -28,27 +27,25 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		externalID = connector.Str(a.Key)
 	}
 	if externalID == "" {
-		externalID = connector.HashRaw(raw)
+		return model.Alert{}, fmt.Errorf("tencent source record has no native ID")
 	}
 
 	firstSeen, _ := connector.ParseVendorTime(connector.Str(a.CreateTime))
 	lastSeen, _ := connector.ParseVendorTime(connector.Str(a.UpdateTime))
-	eventTime := lastSeen
-	if eventTime.IsZero() {
-		eventTime = firstSeen
-	}
+	eventTime := firstSeen
 
 	alert := model.Alert{
 		ExternalID:       externalID,
+		FindingKind:      model.FindingDetection,
 		Title:            connector.FirstNonEmpty(connector.Str(a.Name), "Tencent Cloud security alert"),
 		Description:      connector.FirstNonEmpty(connector.Str(a.RiskInvestigation), connector.Str(a.UrgentSuggestion), connector.Str(a.RiskTreatment)),
 		Severity:         mapSeverity(connector.Uint64(a.Level)),
-		OriginalSeverity: severityLabel(connector.Uint64(a.Level)),
-		VendorStatus:     mapStatus(connector.Uint64(a.Status)),
+		OriginalSeverity: connector.SourceScalar(raw, "/Level"),
+		VendorStatus:     connector.SourceScalar(raw, "/Status"),
 		EventTime:        eventTime,
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
-		OriginalTime:     connector.FirstNonEmpty(connector.Str(a.UpdateTime), connector.Str(a.CreateTime)),
+		OriginalTime:     connector.Str(a.CreateTime),
 		Product:          sourceProduct(connector.Str(a.Source)),
 		AlertType:        connector.JoinNonEmpty("/", connector.Str(a.Type), connector.Str(a.SubType)),
 		CloudAccountUID:  connector.FirstNonEmpty(connector.Str(a.Uin), connector.Str(a.AppID)),
@@ -57,6 +54,9 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 
 	if a.Attacker != nil {
 		alert.SourceIP = connector.FirstNonEmpty(connector.Str(a.Attacker.IP), connector.Str(a.Attacker.OriginIP))
+	}
+	if alert.SourceIP == "" && a.ExtraInfo != nil {
+		alert.SourceIP = connector.Str(a.ExtraInfo.SourceIP)
 	}
 	if a.Victim != nil {
 		alert.DestinationIP = connector.Str(a.Victim.IP)
@@ -67,6 +67,14 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		}
 	}
 
+	if a.ExtraInfo != nil {
+		alert.RuleID = connector.Str(a.ExtraInfo.StrategyID)
+	}
+	if a.Count != nil && *a.Count <= 9223372036854775807 {
+		n := int64(*a.Count)
+		alert.OccurrenceCount = &n
+		alert.OccurrenceScope = "tencent.csip.alert_count"
+	}
 	alert.Observables = observables(&a, alert)
 	if ev := evidence(&a); ev != nil {
 		alert.Evidences = []model.Evidence{*ev}
@@ -91,26 +99,6 @@ func mapSeverity(level uint64) model.Severity {
 		return model.SeverityCritical
 	default:
 		return model.SeverityUnknown
-	}
-}
-
-func severityLabel(level uint64) string {
-	if level == 0 {
-		return ""
-	}
-	return strconv.FormatUint(level, 10)
-}
-
-func mapStatus(status uint64) string {
-	switch status {
-	case 0:
-		return "unhandled"
-	case 1:
-		return "ignored"
-	case 2:
-		return "handled"
-	default:
-		return "status_" + strconv.FormatUint(status, 10)
 	}
 }
 
@@ -155,15 +143,38 @@ func observables(a *csip.AlertInfo, alert model.Alert) []model.Observable {
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
 	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
 	if a.Attacker != nil {
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(a.Attacker.OriginIP))
 		add("attacker.domain", 0, connector.Str(a.Attacker.Domain))
 		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(a.Attacker.MD5))
 		add("file.name", ocsf.ObservableFileName, connector.Str(a.Attacker.FileName))
+	}
+	if a.Victim != nil {
+		add("victim.host_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.HostIP))
+		add("victim.origin_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.OriginIP))
+		add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Victim.ContainerID))
+	}
+	if extra := a.ExtraInfo; extra != nil {
+		add("user.name", ocsf.ObservableUserName, connector.Str(extra.LoginUserName))
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.FileMD5))
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.MaliciousProcessFileMD5))
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.ProcessMD5))
+		add("file.name", ocsf.ObservableFileName, connector.Str(extra.FileName))
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(extra.SourceIP))
 	}
 	return out
 }
 
 func evidence(a *csip.AlertInfo) *model.Evidence {
 	data := map[string]any{}
+	if a.ExtraInfo != nil {
+		data["extra_info"] = a.ExtraInfo
+	}
+	if a.Attacker != nil {
+		data["attacker"] = a.Attacker
+	}
+	if a.Victim != nil {
+		data["victim"] = a.Victim
+	}
 	if v := connector.Str(a.EvidencePath); v != "" {
 		data["path"] = v
 	}

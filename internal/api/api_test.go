@@ -25,9 +25,29 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
+	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
-func setup(t *testing.T, devMode bool) (*httptest.Server, store.Store, *auth.Service) {
+// Handler-level HTTP tests need no listening socket and still exercise cookies,
+// authentication, routing and JSON serialization through http.Client.
+type testServer struct {
+	URL     string
+	handler http.Handler
+}
+type handlerTransport struct{ handler http.Handler }
+
+func (tr handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	tr.handler.ServeHTTP(w, r)
+	if r.Body != nil {
+		_ = r.Body.Close()
+	}
+	resp := w.Result()
+	resp.Request = r
+	return resp, nil
+}
+
+func setup(t *testing.T, devMode bool) (*testServer, store.Store, *auth.Service) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "api.db"))
 	if err != nil {
@@ -65,8 +85,7 @@ func setup(t *testing.T, devMode bool) (*httptest.Server, store.Store, *auth.Ser
 	authSvc := auth.New(st, auth.Config{DevMode: devMode, SessionTTL: time.Hour, AdminUser: "admin"}, logger)
 	mcpServer := mcp.New(st, reg, logger)
 	server := api.New(cfg, st, eng, reg, cipher, mcpServer, authSvc, logger)
-	ts := httptest.NewServer(server.Handler())
-	t.Cleanup(ts.Close)
+	ts := &testServer{URL: "http://guiliu.test", handler: server.Handler()}
 	return ts, st, authSvc
 }
 
@@ -94,16 +113,16 @@ func do(t *testing.T, client *http.Client, method, url, token, body string) (*ht
 	return resp, data
 }
 
-func newClient(t *testing.T) *http.Client {
+func newClient(t *testing.T, ts *testServer) *http.Client {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &http.Client{Jar: jar, Timeout: 5 * time.Second}
+	return &http.Client{Jar: jar, Timeout: 5 * time.Second, Transport: handlerTransport{ts.handler}}
 }
 
-func createAccount(t *testing.T, ts *httptest.Server, client *http.Client, token string) string {
+func createAccount(t *testing.T, ts *testServer, client *http.Client, token string) string {
 	t.Helper()
 	resp, body := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts", token,
 		`{"name":"prod","provider":"fake","account_uid":"123456","access_key_id":"TEST_ONLY_ACCESS_KEY","access_key_secret":"test-only-secret"}`)
@@ -151,7 +170,7 @@ func seedAlert(t *testing.T, st store.Store, accountID string) *model.AlertRecor
 
 func TestDevModeAndAlerts(t *testing.T) {
 	ts, st, _ := setup(t, true)
-	client := newClient(t)
+	client := newClient(t, ts)
 	acctID := createAccount(t, ts, client, "")
 	rec := seedAlert(t, st, acctID)
 
@@ -194,7 +213,7 @@ func TestDevModeAndAlerts(t *testing.T) {
 		Total  int `json:"total"`
 		Groups []struct {
 			ID    string            `json:"id"`
-			Count int               `json:"count"`
+			Count int               `json:"finding_count"`
 			Key   map[string]string `json:"key"`
 		} `json:"groups"`
 	}
@@ -228,9 +247,78 @@ func TestDevModeAndAlerts(t *testing.T) {
 	}
 }
 
+func TestDefaultGroupsAndMemberTimeWindow(t *testing.T) {
+	ts, st, _ := setup(t, true)
+	client := newClient(t, ts)
+	rec := seedAlert(t, st, createAccount(t, ts, client, ""))
+	start := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second).Add(250 * time.Millisecond)
+	end := start.Add(time.Hour)
+	rec.Product, rec.AlertType, rec.Region, rec.SourceIP = "CWP", "MaliciousProcess", "region-1", ""
+	for i, at := range []time.Time{start.Add(-time.Millisecond), start, end, end.Add(time.Millisecond)} {
+		rec.ID = ""
+		rec.ExternalID = []string{"a-1", "at-start", "at-end", "after-end"}[i]
+		rec.EventTime, rec.FirstSeenAt, rec.LastSeenAt = at, at, at
+		if _, err := st.UpsertAlert(context.Background(), rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := url.Values{"start": {start.Format(time.RFC3339Nano)}, "end": {end.Format(time.RFC3339Nano)}}
+	resp, body := do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/groups?"+q.Encode(), "", "")
+	var result struct {
+		Total   int                `json:"total"`
+		GroupBy model.AlertGroupBy `json:"group_by"`
+		Groups  []model.AlertGroup `json:"groups"`
+		Window  view.QueryWindow   `json:"window"`
+	}
+	if resp.StatusCode != 200 || json.Unmarshal(body, &result) != nil || result.Total != 1 || len(result.Groups) != 1 || result.Groups[0].FindingCount != 2 || result.GroupBy != model.GroupByTypeAsset {
+		t.Fatalf("default groups=%d %s", resp.StatusCode, body)
+	}
+	if result.Window.Start != q.Get("start") || result.Window.End != q.Get("end") {
+		t.Fatalf("subsecond window changed: %+v", result.Window)
+	}
+	key, _ := json.Marshal(result.Groups[0].Key)
+	q.Set("group_by", string(result.GroupBy))
+	q.Set("group_key", string(key))
+	q.Set("start", result.Window.Start)
+	q.Set("end", result.Window.End)
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts?"+q.Encode(), "", "")
+	var members struct {
+		Total  int              `json:"total"`
+		Window view.QueryWindow `json:"window"`
+	}
+	if resp.StatusCode != 200 || json.Unmarshal(body, &members) != nil || members.Total != 2 || members.Window != result.Window {
+		t.Fatalf("expanded members=%d %s", resp.StatusCode, body)
+	}
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/groups?since=24h", "", "")
+	if resp.StatusCode != 200 || json.Unmarshal(body, &result) != nil || result.Window.Start == "" || result.Window.End == "" {
+		t.Fatalf("relative window missing=%d %s", resp.StatusCode, body)
+	}
+}
+
+func TestHealthAndFailedPayloadInspection(t *testing.T) {
+	ts, st, _ := setup(t, true)
+	client := newClient(t, ts)
+	id := createAccount(t, ts, client, "")
+	resp, body := do(t, client, http.MethodGet, ts.URL+"/api/v1/health", "", "")
+	if resp.StatusCode != 200 || !bytes.Contains(body, []byte(`"status":"degraded"`)) || !bytes.Contains(body, []byte(`"status":"never_synced"`)) {
+		t.Fatalf("health=%s", body)
+	}
+	if err := st.SaveIngestFailure(context.Background(), &model.IngestFailure{AccountID: id, Raw: json.RawMessage(`invalid json`), Error: "decode error", MapperVersion: "v1", IngestedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/accounts/"+id+"/failures", "", "")
+	if resp.StatusCode != 200 || !json.Valid(body) || !bytes.Contains(body, []byte(`"raw":"invalid json"`)) {
+		t.Fatalf("failed payload=%s", body)
+	}
+	resp, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/accounts/missing/failures", "", "")
+	if resp.StatusCode != 404 {
+		t.Fatalf("missing account=%d body=%s", resp.StatusCode, body)
+	}
+}
+
 func TestAuthenticationSessionsAndAPIKeys(t *testing.T) {
 	ts, st, authSvc := setup(t, false)
-	client := newClient(t)
+	client := newClient(t, ts)
 	ctx := context.Background()
 	if _, err := authSvc.EnsureAdmin(ctx, "admin", "correct-horse-battery"); err != nil {
 		t.Fatal(err)
@@ -401,7 +489,7 @@ func TestAuthenticationSessionsAndAPIKeys(t *testing.T) {
 
 func TestCredentialAndOptionValidation(t *testing.T) {
 	ts, _, _ := setup(t, true)
-	client := newClient(t)
+	client := newClient(t, ts)
 
 	if resp, body := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts", "",
 		`{"name":"gcp","provider":"fake-gcp","options":{"parent":"organizations/1"}}`); resp.StatusCode != http.StatusBadRequest ||
@@ -439,7 +527,7 @@ func TestCredentialAndOptionValidation(t *testing.T) {
 
 func TestMCPHTTP(t *testing.T) {
 	ts, _, _ := setup(t, true)
-	client := newClient(t)
+	client := newClient(t, ts)
 
 	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
 	resp, body := do(t, client, http.MethodPost, ts.URL+"/mcp", "", initBody)

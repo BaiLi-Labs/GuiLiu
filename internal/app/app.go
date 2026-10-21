@@ -107,7 +107,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		}
 	}
 
-	mcpServer := mcp.New(st, registry, log)
+	mcpServer := mcp.New(st, registry, log, 3*cfg.Sync.Interval.Get())
 	apiServer := api.New(cfg, st, engine, registry, cipher, mcpServer, authService, log)
 
 	return &App{

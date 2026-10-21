@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 
 const (
 	providerID      = "aliyun"
-	mapperVersion   = "aliyun-sas/v1"
+	mapperVersion   = "aliyun-sas/v3"
 	defaultEndpoint = "sas.aliyuncs.com"
 	defaultQPS      = 5
 	defaultPageSize = 100
@@ -31,6 +32,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "SAS DescribeSuspEvents",
 		ID:            providerID,
 		Name:          "Alibaba Cloud",
 		Vendor:        "Alibaba Cloud",
@@ -44,7 +46,7 @@ func descriptor() connector.Descriptor {
 			{Name: "session_token", Label: "STS Token", Secret: true, Help: "Optional, for temporary credentials"},
 		},
 		OptionFields: []connector.OptionField{
-			{Name: "status", Label: "告警状态过滤", Placeholder: "留空=全部；0 未处理 / 1 已处理 ...", Help: "对应 DescribeSuspEvents.Status，留空表示不限制"},
+			{Name: "status", Label: "告警状态过滤", Placeholder: "留空或 0=全部；1 未处理 / 2 已忽略 / 4 已处置", Help: "对应 DescribeSuspEvents.Status；默认显式传 0 查询全部状态"},
 		},
 		Products: []connector.Product{
 			{Code: "SAS", Name: "Security Center (host, container, cloud platform)"},
@@ -54,10 +56,10 @@ func descriptor() connector.Descriptor {
 
 // Connector talks to Alibaba Cloud Security Center.
 type Connector struct {
-	client   *sas.Client
-	limiter  *connector.Limiter
-	pageSize int
-	status   string
+	fetchJSON func(*sas.DescribeSuspEventsRequest, *service.RuntimeOptions) (json.RawMessage, error)
+	limiter   *connector.Limiter
+	pageSize  int
+	status    string
 }
 
 // New builds an Alibaba Cloud connector from an account configuration.
@@ -86,7 +88,19 @@ func New(cfg connector.AccountConfig) (connector.Connector, error) {
 		return nil, connector.ConfigError(providerID, fmt.Sprintf("create client: %v", err))
 	}
 	return &Connector{
-		client:   client,
+		fetchJSON: func(req *sas.DescribeSuspEventsRequest, runtime *service.RuntimeOptions) (json.RawMessage, error) {
+			params := &openapi.Params{Action: tea.String("DescribeSuspEvents"), Version: tea.String("2018-12-03"), Protocol: tea.String("HTTPS"), Pathname: tea.String("/"), Method: tea.String("POST"), AuthType: tea.String("AK"), Style: tea.String("RPC"), ReqBodyType: tea.String("formData"), BodyType: tea.String("binary")}
+			result, err := client.CallApi(params, &openapi.OpenApiRequest{Query: map[string]*string{"CurrentPage": req.CurrentPage, "PageSize": req.PageSize, "TimeStart": req.TimeStart, "TimeEnd": req.TimeEnd, "Lang": req.Lang, "Status": req.Status}}, runtime)
+			if err != nil {
+				return nil, err
+			}
+			body, ok := result["body"].(io.ReadCloser)
+			if !ok {
+				return nil, fmt.Errorf("Alibaba API returned no response stream")
+			}
+			defer body.Close()
+			return connector.ReadSourceBody(body)
+		},
 		limiter:  connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
 		pageSize: connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
 		status:   strings.TrimSpace(cfg.Options["status"]),
@@ -137,6 +151,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		TimeStart:   tea.String(connector.FormatBeijing(q.Start)),
 		TimeEnd:     tea.String(connector.FormatBeijing(q.End)),
 		Lang:        tea.String("zh"),
+		Status:      tea.String("0"), // Explicitly include every vendor status.
 	}
 	if c.status != "" {
 		req.Status = tea.String(c.status)
@@ -147,22 +162,27 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		ConnectTimeout: tea.Int(10000),
 		ReadTimeout:    tea.Int(30000),
 	}
-	resp, err := c.client.DescribeSuspEventsWithOptions(req, runtime)
+	payload, err := c.fetchJSON(req, runtime)
 	if err != nil {
 		return connector.Page{}, connector.Classify(providerID, err)
 	}
-	if resp == nil || resp.Body == nil {
-		return connector.Page{}, &connector.Error{Provider: providerID, Kind: connector.KindTransient, Code: "empty_response", Message: "empty response"}
+	var resp struct {
+		TotalCount int               `json:"TotalCount"`
+		SuspEvents []json.RawMessage `json:"SuspEvents"`
 	}
-
-	total := int(connector.Int32(resp.Body.TotalCount))
-	out := make([]connector.RawAlert, 0, len(resp.Body.SuspEvents))
-	for _, item := range resp.Body.SuspEvents {
-		raw, err := json.Marshal(item)
-		if err != nil {
-			continue
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return connector.Page{}, fmt.Errorf("decode aliyun page: %w", err)
+	}
+	total := resp.TotalCount
+	out := make([]connector.RawAlert, 0, len(resp.SuspEvents))
+	for _, raw := range resp.SuspEvents {
+		if len(raw) == 0 || string(raw) == "null" {
+			return connector.Page{}, fmt.Errorf("aliyun returned a nil alert")
 		}
 		out = append(out, connector.RawAlert{Raw: raw})
+	}
+	if len(out) == 0 && (page-1)*pageSize < total {
+		return connector.Page{}, fmt.Errorf("aliyun returned an empty page before total %d", total)
 	}
 	next := ""
 	if page*pageSize < total && len(out) > 0 {

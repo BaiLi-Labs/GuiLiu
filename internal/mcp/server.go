@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -37,14 +38,19 @@ type Server struct {
 	log      *slog.Logger
 	tools    map[string]Tool
 	order    []string
+	maxAge   time.Duration
 }
 
 // New builds an MCP server with the read-only tool set.
-func New(st store.Store, registry *connector.Registry, log *slog.Logger) *Server {
+func New(st store.Store, registry *connector.Registry, log *slog.Logger, maxAge ...time.Duration) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{store: st, registry: registry, log: log, tools: map[string]Tool{}}
+	age := 15 * time.Minute
+	if len(maxAge) > 0 && maxAge[0] > 0 {
+		age = maxAge[0]
+	}
+	s := &Server{store: st, registry: registry, log: log, tools: map[string]Tool{}, maxAge: age}
 	s.registerTools()
 	return s
 }
@@ -128,7 +134,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		},
 		"instructions": "GuiLiu is a read-only, vendor-neutral security data hub. " +
 			"Use list_alerts/search_alerts_by_ip/search_alerts_by_asset to query normalized cloud alerts, " +
-			"list_alert_groups/get_alert_group to reduce duplicate reading while preserving original alerts, " +
+			"list_alert_groups/get_alert_group to browse exact-field groups while preserving original alerts, " +
 			"get_alert for full OCSF payload and raw vendor evidence, and get_connector_health to check ingestion freshness. " +
 			"All tools are read-only and scoped to the configured accounts.",
 	}
@@ -258,6 +264,20 @@ type Tool struct {
 }
 
 func (s *Server) register(t Tool) {
+	if props, ok := t.InputSchema["properties"].(map[string]any); ok {
+		switch t.Name {
+		case "list_alerts", "list_alert_groups", "get_alert_group", "search_alerts_by_ip", "search_alerts_by_asset", "get_alert_statistics":
+			for key, value := range map[string]any{"time_field": strProp("Timestamp used by start/end: event_time (default), source_updated_at or ingested_at"),
+				"rule_id": strProp("Exact native rule ID, scoped by provider and product"), "finding_kind": strProp("detection, vulnerability, compliance, incident or other"), "vendor_status": strProp("Exact source status; independent of local annotation status"), "observable_type": map[string]any{"type": "integer", "minimum": 0, "description": "OCSF observable type ID"}, "observable_value": strProp("Exact typed observable value: IP, domain, hash, account, user or resource"), "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned snapshot sequence for stable paging and group expansion"}, "after_id": strProp("Continue an ID-sorted snapshot using next_cursor")} {
+				props[key] = value
+			}
+			props["offset"] = map[string]any{"type": "integer", "minimum": 0, "description": "Page offset; prefer ID cursor for deep traversal"}
+		case "get_alert":
+			props["snapshot_sequence"] = map[string]any{"type": "integer", "minimum": 0, "description": "Read the detail from a pinned snapshot"}
+			props["revision"] = map[string]any{"type": "integer", "minimum": 1, "description": "Exact revision from a change feed entry"}
+		}
+	}
+
 	s.tools[t.Name] = t
 	s.order = append(s.order, t.Name)
 }
@@ -304,8 +324,8 @@ func intProp(desc string, def, min, max int) map[string]any {
 func groupByProp() map[string]any {
 	return map[string]any{
 		"type":        "string",
-		"description": "Grouping strategy: signature (default), asset or source",
-		"enum":        []string{"signature", "asset", "source"},
+		"description": "Exact-field grouping: type_asset (default, type and asset without requiring a source IP), signature (native rule ID, cloud account UID, region, asset and source IP), asset, or source (source IP and type). Groups are views, not incident or verdict classifications.",
+		"enum":        []string{"type_asset", "signature", "asset", "source"},
 	}
 }
 

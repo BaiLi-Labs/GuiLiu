@@ -14,6 +14,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
+	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
 func newTestServer(t *testing.T) (*Server, *model.AlertRecord) {
@@ -24,7 +25,7 @@ func newTestServer(t *testing.T) (*Server, *model.AlertRecord) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	now := time.Date(2026, 10, 20, 6, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Hour)
 	rec := &model.AlertRecord{
 		Provider:    "tencent",
 		AccountID:   "acct-1",
@@ -85,7 +86,7 @@ func TestInitializeAndTools(t *testing.T) {
 
 	resp = call(t, srv, "tools/list", map[string]any{})
 	tools := resp.Result.(map[string]any)["tools"].([]map[string]any)
-	if len(tools) != 10 {
+	if len(tools) != 14 {
 		t.Fatalf("tools = %d", len(tools))
 	}
 
@@ -158,6 +159,46 @@ func TestInitializeAndTools(t *testing.T) {
 	}
 }
 
+func TestDefaultGroupsAndMemberTimeWindow(t *testing.T) {
+	srv, rec := newTestServer(t)
+	start := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second).Add(250 * time.Millisecond)
+	end := start.Add(time.Hour)
+	rec.Product, rec.AlertType, rec.Region, rec.SourceIP = "CWP", "MaliciousProcess", "region-1", ""
+	for i, at := range []time.Time{start.Add(-time.Millisecond), start, end, end.Add(time.Millisecond)} {
+		rec.ID = ""
+		rec.ExternalID = []string{"a-1", "at-start", "at-end", "after-end"}[i]
+		rec.EventTime, rec.FirstSeenAt, rec.LastSeenAt = at, at, at
+		if _, err := srv.store.UpsertAlert(context.Background(), rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := map[string]any{"start": start.Format(time.RFC3339Nano), "end": end.Format(time.RFC3339Nano)}
+	result, err := srv.toolListAlertGroups(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := result.(map[string]any)
+	groups := payload["groups"].([]model.AlertGroup)
+	window := payload["window"].(view.QueryWindow)
+	if payload["total"] != 1 || payload["group_by"] != model.GroupByTypeAsset || len(groups) != 1 || groups[0].FindingCount != 2 || window.Start != args["start"] || window.End != args["end"] {
+		t.Fatalf("default groups=%+v", payload)
+	}
+	key := make(map[string]any, len(groups[0].Key))
+	for k, v := range groups[0].Key {
+		key[k] = v
+	}
+	args["group_by"], args["group_key"] = string(groups[0].GroupBy), key
+	args["start"], args["end"] = window.Start, window.End
+	result, err = srv.toolGetAlertGroup(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := result.(map[string]any)
+	if members["total"] != 2 || members["window"] != window {
+		t.Fatalf("expanded members=%+v", members)
+	}
+}
+
 func TestStdioTransport(t *testing.T) {
 	srv, _ := newTestServer(t)
 	input := strings.Join([]string{
@@ -179,5 +220,46 @@ func TestStdioTransport(t *testing.T) {
 	}
 	if resp.Error != nil {
 		t.Fatalf("error = %+v", resp.Error)
+	}
+}
+
+func TestQueryWindowsAndCoverage(t *testing.T) {
+	for _, args := range []map[string]any{{}, {"end": "2026-10-21"}, {"since": "7d"}} {
+		start, end, err := parseRange(args, 0)
+		if err != nil || start == nil || end == nil || end.Sub(*start) != 7*24*time.Hour {
+			t.Fatalf("args=%v start=%v end=%v err=%v", args, start, end, err)
+		}
+	}
+	if _, _, err := parseRange(map[string]any{"since": "91d"}, 0); err == nil {
+		t.Fatal("unbounded MCP query accepted")
+	}
+	srv, _ := newTestServer(t)
+	acct := &model.Account{Name: "new-account", Provider: "tencent", Enabled: true}
+	if err := srv.store.CreateAccount(context.Background(), acct); err != nil {
+		t.Fatal(err)
+	}
+	health, err := srv.toolHealth(context.Background(), map[string]any{})
+	if err != nil || health.(map[string]any)["status"] != "degraded" {
+		t.Fatalf("health=%+v err=%v", health, err)
+	}
+	result, err := srv.toolListAlerts(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage := result.(map[string]any)["coverage"].(*model.Coverage)
+	if coverage.Complete != false {
+		t.Fatalf("coverage=%+v", coverage)
+	}
+}
+
+func TestLargeSnapshotSequenceKeepsIntegerPrecision(t *testing.T) {
+	for _, value := range []any{float64(1000000), "1000000", json.Number("1000000")} {
+		got, err := parseInteger(value)
+		if err != nil || got != 1000000 {
+			t.Fatalf("sequence %v parsed as %d: %v", value, got, err)
+		}
+	}
+	if _, err := parseInteger(float64(1.5)); err == nil {
+		t.Fatal("fractional sequence accepted")
 	}
 }

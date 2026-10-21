@@ -5,20 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	securitycenter "cloud.google.com/go/securitycenter/apiv1"
 	"cloud.google.com/go/securitycenter/apiv1/securitycenterpb"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"google.golang.org/api/option"
+	htransport "google.golang.org/api/transport/http"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
 	providerID      = "gcp"
-	mapperVersion   = "gcp-scc/v1"
+	mapperVersion   = "gcp-scc/v3"
 	defaultPageSize = 100
 	defaultQPS      = 5
 )
@@ -29,19 +32,22 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "SCC ListFindings REST",
 		ID:            providerID,
 		Name:          "Google Cloud",
 		Vendor:        "Google Cloud",
 		Product:       "Security Command Center",
 		ProductUID:    "gcp.scc",
-		APIVersion:    "v1",
-		DocsURL:       "https://cloud.google.com/security-command-center/docs/reference/rest/v1/organizations.sources.findings/list",
+		APIVersion:    "v2",
+		DocsURL:       "https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.locations.findings/list",
 		MapperVersion: mapperVersion,
 		Credential: []connector.CredentialField{
 			{Name: "service_account_json", Label: "Service Account JSON", Secret: true, Multiline: true, Help: "留空使用 ADC / Workload Identity；需要 SCC findings.list 权限"},
 		},
 		OptionFields: []connector.OptionField{
 			{Name: "parent", Label: "SCC Parent", Required: true, Placeholder: "organizations/123456 或 projects/my-project", Help: "会自动追加 /sources/- 以查询全部来源"},
+			{Name: "api_version", Label: "SCC API Version", Placeholder: "v2", Help: "v2 (default), or v1 for legacy accounts"},
+			{Name: "location", Label: "SCC Location", Placeholder: "global", Help: "SCC data location; default global. Configure each required location separately."},
 		},
 		Products: []connector.Product{
 			{Code: "SCC", Name: "Security Command Center"},
@@ -51,44 +57,63 @@ func descriptor() connector.Descriptor {
 
 // Connector talks to Security Command Center.
 type Connector struct {
-	client   *securitycenter.Client
-	findings securitycenterpb.SecurityCenterClient
-	parent   string
-	limiter  *connector.Limiter
-	pageSize int
+	client     *http.Client
+	endpoint   string
+	parent     string
+	limiter    *connector.Limiter
+	pageSize   int
+	apiVersion string
 }
 
 func New(cfg connector.AccountConfig) (connector.Connector, error) {
-	parent := strings.TrimSuffix(strings.TrimSpace(cfg.Options["parent"]), "/")
-	if parent == "" {
-		return nil, connector.ConfigError(providerID, "parent option is required (organizations/... or projects/...)")
+	version, parent, endpoint, err := queryScope(cfg.Options)
+	if err != nil {
+		return nil, connector.ConfigError(providerID, err.Error())
 	}
-	if !strings.Contains(parent, "/sources/") {
-		parent += "/sources/-"
+	opts := []option.ClientOption{option.WithScopes("https://www.googleapis.com/auth/cloud-platform")}
+	if endpoint != "" {
+		opts = append(opts, option.WithEndpoint(endpoint))
 	}
-	var opts []option.ClientOption
 	if raw := strings.TrimSpace(cfg.Credential.ServiceAccountJSON); raw != "" {
 		if !json.Valid([]byte(raw)) {
 			return nil, connector.ConfigError(providerID, "service_account_json is not valid JSON")
 		}
 		opts = append(opts, option.WithCredentialsJSON([]byte(raw)))
 	}
-	client, err := securitycenter.NewClient(context.Background(), opts...)
+	c := &Connector{
+		apiVersion: version,
+		endpoint:   connector.FirstNonEmpty(endpoint, "https://securitycenter.googleapis.com"),
+		parent:     parent,
+		limiter:    connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
+		pageSize:   connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
+	}
+	c.client, _, err = htransport.NewClient(context.Background(), opts...)
+	if c.client != nil {
+		c.client.Timeout = 30 * time.Second
+	}
+	if !strings.HasPrefix(c.endpoint, "http") {
+		c.endpoint = "https://" + strings.TrimSuffix(c.endpoint, ":443")
+	}
 	if err != nil {
 		return nil, connector.ConfigError(providerID, "create SCC client: "+err.Error())
 	}
-	return &Connector{
-		client:   client,
-		findings: securitycenterpb.NewSecurityCenterClient(client.Connection()),
-		parent:   parent,
-		limiter:  connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
-		pageSize: connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
-	}, nil
+	return c, nil
 }
 
-func (c *Connector) Info() connector.Descriptor { return descriptor() }
+func (c *Connector) Info() connector.Descriptor {
+	info := descriptor()
+	if c.apiVersion != "" {
+		info.APIVersion = c.apiVersion
+	}
+	return info
+}
 
-func (c *Connector) Close() error { return c.client.Close() }
+func (c *Connector) Close() error {
+	if c.client != nil {
+		c.client.CloseIdleConnections()
+	}
+	return nil
+}
 
 func (c *Connector) Check(ctx context.Context) error {
 	end := time.Now().UTC()
@@ -110,45 +135,103 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	if pageSize > 1000 {
 		pageSize = 1000
 	}
-	filter := findingFilter(q.Start, q.End)
-	resp, err := c.findings.ListFindings(ctx, &securitycenterpb.ListFindingsRequest{
-		Parent:    c.parent,
-		Filter:    filter,
-		PageSize:  int32(pageSize),
-		PageToken: q.Token,
-	})
+	params := url.Values{"filter": {findingFilter(q.Start, q.End)}, "pageSize": {strconv.Itoa(pageSize)}}
+	if q.Token != "" {
+		params.Set("pageToken", q.Token)
+	}
+	requestURL := strings.TrimRight(c.endpoint, "/") + "/" + c.apiVersion + "/" + c.parent + "/findings?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return connector.Page{}, err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return connector.Page{}, connector.Classify(providerID, err)
 	}
-	records := make([]connector.RawAlert, 0, len(resp.ListFindingsResults))
-	for _, result := range resp.ListFindingsResults {
-		if result.Finding == nil {
-			continue
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		kind := connector.KindPermanent
+		if resp.StatusCode == 429 {
+			kind = connector.KindThrottled
+		} else if resp.StatusCode >= 500 {
+			kind = connector.KindTransient
+		} else if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			kind = connector.KindAuth
 		}
-		raw, err := protojson.Marshal(result.Finding)
-		if err != nil {
-			return connector.Page{}, fmt.Errorf("encode GCP finding: %w", err)
+		return connector.Page{}, &connector.Error{Provider: providerID, Kind: kind, Message: fmt.Sprintf("SCC HTTP %d", resp.StatusCode)}
+	}
+	payload, err := connector.ReadSourceBody(resp.Body)
+	if err != nil {
+		return connector.Page{}, err
+	}
+	var page struct {
+		Results       []json.RawMessage `json:"listFindingsResults"`
+		NextPageToken string            `json:"nextPageToken"`
+		TotalSize     int               `json:"totalSize"`
+	}
+	if err := json.Unmarshal(payload, &page); err != nil {
+		return connector.Page{}, err
+	}
+	records := make([]connector.RawAlert, 0, len(page.Results))
+	for _, raw := range page.Results {
+		var item struct {
+			Finding json.RawMessage `json:"finding"`
+		}
+		if json.Unmarshal(raw, &item) != nil || len(item.Finding) == 0 || string(item.Finding) == "null" {
+			return connector.Page{}, fmt.Errorf("GCP returned a result without a finding")
 		}
 		records = append(records, connector.RawAlert{Raw: raw})
 	}
-	return connector.Page{
-		Records:   records,
-		NextToken: resp.NextPageToken,
-		Total:     int(resp.TotalSize),
-	}, nil
+	return connector.Page{Records: records, NextToken: page.NextPageToken, Total: page.TotalSize}, nil
 }
 
 func findingFilter(start, end time.Time) string {
 	// Keep inactive findings in the window: a finding can be resolved between
 	// two syncs, and filtering only ACTIVE would make that state change invisible.
-	// GCP's event_time is creation/detection time rather than an update time, so
-	// old findings that become INACTIVE still need a periodic full reconciliation
-	// outside this incremental window.
+	// The SDK defines event_time as detection time, or the time of an update or
+	// resolution. Mute/security-mark-only changes may have separate timestamps.
 	return fmt.Sprintf(`event_time >= %q AND event_time < %q`,
 		start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339))
 }
 
 func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
+	var envelope struct {
+		Finding json.RawMessage `json:"finding"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return model.Alert{}, fmt.Errorf("decode GCP finding: %w", err)
+	}
+	if envelope.Finding != nil {
+		var result securitycenterpb.ListFindingsResponse_ListFindingsResult
+		// Map shared typed fields; the complete REST source object stays in Raw.
+		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &result); err != nil {
+			return model.Alert{}, fmt.Errorf("decode GCP finding result: %w", err)
+		}
+		if result.Finding == nil {
+			return model.Alert{}, fmt.Errorf("GCP result has no finding")
+		}
+		alert := normalizeFinding(result.Finding, raw)
+		if resource := result.Resource; resource != nil {
+			alert.Resource.ID = connector.FirstNonEmpty(resource.GetName(), alert.Resource.ID)
+			alert.Resource.Name = connector.FirstNonEmpty(resource.GetDisplayName(), alert.Resource.Name)
+			alert.Resource.Type = connector.FirstNonEmpty(resource.GetType(), alert.Resource.Type)
+			alert.Region = connector.FirstNonEmpty(resource.GetLocation(), alert.Region)
+			alert.CloudAccountUID = connector.FirstNonEmpty(resource.GetProjectName(), alert.CloudAccountUID)
+			var resourceContext struct {
+				Resource struct {
+					GCPMetadata struct {
+						Project string `json:"project"`
+					} `json:"gcpMetadata"`
+				} `json:"resource"`
+			}
+			if json.Unmarshal(raw, &resourceContext) == nil && resourceContext.Resource.GCPMetadata.Project != "" {
+				alert.CloudAccountUID = resourceContext.Resource.GCPMetadata.Project
+			}
+			alert.Observables = observables(result.Finding, alert)
+		}
+		return alert, nil
+	}
+	// A standalone Finding is also accepted by offline mapper validation.
 	var finding securitycenterpb.Finding
 	if err := protojson.Unmarshal(raw, &finding); err != nil {
 		return model.Alert{}, fmt.Errorf("decode GCP finding: %w", err)

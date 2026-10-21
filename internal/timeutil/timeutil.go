@@ -55,5 +55,5 @@ func Format(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.UTC().Format(time.RFC3339Nano)
 }

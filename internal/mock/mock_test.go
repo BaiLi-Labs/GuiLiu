@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -52,6 +53,13 @@ func TestAllFixturesNormalize(t *testing.T) {
 				}
 				if len(alert.Observables) == 0 {
 					t.Fatalf("record %d: empty observables", i)
+				}
+				connector.ApplyProvenance(&alert, s.id, model.Account{})
+				for j, observable := range alert.Observables {
+					origin, ok := alert.Provenance[fmt.Sprintf("observables/%d/value", j)]
+					if !ok || len(origin.Paths) == 0 {
+						t.Errorf("record %d: observable %s=%q has no source", i, observable.Name, observable.Value)
+					}
 				}
 			}
 		})

@@ -3,11 +3,11 @@
   <img src="web/public/brand/logo.svg" alt="GuiLiu · 归流" width="252" height="72">
 </picture>
 
-**Open-source security alert infrastructure for multi-cloud teams.**
+**Open-source Security Data Access Layer. Unified security data, independent conclusions.**
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-GuiLiu collects alerts from cloud security services, normalizes them into a shared OCSF model, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, or read-only MCP tools.
+GuiLiu collects alerts from cloud security services, normalizes them into a shared fact contract with source-appropriate OCSF projections, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, or read-only MCP tools.
 
 Built by [BaiLi Labs](https://github.com/BaiLi-Labs). Self-hosted, with a single Go binary and an embedded web console.
 
@@ -19,12 +19,14 @@ Working across clouds means maintaining separate credentials, queries, severity 
 
 GuiLiu provides a common data layer:
 
-- **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed records retain their raw payload and are retried before the cursor advances.
-- **Consistent queries.** A common alert model for severity, status, accounts, assets, IPs, and evidence, mapped to OCSF Detection Finding (`class_uid=2004`).
+- **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed mappings retain their raw payload separately and are retried without blocking newer alerts.
+- **Consistent queries.** A shared fact contract for source severity/status, accounts, assets, IPs, hashes, users and evidence. OCSF classification follows source semantics; missing facts remain unknown.
 - **Original data.** Vendor JSON and mapping versions remain available alongside normalized fields. Query-time grouping preserves the underlying alerts.
-- **Human and agent access.** One dataset across the console, REST API, and ten read-only MCP tools. Bring your own agent.
+- **Human and agent access.** One dataset across the console, REST API, and fourteen read-only MCP tools. Bring your own agent.
 
 A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP. Analysis and response stay with the tools you choose.
+
+See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 4 requires a new database; existing databases are rejected without being erased.
 
 ## Connector coverage
 
@@ -101,9 +103,9 @@ In **API & MCP**, create an API key and copy the HTTP configuration into your MC
 | Inspect evidence               | `get_alert`, `get_alert_evidence`                                     |
 | Inspect coverage and ingestion | `list_cloud_accounts`, `get_alert_statistics`, `get_connector_health` |
 
-For example, ask your agent to find high-severity alerts from the last 24 hours, group repeated findings, and cite the original alert IDs in its analysis. Check ingestion progress before interpreting an empty result.
+For example, ask your agent to find high-severity alerts from the last 24 hours, group by type and asset, then expand the original alerts and cite their IDs. Groups match exact field values; counts are alert records, and maximum severity comes from the vendor-mapped member levels. Grouping makes no false-positive judgments. Check ingestion progress before interpreting an empty result.
 
-MCP is read-only, with limits of 200 records per call and a 90-day query window. API keys currently grant access to all cloud accounts in the instance; per-account scopes are not yet implemented. REST endpoint details and stdio setup are in the [API and MCP guide](docs/development.md).
+MCP tools are read-only, with limits of 200 records per call and a 90-day query window. Alert lists default to the last seven days and include account ingestion status. API keys inherit their owner's role and access all cloud accounts in the instance. REST endpoint details and stdio setup are in the [API and MCP guide](docs/development.md).
 
 ## Security and deployment boundaries
 
@@ -112,7 +114,7 @@ MCP is read-only, with limits of 200 records per call and a 90-day query window.
 - Cloud credentials encrypted at rest with AES-256-GCM.
 - Platform alert status is independent of vendor status. GuiLiu does not write changes back to cloud services.
 - A shared dataset within each instance. OIDC, tenant isolation, and fine-grained API-key scopes are not implemented.
-- Raw payload retention enables future reprocessing; a managed mapping-replay task is not yet implemented.
+- Replay historical mappings offline with `guiliu replay`. It previews changes by default; use `-apply` to write them.
 
 See the [current limitations and validation record](docs/development.md) before connecting a production workload. OCSF schema validation in CI, additional storage backends, and broader real-account validation remain on the roadmap.
 

@@ -23,7 +23,7 @@ import (
 
 const (
 	providerID      = "azure"
-	mapperVersion   = "azure-defender/v1"
+	mapperVersion   = "azure-defender/v3"
 	apiVersion      = "2022-01-01"
 	defaultEndpoint = "https://management.azure.com"
 	defaultQPS      = 3
@@ -36,6 +36,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "Defender for Cloud ARM Alerts - List",
 		ID:            providerID,
 		Name:          "Microsoft Azure",
 		Vendor:        "Microsoft",
@@ -55,10 +56,6 @@ func descriptor() connector.Descriptor {
 		},
 		Products: []connector.Product{
 			{Code: "DefenderForCloud", Name: "Defender for Cloud"},
-			{Code: "DefenderForEndpoint", Name: "Defender for Endpoint"},
-			{Code: "DefenderForIdentity", Name: "Defender for Identity"},
-			{Code: "DefenderForCloudApps", Name: "Defender for Cloud Apps"},
-			{Code: "Sentinel", Name: "Microsoft Sentinel"},
 		},
 	}
 }

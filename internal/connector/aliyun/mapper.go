@@ -31,29 +31,34 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		externalID = connector.FirstNonEmpty(connector.Str(a.AlarmUniqueInfo), connector.Str(a.UniqueInfo))
 	}
 	if externalID == "" {
-		externalID = connector.HashRaw(raw)
+		return model.Alert{}, fmt.Errorf("aliyun source record has no native ID")
 	}
 
 	firstSeen, lastSeen := alertTimes(&a)
-	eventTime := lastSeen
-	if eventTime.IsZero() {
-		eventTime = firstSeen
-	}
+	eventTime := firstSeen
 
 	resource := model.Resource{
 		ID:   connector.FirstNonEmpty(connector.Str(a.InstanceId), connector.Str(a.Uuid)),
 		Name: connector.FirstNonEmpty(connector.Str(a.InstanceName), connector.Str(a.ContainerImageName), connector.Str(a.K8sClusterName), connector.Str(a.Uuid)),
 		Type: resourceType(&a),
 	}
+	if connector.Str(a.ContainerId) != "" {
+		resource.ID = connector.Str(a.ContainerId)
+		resource.Name = connector.FirstNonEmpty(connector.Str(a.K8sPodName), connector.Str(a.ContainerImageName), resource.ID)
+	} else if resource.Type == "kubernetes_cluster" {
+		resource.ID = connector.Str(a.K8sClusterId)
+		resource.Name = connector.FirstNonEmpty(connector.Str(a.K8sClusterName), resource.ID)
+	}
 
 	sourceIP := extractSourceIP(a.Details)
 	alert := model.Alert{
 		ExternalID:       externalID,
+		FindingKind:      model.FindingDetection,
 		Title:            connector.FirstNonEmpty(connector.Str(a.Name), connector.Str(a.AlarmEventNameDisplay), connector.Str(a.AlarmEventName), "Alibaba Cloud security alert"),
 		Description:      connector.Str(a.Desc),
 		Severity:         mapSeverity(connector.Str(a.Level)),
 		OriginalSeverity: connector.Str(a.Level),
-		VendorStatus:     mapStatus(connector.Int32(a.EventStatus)),
+		VendorStatus:     connector.SourceScalar(raw, "/EventStatus"),
 		EventTime:        eventTime,
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
@@ -62,13 +67,32 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		AlertType:        connector.FirstNonEmpty(connector.Str(a.AlarmEventTypeDisplay), connector.Str(a.AlarmEventType), connector.Str(a.EventSubType)),
 		Resource:         resource,
 		SourceIP:         sourceIP,
-		DestinationIP:    connector.FirstNonEmpty(connector.Str(a.InternetIp), connector.Str(a.IntranetIp)),
 		Tactic:           tactic(&a),
 		CloudAccountUID:  cloudAccountUID(&a),
 		Raw:              append(json.RawMessage(nil), raw...),
 	}
 
 	alert.Observables = observables(&a, alert)
+	for _, resource := range []model.Resource{
+		resource,
+		{ID: connector.FirstNonEmpty(connector.Str(a.InstanceId), connector.Str(a.Uuid)), Name: connector.Str(a.InstanceName), Type: "host"},
+		{ID: connector.Str(a.ContainerId), Name: connector.Str(a.ContainerImageName), Type: "container"},
+		{ID: connector.Str(a.K8sClusterId), Name: connector.Str(a.K8sClusterName), Type: "kubernetes_cluster"},
+	} {
+		if resource.ID == "" {
+			continue
+		}
+		found := false
+		for _, existing := range alert.Resources {
+			if existing.ID == resource.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			alert.Resources = append(alert.Resources, resource)
+		}
+	}
 	alert.Evidences = evidences(&a)
 	if extra := unmapped(&a); len(extra) > 0 {
 		alert.Unmapped = map[string]any{"aliyun_sas": extra}
@@ -89,11 +113,6 @@ func alertTimes(a *sas.DescribeSuspEventsResponseBodySuspEvents) (time.Time, tim
 		last = time.UnixMilli(*a.LastTimeStamp).UTC()
 	} else if t, ok := connector.ParseVendorTime(connector.Str(a.LastTime)); ok {
 		last = t
-	} else {
-		last = first
-	}
-	if first.IsZero() {
-		first = last
 	}
 	return first, last
 }
@@ -120,27 +139,6 @@ func cloudAccountUID(a *sas.DescribeSuspEventsResponseBodySuspEvents) string {
 		return ""
 	}
 	return strconv.FormatInt(*a.SourceAliUid, 10)
-}
-
-func mapStatus(status int32) string {
-	switch status {
-	case 0:
-		return ""
-	case 1:
-		return "unhandled"
-	case 2:
-		return "fixed"
-	case 3:
-		return "ignored"
-	case 4:
-		return "deleted"
-	case 5:
-		return "handled"
-	case 6:
-		return "expired"
-	default:
-		return "status_" + strconv.FormatInt(int64(status), 10)
-	}
 }
 
 func resourceType(a *sas.DescribeSuspEventsResponseBodySuspEvents) string {
@@ -181,6 +179,10 @@ func observables(a *sas.DescribeSuspEventsResponseBodySuspEvents, alert model.Al
 	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
 	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Uuid))
 	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.ContainerId))
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sClusterId))
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sNodeId))
+	add("resource.public_ip", ocsf.ObservableIPAddress, connector.Str(a.InternetIp))
+	add("resource.private_ip", ocsf.ObservableIPAddress, connector.Str(a.IntranetIp))
 	return out
 }
 
@@ -208,15 +210,21 @@ func evidences(a *sas.DescribeSuspEventsResponseBodySuspEvents) []model.Evidence
 	return out
 }
 
-// extractSourceIP looks for the attacker address among the free-form Details
-// list, whose keys are localized human labels.
+// Only exact source-address labels are accepted; free-text descriptions do not
+// establish traffic direction. Asset public/private IPs stay neutral observables.
 func extractSourceIP(details []*sas.DescribeSuspEventsResponseBodySuspEventsDetails) string {
 	for _, d := range details {
 		if d == nil {
 			continue
 		}
-		label := strings.ToLower(connector.Str(d.NameDisplay) + " " + connector.Str(d.Type))
-		if !containsAny(label, "source ip", "src_ip", "src ip", "remote ip", "源ip", "来源ip", "攻击源", "客户端ip", "对端ip") {
+		isSource := func(label string) bool {
+			switch strings.ToLower(strings.TrimSpace(label)) {
+			case "source ip", "src_ip", "src ip", "source_ip", "源ip", "来源ip", "攻击源ip":
+				return true
+			}
+			return false
+		}
+		if !isSource(connector.Str(d.NameDisplay)) && !isSource(connector.Str(d.Type)) {
 			continue
 		}
 		value := connector.FirstNonEmpty(connector.Str(d.ValueDisplay), connector.Str(d.Value))
@@ -276,13 +284,4 @@ func unmapped(a *sas.DescribeSuspEventsResponseBodySuspEvents) map[string]any {
 		extra["marks"] = marks
 	}
 	return extra
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
 }

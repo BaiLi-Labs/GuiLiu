@@ -64,6 +64,7 @@ type Product struct {
 
 // Descriptor is the static identity and capability declaration of a connector.
 type Descriptor struct {
+	SourceAPI     string            `json:"source_api"`
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	Vendor        string            `json:"vendor"`
@@ -186,6 +187,17 @@ func Throttled(err error) bool {
 		return ce.Kind == KindThrottled
 	}
 	return false
+}
+
+// InvalidCursor recognizes expired/invalid pagination tokens without resetting
+// windows for authentication errors (such as an expired credential token).
+func InvalidCursor(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return containsAny(s, "nexttoken", "page token", "page_token", "pagetoken", "paginationtoken", "continuation token", "skiptoken", "nextlink") &&
+		containsAny(s, "invalid", "expired")
 }
 
 // Classify wraps an SDK error. Cloud SDKs expose wildly different error types,

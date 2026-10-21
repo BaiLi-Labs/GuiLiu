@@ -2,7 +2,9 @@
 
 > 产品介绍、功能概览和快速体验见根目录 [README](../README.md)。本文保留配置、构建、API、MCP、连接器开发和验证细节。
 
-GuiLiu 把多家云厂商的安全告警统一接入、标准化为 [OCSF](https://github.com/ocsf/ocsf-schema) Detection Finding，并提供 Web 控制台、REST API 和只读 MCP，供人和 Agent 使用同一份数据。
+GuiLiu 把多家云厂商的安全告警统一接入、标准化为统一事实，并按来源语义提供 [OCSF](https://github.com/ocsf/ocsf-schema) 投影，并提供 Web 控制台、REST API 和只读 MCP，供人和 Agent 使用同一份数据。
+
+六家云的实际采集范围、SDK 字段清单和未覆盖边界见 [告警覆盖核对](alert-coverage.md)。接入一个安全汇总接口不表示已采集该云所有产品和全部历史。
 
 > 不替代云安全产品，不做 SIEM，不做 SOAR，也不内置 Agent。
 > 只解决四件事：**可靠接入、字段归一、统一查询、同步健康**。
@@ -29,11 +31,11 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 阿里云 | 云安全中心 SAS `DescribeSuspEvents` |
 | 华为云 | 安全云脑 SecMaster `ListAlerts` |
 | AWS | Security Hub `GetFindingsV2`（原生 OCSF） |
-| Google Cloud | Security Command Center `ListFindings` |
+| Google Cloud | Security Command Center `ListFindings`，默认 v2 + global，可配置 location 或旧版 v1 |
 | Microsoft Azure | Defender for Cloud `Alerts - List`（ARM 2022-01-01） |
-| 统一模型 | OCSF Detection Finding (`class_uid=2004`) + 平台扩展字段 |
+| 统一模型 | 统一来源事实 + 按语义选择的 OCSF 投影 |
 | 原始证据 | 每条告警保留厂商原始 JSON 与 `mapper_version`，可重放映射 |
-| 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，失败不推进游标；支持页级断点续传 |
+| 增量同步 | 时间窗口 + 重叠回看 + 分页游标 + 去重 upsert，采集/存储失败不推进游标；映射失败独立留存并重试；支持页级断点续传 |
 | 可靠性 | 按厂商限速、指数退避重试、错误分类、单账号并发保护、页数上限保护 |
 | 查询 | 按厂商 / 账号 / 等级 / 状态 / 时间 / IP / 资产 / 关键词过滤，统计聚合 |
 | 生命周期 | 平台侧 `open / acknowledged / suppressed / closed`，不覆盖厂商原始状态 |
@@ -257,7 +259,7 @@ Azure Defender ──┘
                        │  raw vendor JSON
                        ▼
               Normalization 层
-              OCSF Detection Finding 2004
+              标准事实 + 按来源类别的 OCSF 投影
               严重等级 · 资产 · 可观测对象 · 证据
               版本化 mapper_version · 保留 raw
                        │
@@ -305,6 +307,8 @@ internal/secret/             AES-256-GCM 凭据加密
 
 ---
 
+当前数据语义以[安全数据访问契约](security-data-access.md)和连接器 mapping API 为准。开发 schema 4 不维护旧库迁移。
+
 ## 字段映射
 
 ### 严重等级（映射是显式且可版本化的）
@@ -329,11 +333,11 @@ internal/secret/             AES-256-GCM 凭据加密
 | `external_id` | `AlertInfo.ID` | `SuspEvents.Id` |
 | `title` | `Name` | `Name` |
 | `description` | `RiskInvestigation` / `UrgentSuggestion` | `Desc` |
-| `event_time` | `UpdateTime` | `LastTimeStamp` / `OccurrenceTimeStamp` |
+| `event_time` | `CreateTime` | `OccurrenceTimeStamp` / `OccurrenceTime` |
 | `first_seen_at` | `CreateTime` | `OccurrenceTimeStamp` |
 | `last_seen_at` | `UpdateTime` | `LastTimeStamp` |
-| `source_ip` | `Attacker.IP` | `Details` 中“源IP / source ip”等字段（启发式） |
-| `destination_ip` | `Victim.IP` | `InternetIp` / `IntranetIp` |
+| `source_ip` | `Attacker.IP` | `Details` 中明确的来源标签与有效 IP 值 |
+| `destination_ip` | `Victim.IP` | 未明确声明则保持未知；资产 IP 作为中性 Observable |
 | `resource.id` | `Victim.InstanceID` | `InstanceId` / `Uuid` |
 | `resource.name` | `Victim.Domain` / `Victim.IP` | `InstanceName` / `ContainerImageName` |
 | `vendor_status` | `Status` 0/1/2 | `EventStatus` |
@@ -347,7 +351,7 @@ internal/secret/             AES-256-GCM 凭据加密
 - **Finding / Alert**：厂商给出的安全发现。GuiLiu 存的就是这一层。
 - **Incident**：多条 Finding 聚合后的安全事件。第一阶段不做自动聚合。
 
-平台生命周期状态（`open / acknowledged / suppressed / closed`）与厂商处理状态（`vendor_status`）分开存储：分析人员可以标记处置，但不会回写云厂商，也不会因为下一次同步被覆盖。
+使用者本地标注状态（`open / acknowledged / suppressed / closed`）与厂商处理状态（`vendor_status`）分开存储：使用者可以做本地标注，但不会回写云厂商，也不会因为下一次同步被覆盖。
 
 ### OCSF 输出示例（截断）
 
@@ -390,7 +394,7 @@ internal/secret/             AES-256-GCM 凭据加密
   "observables": [{"name": "src_endpoint.ip", "type_id": 2, "value": "203.0.113.9"}],
   "is_alert": true,
   "unmapped": {
-    "vendor_status": "unhandled",
+    "vendor_status": "0",
     "original_severity": "5",
     "mapper_version": "tencent-csip/v1",
     "tencent_csip": {"uin": "1234567890"}
@@ -426,10 +430,11 @@ internal/secret/             AES-256-GCM 凭据加密
 | POST | `/api/v1/accounts/{id}/check` | 验证凭据与只读权限（admin） |
 | POST | `/api/v1/accounts/{id}/sync` | 异步触发单账号同步（admin） |
 | GET | `/api/v1/accounts/{id}/health` | 游标、错误、最近运行 |
+| GET | `/api/v1/accounts/{id}/failures` | 最早待重试的 100 条映射失败记录及原始载荷 |
 | POST | `/api/v1/sync` | 异步同步全部账号（admin） |
 | GET | `/api/v1/sync-runs` | 同步运行记录 |
 | GET | `/api/v1/alerts` | 告警查询；传 `group_by` + `group_key` 时返回分组成员 |
-| GET | `/api/v1/alerts/groups` | 查询时告警分组（signature / asset / source） |
+| GET | `/api/v1/alerts/groups` | 查询时告警分组（type_asset / signature / asset / source） |
 | GET | `/api/v1/alerts/{id}` | 详情（含 OCSF 与 raw） |
 | GET | `/api/v1/alerts/{id}/raw` | 厂商原始 JSON |
 | GET | `/api/v1/alerts/{id}/revisions` | 告警版本历史（仅实质变化） |
@@ -441,17 +446,42 @@ internal/secret/             AES-256-GCM 凭据加密
 
 告警分组是**查询时视图**，不改变 alerts 表：
 
+| `group_by` | 界面名称 | 精确匹配字段 | 缺失时单条展示的字段 |
+| --- | --- | --- | --- |
+| `type_asset`（默认） | 按类型与资产 | provider、account_id、region、product、alert_type、resource_id | product、alert_type、resource_id |
+| `signature` | 按类型、资产与源 IP | provider、account_id、account_uid、region、product、rule_id、resource_id、source_ip | account_uid、product、rule_id、resource_id、source_ip |
+| `asset` | 按资产 | provider、account_id、region、resource_id | resource_id |
+| `source` | 按源 IP 与类型 | source_ip、alert_type | source_ip、alert_type |
+
+字符串按原值精确匹配，区分大小写，不做正则、相似度、攻击关联或误报判断。`source` 视图允许跨厂商、跨账号汇总同一源 IP 与类型；`signature` 使用原生规则 ID，缺失时不以类型或标题替代，`type_asset` 和 `asset` 包含地域。默认分组不要求源 IP。
+
 ```bash
-# 同类重复，默认按最高等级、成员数量、最近出现排序
-curl -s "http://127.0.0.1:8080/api/v1/alerts/groups?group_by=signature&since=24h" \
+# 按类型与资产；默认按组内最高等级、告警条数、最近出现排序
+curl -s "http://127.0.0.1:8080/api/v1/alerts/groups?group_by=type_asset&since=24h" \
   -H "Authorization: Bearer $TOKEN" | jq .
 
-# 用返回的 key 展开成员；key 是 JSON，需要 URL 编码
-curl -s "http://127.0.0.1:8080/api/v1/alerts?group_by=signature&group_key=%7B...%7D" \
+# 用返回的 key、window.start/end 展开成员；key 是 JSON，需要 URL 编码
+curl -sG "http://127.0.0.1:8080/api/v1/alerts" \
+  --data-urlencode "group_by=type_asset" \
+  --data-urlencode 'group_key={...}' \
+  --data-urlencode 'start=2026-10-20T00:00:00.250Z' \
+  --data-urlencode 'end=2026-10-21T00:00:00.250Z' \
   -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-三条约束：空关键字段不合并、资产跨云必须带 provider + account + region、分组不代表攻击成功。分组返回的 `count` 是原始告警成员数，不是厂商告警内部的事件次数；归流不删除、不抑制任何成员。
+`count` 是当前查询条件下存储的告警记录条数，不是攻击次数或厂商告警内部的事件次数；`max_severity` 只取成员中厂商映射等级的最大值。分组不删除、不抑制任何成员，也不改变原始数据或平台状态。
+
+列表和分组返回绝对时间范围 `window`。翻页、展开分组时复用它，并保留原查询条件；Web 控制台会自动复用，点击「查询」可重新计算相对时间范围。这只固定查询时间边界：窗口内的迟到告警或已有记录更新仍会改变结果，不是数据库快照。
+
+SQLite 使用覆盖分组字段的时间索引，常规页面在一次聚合中同时计算总组数和分页数据；越界空页另行统计总组数。升级首次启动会自动创建索引，需要额外磁盘空间和建索引时间。未引入预聚合表、后台聚合任务或缓存。
+
+30 万条合成数据基准（每天约 1 万条，每条 raw + OCSF 约 1 KiB，覆盖 1 / 7 / 30 天和每条告警独立成组的情况）：
+
+```bash
+go test ./internal/store -run '^$' -bench BenchmarkAlertGroups300K -benchtime=1x
+```
+
+基准直接写入测试记录，测量每页 50 组的查询，不能代替真实账号的采集吞吐或生产并发验证。
 
 ```bash
 curl -s "http://127.0.0.1:8080/api/v1/alerts?severity=critical,high&start=2026-10-19T00:00:00Z&limit=20" \
@@ -517,7 +547,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 | --- | --- |
 | `list_cloud_accounts` | 云账号与同步健康（不含凭据） |
 | `list_alerts` | 跨云告警查询与筛选 |
-| `list_alert_groups` | 查询时按 signature / asset / source 分组 |
+| `list_alert_groups` | 查询时按 type_asset（默认）/ signature / asset / source 精确分组 |
 | `get_alert_group` | 展开分组内的原始告警成员 |
 | `get_alert` | 单条告警 + 完整 OCSF + 原始 JSON |
 | `get_alert_evidence` | 证据、可观测对象、原始载荷 |
@@ -526,7 +556,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 | `get_alert_statistics` | 按等级 / 厂商 / 状态 / 天 / 资产聚合 |
 | `get_connector_health` | 游标、最近成功、错误、最近运行 |
 
-护栏：单次最多 200 条，时间范围最多 90 天，不支持任意 SQL。
+护栏：单次最多 200 条，时间范围最多 90 天，不支持任意 SQL。告警列表默认最近 7 天；只传 end 时也补齐默认起点。列表、分组和统计结果附带 `coverage` 采集状态。
 
 ---
 
@@ -556,10 +586,10 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 1. 窗口：`[cursor - overlap, now - 0]`；首次为 `now - initial_lookback`（默认 24h，优先保证当前告警可见；设置更长的回溯会从最早时间开始按 `max_window` 分段追赶）。
 2. 单次最多推进 `max_window`（默认 24h），积压时自动分段追赶。
 3. 每页最多 `page_size`（默认 100），每个 run 最多 `max_pages`（默认 10）。
-4. 页内每条 raw 独立归一化/入库；成功记录照常入库，失败 raw 写入 `sync_states.pending_records`，当前页停止继续读取。
-5. 下一轮先重试 `pending_records`，全部成功后才继续该窗口的分页；**所有页成功后**才提交游标。失败记录不会因为游标推进而被永久跳过。
+4. 页内每条 raw 独立归一化/入库；映射失败的原始载荷持久化到 `ingest_failures`，其他记录与后续分页继续处理。采集或数据库写入失败仍停止该窗口，不推进未完成页。
+5. 每轮先重试最多 100 条最早待重试的失败记录；重试失败不阻塞正常采集。所有页都已入库或持久化到失败记录后才提交窗口游标。
 6. 去重键：`provider + account_id + external_id`；更新时保留分析人员设置的平台状态。
-7. 每个账号同一时刻只允许一个同步任务。
+7. 每个账号同一时刻只允许一个同步任务。分页 token 失效时，同一轮最多从该固定窗口的第一页重新读取一次，依靠 upsert 去重。
 
 账号级 options 可覆盖：
 
@@ -570,6 +600,23 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 默认限速：腾讯云 CSIP 2 QPS（官方上限 3/s，实测按固定间隔打满 3/s 会被限流，留出余量），阿里云 SAS 5 QPS。两者的 API 都有分页/频率限制，连接器内部自行限速。
 
 默认每个 run 最多 10 页（1000 条）。到页数预算时不是失败，而是保存页 token、以 `partial` 状态结束，下一轮从断点续传。这样既不会长时间占用 API 配额，也不会因为一次限流把已经拉取的进度丢掉。账号级 `max_pages` 可覆盖。
+
+### 失败记录、健康状态与历史重映射
+
+同步健康页显示待重试数量，可展开错误、映射版本、尝试次数与原始载荷。`GET /api/v1/accounts/{id}/failures` 返回最早待重试的 100 条；下一轮同步自动重试，修复成功后移除失败项。
+
+健康状态区分首次同步、续传、失败、延迟、部分映射失败和正常。最近成功时间或数据游标落后超过三个同步周期时标记延迟（默认 15 分钟）。MCP 查询的 `coverage.data_fresh` 与账号状态用于判断采集新鲜度，不保证任意历史范围都已完整回填。
+
+历史重映射是离线维护命令，先停止归流服务，使用同一配置与数据库：
+
+```bash
+# 默认仅预览，省略 -since 表示该账号的全部历史
+./bin/guiliu replay -account prod-tencent -since 7d
+# 指定旧映射版本，确认范围后应用
+./bin/guiliu replay -account prod-tencent -mapper-version tencent-csip/v1 -apply
+```
+
+命令输出 scanned / changed / failed 数量；重映射不调用告警采集接口，保留原始载荷、告警 ID、创建时间和平台处理状态，发生实质变化时保留版本记录。使用稳定 ID 游标遍历，时间修正不会导致漏处理。厂商映射版本与统一序列化版本分别记录为 `mapper_version`、OCSF `unmapped.normalizer_version`。
 
 ### 告警版本历史
 
@@ -587,16 +634,16 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 
 这是第一版，刻意保留诚实的边界：
 
-- **映射需要真实样本校准**：阿里云 `source_ip` 来自 `Details` 的中文字段名启发式匹配；腾讯云时间字符串按东八区解析。请用 `probe -raw` 抽样验证，再提升 `mapper_version`。
+- **映射需要真实样本校准**：阿里云 `source_ip` 仅接受 `Details` 中明确的来源类型或字段标签，不从描述文本猜测；腾讯云无时区时间字符串按东八区解析。请用 `probe -raw` 抽样验证，再提升 `mapper_version`。
 
 - **只接告警，不接全量日志**：云流量日志、审计日志数据量高一个数量级，混入会把这个轻量平台做成另一个 SIEM。
-- **只做 Detection Finding**：暂不做 Incident 聚合、跨厂商实体消歧。
+- **按来源语义选择 Finding 类别**：通用投影支持检测与具有 CVE 细节的漏洞；AWS 原生 OCSF 保留自身类别。缺少类别必需结构时仅返回标准事实和原始数据，不强行生成 Detection Finding。不做攻击事件推理或跨厂商实体消歧。
 - **不写回云厂商**：平台状态独立，避免误操作与权限扩张。
 - **单实例 SQLite**：适合单机/小团队与 POC；数据量上来后替换 `store.Store` 为 PostgreSQL / ClickHouse。
 - **未实现 OIDC / LDAP / 细粒度 RBAC / 多租户**：目前是本地用户 + `admin`/`viewer` 两种角色，所有用户共享同一份数据；API Key 尚未支持按云账号范围授权。
 - **Azure 已完成连接器与单元测试**：使用 ARM `Alerts - List`；该 API 没有服务端时间过滤或页大小参数，连接器会按 `nextLink` 逐页读取并在客户端按 UTC 时间过滤。大订阅建议先用 `probe` 验证页数与耗时，并通过账号级 `max_pages` 控制单轮预算。
-- **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 已取消 `ACTIVE` 硬过滤，但 `event_time` 不是更新时间，早期 finding 的状态变化仍需周期性全量对账；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
-- **阿里云状态**：`status` option 留空表示不限制 `DescribeSuspEvents.Status`，填 `0` 等值则只采集对应状态。
+- **云厂商差异**：华为云必须提供 `project_id` + `workspace_id`；GCP 查询不限制 `ACTIVE` 状态，`event_time` 可代表检测、更新或解决时间，但静默或标记修改可能使用独立时间戳，历史状态仍需额外对账；AWS `GetFindingsV2` 使用 Security Hub 的 OCSF 数据面，需要 `securityhub:GetFindings`。
+- **阿里云状态**：`status` option 留空时显式使用 `DescribeSuspEvents.Status=0`，填 `0` 查询全部状态，其他值为来源过滤。
 - **OCSF 映射仍需真实样本**：新连接器的时间字段、资源类型、证据结构按官方 SDK/文档实现，真实账号下建议先用 `probe -raw` 抽样核对再开持续同步。
 
 ---
@@ -643,7 +690,7 @@ make run      # 本地启动
 1. AWS Organizations `Scopes`、GCP folder/多 parent 支持；Azure 按资源组/多订阅的接入方式。
 2. 官方 OCSF Schema 校验进入 CI，对每个 mapper 的输出做结构校验。
 3. PostgreSQL / ClickHouse 存储实现（接口已隔离）。
-4. 基于 `raw + mapper_version` 的重放/重建索引任务。
+4. 如有需要，再提供 Web 端批量重映射；当前已有离线 CLI。
 5. OIDC、RBAC、租户级数据隔离。
 6. Webhook / 日志订阅接入，补充拉取模式的延迟问题。
 7. 告警去重与 Incident 聚合（同资产、同 IP、同规则的时间窗聚合）。

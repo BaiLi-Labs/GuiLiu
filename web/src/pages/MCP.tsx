@@ -8,9 +8,13 @@ import { formatDate } from '../lib';
 import type { APIKey } from '../types';
 
 const TOOLS = [
+ ['list_alert_changes', '按持久序号读取新增与变化，支持断点续读'],
+ ['get_data_coverage', '查询来源范围、历史起点、同步水位与完整性限制'],
+ ['get_alert_revisions', '分页读取全部修订与对应原始证据'],
+ ['get_provider_mapping', '读取版本化字段映射与来源路径'],
   ['list_cloud_accounts', '列出云账号与同步健康状态（不含凭据）'],
   ['list_alerts', '按云厂商、等级、状态、资产、关键词查询归一化告警'],
-  ['list_alert_groups', '按同类重复、资产或攻击源分组，返回数量与最高等级'],
+  ['list_alert_groups', '按字段精确分组，返回告警条数、组内最高等级与时间范围'],
   ['get_alert_group', '展开一个分组的原始告警成员'],
   ['get_alert', '获取单条告警的完整 OCSF 与原始厂商 JSON'],
   ['get_alert_evidence', '获取证据、可观测对象与原始载荷'],

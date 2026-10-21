@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Layers, List, RotateCcw, Search } from 'lucide-react';
-import { api } from '../api';
+import { api, sourceText } from '../api';
 import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
+import { AlertFields } from '../components/AlertFields';
 import {
   CopyButton,
   Drawer,
@@ -32,6 +33,7 @@ import type {
   AlertGroupList,
   AlertList,
   AlertStatus,
+  QueryWindow,
 } from '../types';
 
 interface Filters {
@@ -41,8 +43,14 @@ interface Filters {
   range: string;
   q: string;
   ip: string;
+  observable_type: string;
+  observable_value: string;
+  rule_id: string;
+  finding_kind: string;
+  vendor_status: string;
+  time_field: string;
 }
-const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '' };
+const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '', observable_type: '', observable_value: '', rule_id: '', finding_kind: '', vendor_status: '', time_field: 'event_time' };
 const filterKeys = Object.keys(EMPTY) as Array<keyof Filters>;
 
 export function readAlertRoute(query: string) {
@@ -51,7 +59,18 @@ export function readAlertRoute(query: string) {
   for (const key of filterKeys) if (params.has(key)) filters[key] = params.get(key)!;
   if (!RANGE_OPTIONS.some((option) => option.value === filters.range)) filters.range = EMPTY.range;
   const by = params.get('group_by');
-  const groupBy: AlertGroupBy = by === 'asset' || by === 'source' ? by : 'signature';
+  const groupBy: AlertGroupBy = by === 'signature' || by === 'asset' || by === 'source' ? by : 'type_asset';
+  const window: QueryWindow = {};
+  const sequence = params.get("snapshot_sequence");
+  if (sequence !== null && Number.isSafeInteger(Number(sequence)) && Number(sequence)>=0) window.snapshot_sequence=Number(sequence);
+  for (const key of ['start', 'end'] as const) {
+    const value = params.get(key);
+    if (value && Number.isFinite(Date.parse(value))) window[key] = value;
+  }
+  if (window.start && window.end && Date.parse(window.start) > Date.parse(window.end)) {
+    delete window.start;
+    delete window.end;
+  }
   let groupKey: Record<string, string> | null = null;
   try {
     const parsed = JSON.parse(params.get('group_key') || 'null');
@@ -69,6 +88,7 @@ export function readAlertRoute(query: string) {
   const rawOffset = Number(params.get('offset') || 0);
   return {
     filters,
+    window,
     groupBy,
     groupKey,
     offset: Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0,
@@ -77,12 +97,15 @@ export function readAlertRoute(query: string) {
   };
 }
 
-function queryFor(filters: Filters, offset: number) {
+export function queryFor(filters: Filters, offset: number, window: QueryWindow = {}) {
   const params = new URLSearchParams({ limit: '20', offset: String(offset) });
-  for (const key of ['provider', 'severity', 'status', 'q', 'ip'] as const)
+  for (const key of ['provider', 'severity', 'status', 'q', 'ip', 'observable_type', 'observable_value', 'rule_id', 'finding_kind', 'vendor_status', 'time_field'] as const)
     if (filters[key].trim()) params.set(key, filters[key].trim());
-  const start = rangeStart(filters.range);
+  if(window.snapshot_sequence!==undefined) params.set("snapshot_sequence",String(window.snapshot_sequence));
+  const end = window.end || new Date().toISOString();
+  const start = window.start || rangeStart(filters.range, end);
   if (start) params.set('start', start);
+  params.set('end', end);
   return params;
 }
 
@@ -96,9 +119,11 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const responseWindow = useRef<{ filters: string; window: QueryWindow } | null>(null);
   const limit = 20;
   const filterIdentity = JSON.stringify(route.filters);
   const groupIdentity = JSON.stringify(route.groupKey);
+  const windowIdentity = JSON.stringify(route.window);
   useEffect(() => setFilters(route.filters), [filterIdentity]);
 
   useEffect(() => {
@@ -106,7 +131,7 @@ export function Alerts() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    const params = queryFor(route.filters, route.offset);
+    const params = queryFor(route.filters, route.offset, route.window);
     if (route.view === 'groups' || route.groupKey) params.set('group_by', route.groupBy);
     if (route.groupKey && route.view === 'raw') params.set('group_key', JSON.stringify(route.groupKey));
     const promise =
@@ -116,6 +141,8 @@ export function Alerts() {
     promise
       .then((result) => {
         if (!alive) return;
+        if (result.window)
+          responseWindow.current = { filters: filterIdentity + windowIdentity, window: {...result.window,snapshot_sequence:result.snapshot_sequence} };
         if ('groups' in result) setGroups(result);
         else setData(result);
       })
@@ -129,10 +156,16 @@ export function Alerts() {
       alive = false;
       controller.abort();
     };
-  }, [filterIdentity, route.offset, route.view, route.groupBy, groupIdentity, refreshNonce, reload]);
+  }, [filterIdentity, route.offset, route.view, route.groupBy, groupIdentity, windowIdentity, refreshNonce, reload]);
 
   function navigate(patch: Record<string, string | null>) {
     const params = Object.fromEntries(new URLSearchParams(routeQuery));
+    const snapshot = responseWindow.current;
+    if (!('start' in patch) && !('end' in patch) && snapshot?.filters === filterIdentity + windowIdentity) {
+      if (snapshot.window.start) params.start = snapshot.window.start;
+      if (snapshot.window.end) params.end = snapshot.window.end;
+      if(snapshot.window.snapshot_sequence!==undefined) params.snapshot_sequence=String(snapshot.window.snapshot_sequence);
+    }
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === '') delete params[key];
       else params[key] = value;
@@ -140,7 +173,7 @@ export function Alerts() {
     go('alerts', params);
   }
   function apply() {
-    navigate({ ...filters, offset: null, group_key: null, alert: null });
+    navigate({ ...filters, offset: null, group_key: null, alert: null, start: null, end: null, snapshot_sequence:null });
     setReload((value) => value + 1);
   }
   function reset() {
@@ -155,6 +188,7 @@ export function Alerts() {
   const current = Math.floor(route.offset / limit) + 1;
   const pages = Math.max(1, Math.ceil(total / limit));
   const severityOptions = ['critical,fatal,high', ...SEVERITY_ORDER];
+  const shownWindow = (route.view === 'groups' ? groups : data)?.window;
 
   return (
     <div className="space-y-4">
@@ -184,9 +218,10 @@ export function Alerts() {
             value={route.groupBy}
             onChange={(event) => navigate({ group_by: event.target.value, offset: null })}
           >
-            <option value="signature">{t('同类重复')}</option>
+            <option value="type_asset">{t('按类型与资产')}</option>
+            <option value="signature">{t('按规则、资产与源 IP')}</option>
             <option value="asset">{t('按资产')}</option>
-            <option value="source">{t('按攻击源')}</option>
+            <option value="source">{t('按源 IP 与类型')}</option>
           </select>
         ) : null}
       </div>
@@ -238,7 +273,7 @@ export function Alerts() {
           ))}
         </select>
         <select
-          aria-label={t('归流内状态')}
+          aria-label={t('本地标注')}
           className="field"
           value={filters.status}
           onChange={(event) => setFilters((value) => ({ ...value, status: event.target.value }))}
@@ -264,9 +299,9 @@ export function Alerts() {
           ))}
         </select>
         <input
-          aria-label={t('源/目标 IP')}
+          aria-label={t('IP 可观测对象')}
           className="field w-[165px]"
-          placeholder={t('源/目标 IP')}
+          placeholder={t('IP 可观测对象')}
           value={filters.ip}
           onChange={(event) => setFilters((value) => ({ ...value, ip: event.target.value }))}
         />
@@ -283,7 +318,25 @@ export function Alerts() {
         >
           <RotateCcw className="h-4 w-4" />
         </button>
+      <details className="disclosure">
+        <summary>{t('更多事实筛选')}</summary>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <select className="field" aria-label={t('时间依据')} value={filters.time_field} onChange={e=>setFilters(v=>({...v,time_field:e.target.value}))}><option value="event_time">{t('发生时间')}</option><option value="source_updated_at">{t('厂商更新时间')}</option><option value="ingested_at">{t('采集时间')}</option></select>
+          <select className="field" aria-label={t('发现类别')} value={filters.finding_kind} onChange={e=>setFilters(v=>({...v,finding_kind:e.target.value}))}>
+            <option value="">{t('全部类别')}</option>
+            {['detection','vulnerability','compliance','incident','other'].map(v=><option key={v} value={v}>{v}</option>)}
+          </select>
+          <input className="field" aria-label={t('规则 ID')} placeholder={t('规则 ID')} value={filters.rule_id} onChange={e=>setFilters(v=>({...v,rule_id:e.target.value}))}/>
+          <input className="field" aria-label={t('厂商状态')} placeholder={t('厂商状态')} value={filters.vendor_status} onChange={e=>setFilters(v=>({...v,vendor_status:e.target.value}))}/>
+          <select className="field" aria-label={t('对象类型')} value={filters.observable_type} onChange={e=>setFilters(v=>({...v,observable_type:e.target.value}))}>
+            <option value="">{t('全部对象')}</option>
+            <option value="1">Hostname</option><option value="2">IP</option><option value="4">User</option><option value="8">Hash</option><option value="10">Resource</option><option value="0">Domain / Other</option>
+          </select>
+          <input className="field" aria-label={t('对象精确值')} placeholder={t('对象精确值')} value={filters.observable_value} onChange={e=>setFilters(v=>({...v,observable_value:e.target.value}))}/>
+        </div>
+      </details>
       </form>
+      {(route.view==='groups'?groups:data)?.coverage && !(route.view==='groups'?groups:data)?.coverage?.complete ? <p className="text-xs text-[var(--muted)]" role="status">{t('当前查询范围尚未确认完整，请结合覆盖范围与同步水位查看结果。')}</p>:null}
       {route.groupKey ? (
         <div className="flex items-center gap-3 text-sm">
           <button
@@ -300,10 +353,19 @@ export function Alerts() {
         </div>
       ) : null}
       <div className="flex justify-between text-xs text-[var(--muted)]">
-        <span aria-live="polite">
-          {!loading
-            ? t(route.view === 'groups' ? '共 {count} 组' : '共 {count} 条', { count: fmtNum(total) })
-            : t('加载中…')}
+        <span aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            {!loading && !error
+              ? t(route.view === 'groups' ? '共 {count} 组' : '共 {count} 条', { count: fmtNum(total) })
+              : loading ? t('加载中…') : null}
+          </span>
+          {!loading && !error && shownWindow?.end ? (
+            <span title={[shownWindow.start, shownWindow.end].filter(Boolean).map(formatTime).join(' — ')}>
+              {shownWindow.start
+                ? `${formatDate(shownWindow.start)} — ${formatDate(shownWindow.end)}`
+                : t('截至 {time}', { time: formatDate(shownWindow.end) })}
+            </span>
+          ) : null}
         </span>
         <span>{t('第 {current} / {pages} 页', { current, pages })}</span>
       </div>
@@ -326,8 +388,8 @@ export function Alerts() {
             <thead>
               <tr>
                 <th>{t('告警分组')}</th>
-                <th>{t('数量')}</th>
-                <th>{t('最高等级')}</th>
+                <th>{t('告警条数')}</th>
+                <th title={t('取组内厂商告警的最高等级')}>{t('组内最高等级')}</th>
                 <th>{t('云厂商')}</th>
                 <th>{t('最近')}</th>
               </tr>
@@ -348,7 +410,7 @@ export function Alerts() {
                         : [group.alert_type, group.source_ip].filter(Boolean).join(' · ')}
                     </div>
                   </td>
-                  <td className="tabular-nums">{fmtNum(group.count)}</td>
+                  <td className="tabular-nums">{fmtNum(group.finding_count)}</td>
                   <td>
                     <SeverityBadge severity={group.max_severity} />
                   </td>
@@ -363,7 +425,7 @@ export function Alerts() {
                     </div>
                   </td>
                   <td className="whitespace-nowrap text-xs text-[var(--muted)]">
-                    {formatDate(group.last_seen_at)}
+                    {formatDate(group.last_seen_at || undefined)}
                   </td>
                 </tr>
               ))}
@@ -379,7 +441,7 @@ export function Alerts() {
                 <th>{t('来源')}</th>
                 <th>{t('资产')}</th>
                 <th>{t('源 → 目标')}</th>
-                <th>{t('归流内状态')}</th>
+                <th>{t('本地标注')}</th>
               </tr>
             </thead>
             <tbody>
@@ -452,6 +514,7 @@ export function Alerts() {
       </div>
       <AlertDrawer
         id={route.selected}
+        snapshotSequence={route.window.snapshot_sequence ?? (route.view==='groups'?groups:data)?.snapshot_sequence}
         onClose={() => navigate({ alert: null })}
         onChanged={() => setReload((value) => value + 1)}
         isAdmin={isAdmin}
@@ -463,12 +526,14 @@ export function Alerts() {
 
 function AlertDrawer({
   id,
+  snapshotSequence,
   onClose,
   onChanged,
   isAdmin,
   toast,
 }: {
   id: string | null;
+  snapshotSequence?:number;
   onClose: () => void;
   onChanged: () => void;
   isAdmin: boolean;
@@ -481,6 +546,8 @@ function AlertDrawer({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState('raw');
+  const [raw, setRaw] = useState('');
+  const [rawError, setRawError] = useState('');
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -489,7 +556,7 @@ function AlertDrawer({
     setError('');
     setDetail(null);
     setTab('raw');
-    api<Alert>(`/alerts/${encodeURIComponent(id)}`, { signal: controller.signal })
+    api<Alert>(`/alerts/${encodeURIComponent(id)}${snapshotSequence!==undefined?`?snapshot_sequence=${snapshotSequence}`:""}`, { signal: controller.signal })
       .then((result) => {
         if (alive) setDetail(result);
       })
@@ -503,7 +570,17 @@ function AlertDrawer({
       alive = false;
       controller.abort();
     };
-  }, [id, refreshNonce]);
+  }, [id, refreshNonce, snapshotSequence]);
+  useEffect(() => {
+    setRaw('');
+    setRawError('');
+    if (!detail?.raw_url) return;
+    const controller = new AbortController();
+    sourceText(detail.raw_url, { signal: controller.signal })
+      .then(text => { if (!controller.signal.aborted) setRaw(text); })
+      .catch(error => { if (!controller.signal.aborted) setRawError(error.message); });
+    return () => controller.abort();
+  }, [detail?.raw_url]);
   async function update(status: AlertStatus) {
     if (!id || busy) return;
     setBusy(true);
@@ -514,17 +591,17 @@ function AlertDrawer({
       });
       setDetail(result);
       onChanged();
-      toast('归流内状态已更新');
+      toast('本地标注已更新');
     } catch (err: any) {
       toast(err?.message || '更新失败', true);
     } finally {
       setBusy(false);
     }
   }
-  const raw = detail?.raw ? JSON.stringify(detail.raw, null, 2) : '';
   const ocsf = detail?.ocsf ? JSON.stringify(detail.ocsf, null, 2) : '';
   const labels = [
     ['raw', '原始数据'],
+    ['fields', '字段与证据'],
     ['ocsf', 'OCSF'],
   ];
   return (
@@ -621,6 +698,10 @@ function AlertDrawer({
                   <dd>{formatTime(detail.first_seen_at)}</dd>
                   <dt>{t('最近发现')}</dt>
                   <dd>{formatTime(detail.last_seen_at)}</dd>
+                  <dt>{t('发现类别')}</dt><dd>{detail.finding_kind || '—'}</dd>
+                  <dt>{t('规则 ID')}</dt><dd className="font-mono text-xs">{detail.rule_id || '—'}</dd>
+                  <dt>{t('厂商更新时间')}</dt><dd>{formatTime(detail.source_updated_at)}</dd>
+                  <dt>{t('采集时间')}</dt><dd>{formatTime(detail.ingested_at)}</dd>
                   <dt>{t('厂商状态')}</dt>
                   <dd>{detail.vendor_status || '—'}</dd>
                   <dt>{t('原始等级')}</dt>
@@ -629,7 +710,7 @@ function AlertDrawer({
                   <dd className="break-all font-mono text-xs">{detail.id}</dd>
                   <dt>{t('外部 ID')}</dt>
                   <dd className="break-all font-mono text-xs">{detail.external_id || '—'}</dd>
-                  {detail.tactic ? (
+                  {detail.tactic || detail.technique ? (
                     <>
                       <dt>ATT&amp;CK</dt>
                       <dd className="font-mono">
@@ -640,7 +721,7 @@ function AlertDrawer({
                 </dl>
                 {isAdmin ? (
                   <label className="form-label max-w-[260px]">
-                    {t('归流内状态')}
+                    {t('本地标注')}
                     <select
                       className="field"
                       value={detail.status}
@@ -660,11 +741,11 @@ function AlertDrawer({
                     <h3 className="section-title">{t('原始厂商 JSON')}</h3>
                     <CopyButton value={raw} />
                   </div>
-                  <pre className="code">{raw}</pre>
+                  {rawError ? <ErrorBox>{rawError}</ErrorBox> : <pre className="code">{raw || t('加载中…')}</pre>}
                 </div>
                 <a
                   className="btn"
-                  href={`/api/v1/alerts/${encodeURIComponent(detail.id)}/raw`}
+                  href={detail.raw_url}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -672,6 +753,7 @@ function AlertDrawer({
                 </a>
               </div>
             ) : null}
+            {tab === 'fields' ? <AlertFields detail={detail} /> : null}
             {tab === 'ocsf' ? (
               <div className="space-y-5">
                 <dl className="detail-fields">
@@ -683,7 +765,14 @@ function AlertDrawer({
                     <h3 className="section-title">{t('统一 OCSF')}</h3>
                     <CopyButton value={ocsf} />
                   </div>
-                  <pre className="code">{ocsf}</pre>
+                  {detail.ocsf ? (
+                    <pre className="code">{ocsf}</pre>
+                  ) : (
+                    <div className="space-y-2 text-sm text-[var(--muted)]">
+                      <p>{t('来源信息不足以生成该类别的完整 OCSF，原始记录仍完整保留。')}</p>
+                      <p className="font-mono text-xs">{detail.ocsf_omission_reason}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : null}

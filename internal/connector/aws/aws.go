@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -19,7 +20,7 @@ import (
 
 const (
 	providerID      = "aws"
-	mapperVersion   = "aws-securityhub-ocsf/v1"
+	mapperVersion   = "aws-securityhub-ocsf/v4"
 	defaultRegion   = "us-east-1"
 	defaultPageSize = 100
 	defaultQPS      = 5
@@ -31,6 +32,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
+		SourceAPI:     "Security Hub GetFindingsV2",
 		ID:            providerID,
 		Name:          "AWS",
 		Vendor:        "Amazon Web Services",
@@ -53,8 +55,12 @@ func descriptor() connector.Descriptor {
 }
 
 // Connector talks to AWS Security Hub.
+type alertClient interface {
+	GetFindingsV2(context.Context, *securityhub.GetFindingsV2Input, ...func(*securityhub.Options)) (*securityhub.GetFindingsV2Output, error)
+}
+
 type Connector struct {
-	client   *securityhub.Client
+	client   alertClient
 	limiter  *connector.Limiter
 	pageSize int
 }
@@ -121,11 +127,13 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	filters := &types.OcsfFindingFilters{
 		CompositeOperator: types.AllowedOperatorsAnd,
 		CompositeFilters: []types.CompositeFilter{{
-			Operator: types.AllowedOperatorsAnd,
-			DateFilters: []types.OcsfDateFilter{{
-				FieldName: types.OcsfDateFieldFindingInfoLastSeenTimeDt,
-				Filter:    &types.DateFilter{Start: &start, End: &end},
-			}},
+			// A status-only update may change modified_time without last_seen_time.
+			Operator: types.AllowedOperatorsOr,
+			DateFilters: []types.OcsfDateFilter{
+				{FieldName: types.OcsfDateFieldFindingInfoCreatedTimeDt, Filter: &types.DateFilter{Start: &start, End: &end}},
+				{FieldName: types.OcsfDateFieldFindingInfoLastSeenTimeDt, Filter: &types.DateFilter{Start: &start, End: &end}},
+				{FieldName: types.OcsfDateFieldFindingInfoModifiedTimeDt, Filter: &types.DateFilter{Start: &start, End: &end}},
+			},
 		}},
 	}
 	input := &securityhub.GetFindingsV2Input{
@@ -156,7 +164,9 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 
 func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 	var finding map[string]any
-	if err := json.Unmarshal(raw, &finding); err != nil {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&finding); err != nil {
 		return model.Alert{}, fmt.Errorf("decode AWS finding: %w", err)
 	}
 	alert, err := normalizeFinding(finding, raw)

@@ -71,6 +71,7 @@ func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
 	makeAlert := func(id, sourceIP string, severity model.Severity, at time.Time) *model.AlertRecord {
 		a := testAlert("grouped " + id)
 		a.ExternalID = id
+		a.RuleID = "native-rule-1"
 		a.Severity = severity
 		a.EventTime = at
 		a.FirstSeenAt = at
@@ -100,7 +101,7 @@ func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
 	}
 	var repeated *model.AlertGroup
 	for i := range groups {
-		if groups[i].Count == 2 {
+		if groups[i].FindingCount == 2 {
 			repeated = &groups[i]
 		}
 	}
@@ -122,7 +123,7 @@ func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assetTotal != 1 || len(assetGroups) != 1 || assetGroups[0].Count != 4 {
+	if assetTotal != 1 || len(assetGroups) != 1 || assetGroups[0].FindingCount != 4 {
 		t.Fatalf("asset groups total=%d groups=%+v", assetTotal, assetGroups)
 	}
 
@@ -134,7 +135,7 @@ func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
 			break
 		}
 	}
-	if singleton == nil || singleton.Count != 1 {
+	if singleton == nil || singleton.FindingCount != 1 {
 		t.Fatalf("singleton group = %+v", singleton)
 	}
 	singletonMembers, singletonTotal, err := st.ListAlerts(ctx, model.AlertFilter{
@@ -243,7 +244,7 @@ func TestAccountLifecycle(t *testing.T) {
 		t.Fatal("enabled flag not persisted")
 	}
 
-	if err := st.DeleteAccount(ctx, acct.ID, true); err != nil {
+	if err := st.DeleteAccount(ctx, acct.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.GetAccount(ctx, acct.ID); !errors.Is(err, ErrNotFound) {
@@ -388,5 +389,71 @@ func TestSyncRuns(t *testing.T) {
 	}
 	if runs[0].Status != "success" || runs[0].Created != 8 || runs[0].FinishedAt == nil {
 		t.Fatalf("run = %+v", runs[0])
+	}
+}
+
+func TestQueriesFindSecondaryIndicatorsAndCorrectedTimes(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	a := testAlert("multiple indicators")
+	a.Observables = []model.Observable{
+		{TypeID: 2, Value: "203.0.113.99"},
+		{TypeID: 10, Value: "secondary-resource"},
+		{TypeID: 38, Value: "secondary-web-host"},
+		{TypeID: 7, Value: "203.0.113.88"},
+	}
+	if _, err := st.UpsertAlert(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []model.AlertFilter{{IP: "203.0.113.99"}, {Resource: "secondary-resource"}, {Resource: "secondary-web"}} {
+		items, _, err := st.ListAlerts(ctx, f)
+		if err != nil || len(items) != 1 {
+			t.Fatalf("filter=%+v items=%d err=%v", f, len(items), err)
+		}
+	}
+	items, _, err := st.ListAlerts(ctx, model.AlertFilter{IP: "203.0.113.88"})
+	if err != nil || len(items) != 0 {
+		t.Fatal("non-IP observable matched IP query")
+	}
+	corrected := a.EventTime.Add(-8 * time.Hour)
+	a.EventTime, a.FirstSeenAt, a.LastSeenAt = corrected, corrected, corrected
+	if _, err := st.UpsertAlert(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetAlert(ctx, a.ID)
+	if err != nil || !got.EventTime.Equal(corrected) || !got.LastSeenAt.Equal(corrected) {
+		t.Fatalf("corrected timestamps=%+v err=%v", got, err)
+	}
+}
+
+func TestIngestFailuresAreDurableAndDeduplicated(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	acct := testAccount("failure-test")
+	if err := st.CreateAccount(ctx, acct); err != nil {
+		t.Fatal(err)
+	}
+	f := &model.IngestFailure{AccountID: acct.ID, Raw: json.RawMessage(`{"bad":true}`), IngestedAt: time.Now().UTC(), MapperVersion: "v1", Error: "bad mapping"}
+	if err := st.SaveIngestFailure(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	f.ID = ""
+	if err := st.SaveIngestFailure(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	items, total, err := st.ListIngestFailures(ctx, acct.ID, 100)
+	if err != nil || total != 1 || len(items) != 1 || items[0].Attempts != 2 || string(items[0].Raw) != string(f.Raw) {
+		t.Fatalf("items=%+v total=%d err=%v", items, total, err)
+	}
+	state, err := st.GetSyncState(ctx, acct.ID)
+	if err != nil || state.FailedRecords != 1 {
+		t.Fatalf("state=%+v err=%v", state, err)
+	}
+	if err := st.DeleteAccount(ctx, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, total, err = st.ListIngestFailures(ctx, acct.ID, 100)
+	if err != nil || total != 0 {
+		t.Fatalf("orphaned failures=%d err=%v", total, err)
 	}
 }

@@ -28,13 +28,20 @@ type Store interface {
 	UpsertAccountByName(ctx context.Context, account *model.Account) (created bool, err error)
 	GetAccount(ctx context.Context, id string) (*model.Account, error)
 	GetAccountByName(ctx context.Context, name string) (*model.Account, error)
+	ListUnconfiguredSources(ctx context.Context, provider, accountID string) ([]model.Account, error)
 	ListAccounts(ctx context.Context) ([]model.Account, error)
-	DeleteAccount(ctx context.Context, id string, purgeAlerts bool) error
+	DeleteAccount(ctx context.Context, id string) error
 	AccountCredential(ctx context.Context, id string) (string, error)
 
+	SnapshotSequence(ctx context.Context) (int64, error)
+	ListAlertChanges(ctx context.Context, cursor string, limit int, provider, accountID string) (*model.ChangePage, error)
+	AlertRevisionPage(ctx context.Context, id string, beforeRevision, limit int) ([]model.AlertRevision, error)
+	GetAlertAtSnapshot(ctx context.Context, id string, sequence int64) (*model.AlertRecord, error)
+	GetAlertRevision(ctx context.Context, id string, revision int) (*model.AlertRecord, error)
 	UpsertAlert(ctx context.Context, alert *model.AlertRecord) (created bool, err error)
 	GetAlert(ctx context.Context, id string) (*model.AlertRecord, error)
 	ListAlerts(ctx context.Context, filter model.AlertFilter) ([]model.AlertRecord, int, error)
+	ListReplayAlerts(ctx context.Context, filter model.AlertFilter, mapperVersion, afterID string) ([]model.AlertRecord, error)
 	ListAlertGroups(ctx context.Context, filter model.AlertFilter) ([]model.AlertGroup, int, error)
 	ListAlertRevisions(ctx context.Context, alertID string, limit int) ([]model.AlertRevision, error)
 	UpdateAlertStatus(ctx context.Context, id string, status model.AlertStatus) error
@@ -45,6 +52,9 @@ type Store interface {
 	StartSyncRun(ctx context.Context, run *model.SyncRun) error
 	FinishSyncRun(ctx context.Context, run *model.SyncRun) error
 	ListSyncRuns(ctx context.Context, accountID string, limit int) ([]model.SyncRun, error)
+	SaveIngestFailure(ctx context.Context, failure *model.IngestFailure) error
+	ListIngestFailures(ctx context.Context, accountID string, limit int) ([]model.IngestFailure, int, error)
+	DeleteIngestFailure(ctx context.Context, id string) error
 
 	// Users
 	CreateUser(ctx context.Context, user *model.User, passwordHash string) error

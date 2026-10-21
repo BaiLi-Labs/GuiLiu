@@ -110,14 +110,13 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	if err != nil {
 		return connector.Page{}, connector.Classify(providerID, err)
 	}
-	raws := make([]connector.RawAlert, 0, len(resp.Items))
-	for _, item := range resp.Items {
-		b, err := json.Marshal(item)
-		if err != nil {
-			continue
-		}
-		raws = append(raws, connector.RawAlert{Raw: b})
-	}
+ // resp.Items must be []json.RawMessage extracted before SDK model decoding.
+ raws := make([]connector.RawAlert, 0, len(resp.Items))
+ for _, raw := range resp.Items {
+  if !json.Valid(raw) || string(raw)=="null" {return connector.Page{},fmt.Errorf("invalid source record")}
+  raws=append(raws,connector.RawAlert{Raw:append(json.RawMessage(nil),raw...)})
+ }
+
 	next := ""
 	if page*pageSize < resp.Total && len(raws) > 0 {
 		next = strconv.Itoa(page + 1)
@@ -131,8 +130,10 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 - `Query.Start` / `End` 是一个固定窗口。分页期间不要重新计算时间。
 - token 必须自包含（页号 / offset / 厂商游标），不能依赖进程内状态，否则进程重启会丢进度。
 - 返回总数字段（如果厂商提供），引擎用它判断是否还有下一页；没有总数时，以本页是否为空作为结束条件。
-- 引擎按页保存 token，并默认每轮最多 10 页。页数预算用尽不是错误，而是 `partial` 暂停，下一轮自动从断点继续。连接器不需要感知这一点，但必须保证同一个 token 在下一轮仍然有效。
+- 引擎按页保存 token，并默认每轮最多 10 页。页数预算用尽不是错误，而是 `partial` 暂停，下一轮自动从断点继续。连接器不需要感知这一点，若 token 会失效，应保留原始错误码/文本，便于引擎识别并从固定窗口重新读取。
 - 时间参数按厂商要求格式化。中国区厂商通常使用东八区 `2006-01-02 15:04:05`，可用 `connector.FormatBeijing`。
+- 使用响应流或 `json.RawMessage` 在类型解码前保留未知字段与精确数值；SDK 结构体的 `json.Marshal` 不能作为原始数据保真机制。
+- 来源缺失的身份和时间保持未知，不以内容哈希或窗口末尾冒充。更新 `MappingFor` 与 Mapper 版本，并验证 `provenance` 指向实际来源路径。
 - 原始数据必须是**厂商字段**，不要提前裁剪成内部结构，否则以后修复映射需要重新调用云 API。
 
 ## 6. 错误分类
@@ -190,7 +191,7 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 3. **`ExternalID` 稳定**：优先厂商告警 ID；没有时用 `connector.HashRaw(raw)`。不要用数组下标。
 4. **资产与 IP 尽力而为**：宁可留空，也不要猜测错误的值。无法确定的字段放 `Unmapped`。
 5. **证据截断**：大字段（如 base64 证据）用 `connector.Truncate` 限制在 16KB 左右；完整内容仍在 `raw`。
-6. **多值字段**：如 ATT&CK tactic 只取第一个进 `Tactic`，其余放 `Unmapped`，避免字符串拼接破坏语义。
+6. **多值字段**：ATT&CK `Tactic` / `Technique` 可用逗号分隔多个值，统一序列化层会拆为独立对象；无法确定的矩阵版本应留空。多资产可填写 `Resources` 并将资源 ID / 名称加入 `Observables`（type_id 10 / 38），以供统一检索。
 
 ### 不要做
 

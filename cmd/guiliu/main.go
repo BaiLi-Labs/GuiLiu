@@ -43,6 +43,8 @@ func run(args []string) int {
 		return runSync(args[1:])
 	case "probe":
 		return runProbe(args[1:])
+	case "replay":
+		return runReplay(args[1:])
 	case "accounts":
 		return runAccounts(args[1:])
 	case "user":
@@ -71,6 +73,7 @@ Usage:
   guiliu mcp      [-config path]   Run the MCP server over stdio
   guiliu sync     [-config path] [-account id|name] [-all]
   guiliu probe    [-config path] -account id|name [-since 24h] [-limit 5] [-raw] [-mapped]
+  guiliu replay   [-config path] -account id|name [-since 7d] [-mapper-version old] [-apply]
   guiliu accounts [-config path]
   guiliu user list    [-config path]
   guiliu user add     [-config path] -username alice [-role admin|viewer]
@@ -94,6 +97,60 @@ Environment:
 
 Docs: see README.md for account onboarding and MCP client configuration.
 `)
+}
+
+func runReplay(args []string) int {
+	fs := flag.NewFlagSet("replay", flag.ExitOnError)
+	cfgPath := fs.String("config", "", "config file")
+	accountRef := fs.String("account", "", "account id or name")
+	since := fs.String("since", "", "optional lookback, e.g. 7d; default all stored alerts")
+	mapper := fs.String("mapper-version", "", "only replay this stored mapper version")
+	apply := fs.Bool("apply", false, "apply changes; default is a dry run (stop the server first)")
+	_ = fs.Parse(args)
+	if *accountRef == "" {
+		fmt.Fprintln(os.Stderr, "-account is required")
+		return 2
+	}
+	f := model.AlertFilter{}
+	if *since != "" {
+		d, ok := timeutil.ParseDuration(*since)
+		if !ok {
+			fmt.Fprintln(os.Stderr, "invalid -since")
+			return 2
+		}
+		start := time.Now().UTC().Add(-d)
+		f.Start = &start
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 1
+	}
+	a, err := app.New(cfg, newLogger(cfg.LogLevel))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer a.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	acct, err := resolveAccount(ctx, a, *accountRef)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	result, err := a.Engine.Replay(ctx, *acct, f, *mapper, *apply)
+	if result != nil {
+		_ = json.NewEncoder(os.Stdout).Encode(result)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "replay:", err)
+		return 1
+	}
+	if result.Failed > 0 {
+		return 1
+	}
+	return 0
 }
 
 func serve(args []string) int {
@@ -291,22 +348,16 @@ func runProbe(args []string) int {
 				fmt.Fprintln(os.Stderr, "normalize:", err)
 				continue
 			}
-			if alert.EventTime.IsZero() {
-				alert.EventTime = end
-			}
-			if alert.FirstSeenAt.IsZero() {
-				alert.FirstSeenAt = alert.EventTime
-			}
-			if alert.LastSeenAt.IsZero() {
-				alert.LastSeenAt = alert.EventTime
-			}
+			alert.Raw = rec.Raw
+			alert.MapperVersion = desc.MapperVersion
+			alert.SourceAPI, alert.SourceAPIVersion = desc.SourceAPI, desc.APIVersion
+			connector.ApplyProvenance(&alert, acct.Provider, *acct)
 			payload, err := normalize.Build(alert, *acct, normalize.Info{
-				VendorName:     desc.Vendor,
-				ProductName:    desc.Product,
-				ProductUID:     desc.ProductUID,
-				ProductVersion: desc.APIVersion,
-				LogProvider:    desc.Vendor,
-				MapperVersion:  desc.MapperVersion,
+				VendorName:    desc.Vendor,
+				ProductName:   desc.Product,
+				ProductUID:    desc.ProductUID,
+				LogProvider:   desc.Vendor,
+				MapperVersion: desc.MapperVersion,
 			})
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "ocsf:", err)
@@ -329,13 +380,14 @@ func runProbe(args []string) int {
 			fmt.Fprintln(os.Stderr, "normalize:", err)
 			continue
 		}
-		if alert.EventTime.IsZero() {
-			alert.EventTime = end
+		displayTime := "—"
+		if !alert.EventTime.IsZero() {
+			displayTime = alert.EventTime.UTC().Format(time.RFC3339)
 		}
 		fmt.Printf("%s  %-8s  %-19s  %-28s  %s → %s  %s\n",
 			acct.Name,
 			alert.Product,
-			alert.EventTime.Local().Format("2006-01-02 15:04:05"),
+			displayTime,
 			truncate(alert.Title, 28),
 			orDash(alert.SourceIP),
 			orDash(alert.DestinationIP),

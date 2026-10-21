@@ -112,7 +112,7 @@ export function Accounts() {
           onChange={(event) => setStatus(event.target.value)}
         >
           <option value="">{t('所有接入状态')}</option>
-          {['已同步', '同步失败', '续传中', '等待首次同步', '已停用'].map((value) => (
+          {['已同步', '同步失败', '部分失败', '同步延迟', '续传中', '等待首次同步', '已停用'].map((value) => (
             <option key={value} value={value}>
               {t(value)}
             </option>
@@ -196,7 +196,7 @@ export function Accounts() {
                     <td>
                       <span className="inline-flex items-center gap-2 whitespace-nowrap">
                         <span
-                          className={`status-dot ${state === '同步失败' ? 'status-error' : state === '已同步' ? 'status-ok' : state === '续传中' ? 'status-pending' : ''}`}
+                          className={`status-dot ${['同步失败', '部分失败'].includes(state) ? 'status-error' : state === '已同步' ? 'status-ok' : ['续传中', '同步延迟'].includes(state) ? 'status-pending' : ''}`}
                         />
                         {t(state)}
                       </span>

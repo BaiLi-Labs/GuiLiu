@@ -13,7 +13,9 @@ const webRoot = fileURLToPath(new URL('..', import.meta.url));
 const storage = new Map();
 const events = new Map();
 const rootAttributes = new Map();
+let responseText = '';
 const browser = {
+  fetch: async () => ({ ok: true, text: async () => responseText }),
   localStorage: {
     getItem: (key) => storage.get(key) ?? null,
     setItem: (key, value) => storage.set(key, value),
@@ -84,9 +86,15 @@ function load(relative) {
 }
 const i18n = load('src/i18n.ts');
 const lib = load('src/lib.ts');
-const { readAlertRoute } = load('src/pages/Alerts.tsx');
+const { readAlertRoute, queryFor } = load('src/pages/Alerts.tsx');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
+
+test('source JSON text preserves exact bytes and large integer precision', async () => {
+  const { sourceText } = load('src/api.ts');
+  responseText = '{\n  "unknownVendorField": 9007199254740993\n}';
+  assert.equal(await sourceText('/api/v1/alerts/id/revisions/1/raw'), responseText);
+});
 
 function sourceFiles(folder) {
   return readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
@@ -148,6 +156,9 @@ test('shareable alert links retain filters, pagination, Unicode, and selection',
 });
 
 test('malformed shared URLs have safe pagination and group defaults', () => {
+  assert.equal(readAlertRoute('').groupBy, 'type_asset');
+  assert.equal(readAlertRoute('group_by=signature').groupBy, 'signature');
+  assert.equal(readAlertRoute('group_by=invalid').groupBy, 'type_asset');
   assert.equal(readAlertRoute('offset=-20&range=bad&group_key=invalid').offset, 0);
   assert.equal(readAlertRoute('offset=Infinity').offset, 0);
   assert.equal(readAlertRoute('group_key=%7B%7D').groupKey, null);
@@ -167,6 +178,27 @@ test('malformed shared URLs have safe pagination and group defaults', () => {
   assert.equal(grouped.groupKey.source_ip, '203.0.113.1');
 });
 
+test('group pagination and expansion reuse absolute query time bounds', () => {
+  const start = '2026-10-01T00:00:00.123Z';
+  const end = '2026-10-08T00:00:00.123Z';
+  const route = readAlertRoute(new URLSearchParams({ range: '7d', group_by: 'type_asset', time_field: 'ingested_at', snapshot_sequence: '1234567', start, end }).toString());
+  const first = queryFor(route.filters, 0, route.window);
+  const next = queryFor(route.filters, 20, route.window);
+  assert.equal(first.get('start'), start);
+  assert.equal(first.get('end'), end);
+  assert.equal(next.get('start'), start);
+  assert.equal(next.get('end'), end);
+  assert.equal(next.get('snapshot_sequence'), '1234567');
+  assert.equal(next.get('time_field'), 'ingested_at');
+  const endOnly = queryFor(route.filters, 0, { end });
+  assert.equal(endOnly.get('start'), start);
+  const all = queryFor({ ...route.filters, range: 'all' }, 0, { end });
+  assert.equal(all.has('start'), false);
+  assert.equal(all.get('end'), end);
+  assert.equal(Object.keys(readAlertRoute('start=bad&end=bad').window).length, 0);
+  assert.equal(Object.keys(readAlertRoute(`start=${end}&end=${start}`).window).length, 0);
+});
+
 test('account status handles disabled, failed, pending, and never-synced accounts consistently', () => {
   assert.equal(
     lib.accountStatus({ enabled: false, sync_state: { pending: true, consecutive_failures: 1 } }),
@@ -178,6 +210,8 @@ test('account status handles disabled, failed, pending, and never-synced account
   );
   assert.equal(lib.accountStatus({ enabled: true, sync_state: { pending: true } }), '续传中');
   assert.equal(lib.accountStatus({ enabled: true }), '等待首次同步');
+  assert.equal(lib.accountStatus({ enabled: true, sync_state: { status: 'stale' } }), '同步延迟');
+  assert.equal(lib.accountStatus({ enabled: true, sync_state: { status: 'partial', failed_records: 1 } }), '部分失败');
   assert.equal(
     lib.accountStatus({ enabled: true, sync_state: { last_success_at: '2026-10-20T00:00:00Z' } }),
     '已同步',
@@ -230,6 +264,28 @@ test('all source-language literals passed to t have English translations', () =>
     visit(ast);
   }
   assert.deepEqual(missing, []);
+});
+
+test('alert fields expose secondary resources, observables, and unrecognized vendor fields', () => {
+  const { AlertFields, VendorFields } = load('src/components/AlertFields.tsx');
+  i18n.setLocale('en-US');
+  const html = renderToStaticMarkup(React.createElement(AlertFields, { detail: {
+    resources: [{ id: 'first' }, { id: 'second', name: 'secondary-resource' }],
+    observables: [{ name: 'entity.ip', type_id: 2, value: '203.0.113.2' }],
+    evidences: [{ type: 'vendor' }],
+    raw: { futureVendorField: 'preserved <script>alert(1)</script>', unknownNested: { anything: true } },
+  } }));
+  assert.match(html, /secondary-resource/);
+  assert.match(html, /203\.0\.113\.2/);
+  assert.match(html, /futureVendorField/);
+  assert.match(html, /unknownNested/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  const scalars = renderToStaticMarkup(React.createElement(VendorFields, { value: { no: false, zero: 0, nil: null } }));
+  assert.match(scalars, /false/);
+  assert.match(scalars, />0</);
+  assert.match(scalars, />null</);
 });
 
 test('connector-provided Chinese form labels and help are translated', () => {

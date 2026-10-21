@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/credential"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
+	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
@@ -248,8 +250,7 @@ func (s *Server) handlePatchAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
-	purge := r.URL.Query().Get("purge") == "true"
-	if err := s.store.DeleteAccount(r.Context(), r.PathValue("id"), purge); err != nil {
+	if err := s.store.DeleteAccount(r.Context(), r.PathValue("id")); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
@@ -342,13 +343,13 @@ func (s *Server) handleAccountHealth(w http.ResponseWriter, r *http.Request) {
 		runViews = append(runViews, view.SyncRunFromModel(&runs[i]))
 	}
 	status := "ok"
-	if acct.Enabled && state.ConsecutiveFailures > 0 {
+	if acct.Enabled && !view.SyncStateFromModel(state, 3*s.cfg.Sync.Interval.Get()).Healthy {
 		status = "degraded"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":      status,
 		"account":     v,
-		"sync_state":  view.SyncStateFromModel(state),
+		"sync_state":  view.SyncStateFromModel(state, 3*s.cfg.Sync.Interval.Get()),
 		"recent_runs": runViews,
 	})
 }
@@ -388,7 +389,7 @@ func (s *Server) accountView(ctx context.Context, acct *model.Account, withState
 		if err != nil {
 			return v, err
 		}
-		sv := view.SyncStateFromModel(state)
+		sv := view.SyncStateFromModel(state, 3*s.cfg.Sync.Interval.Get())
 		v.SyncState = &sv
 	}
 	return v, nil
@@ -406,6 +407,14 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "group_key is required when group_by is set")
 		return
 	}
+	if f.End == nil {
+		now := time.Now().UTC()
+		f.End = &now
+	}
+	if err := query.PinSnapshot(r.Context(), s.store, &f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	items, total, err := s.store.ListAlerts(r.Context(), f)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -415,8 +424,20 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	for i := range items {
 		alerts = append(alerts, view.AlertFromRecord(&items[i], false))
 	}
+	coverage, err := query.Coverage(r.Context(), s.store, s.registry, f, 3*s.cfg.Sync.Interval.Get())
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	next := ""
+	hasMore := f.Offset+len(items) < total
+	if f.Sort == "id" && len(items) > 0 && hasMore {
+		next = items[len(items)-1].ID
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"coverage": coverage, "snapshot_sequence": f.SnapshotSequence, "next_cursor": next, "has_more": hasMore,
 		"alerts": alerts,
+		"window": view.WindowFromFilter(f),
 		"total":  total,
 		"limit":  f.Limit,
 		"offset": f.Offset,
@@ -430,18 +451,32 @@ func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.GroupBy == "" {
-		f.GroupBy = model.GroupBySignature
+		f.GroupBy = model.GroupByTypeAsset
+	}
+	if f.End == nil {
+		now := time.Now().UTC()
+		f.End = &now
 	}
 	if f.Limit <= 0 || f.Limit > 200 {
 		f.Limit = 50
+	}
+	if err := query.PinSnapshot(r.Context(), s.store, &f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
 	}
 	groups, total, err := s.store.ListAlertGroups(r.Context(), f)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	coverage, err := query.Coverage(r.Context(), s.store, s.registry, f, 3*s.cfg.Sync.Interval.Get())
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"coverage": coverage, "snapshot_sequence": f.SnapshotSequence,
 		"groups":   groups,
+		"window":   view.WindowFromFilter(f),
 		"total":    total,
 		"group_by": f.GroupBy,
 		"limit":    f.Limit,
@@ -464,19 +499,52 @@ func (s *Server) handleGetAlertRevisions(w http.ResponseWriter, r *http.Request)
 		}
 		limit = n
 	}
-	revisions, err := s.store.ListAlertRevisions(r.Context(), id, limit)
+	if limit > 200 {
+		limit = 200
+	}
+	before := 0
+	if raw := r.URL.Query().Get("before_revision"); raw != "" {
+		n, e := strconv.Atoi(raw)
+		if e != nil || n < 1 {
+			writeError(w, 400, "invalid_request", "before_revision must be positive")
+			return
+		}
+		before = n
+	}
+	revisions, err := s.store.AlertRevisionPage(r.Context(), id, before, limit+1)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
+	hasMore := len(revisions) > limit
+	if hasMore {
+		revisions = revisions[:limit]
+	}
+	next := 0
+	if hasMore && len(revisions) > 0 {
+		next = revisions[len(revisions)-1].Revision
+	}
+	revisionViews := make([]view.Revision, 0, len(revisions))
+	for _, rev := range revisions {
+		revisionViews = append(revisionViews, view.RevisionFromModel(rev))
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"has_more": hasMore, "next_before_revision": next,
 		"alert_id":  id,
-		"revisions": revisions,
+		"revisions": revisionViews,
 	})
 }
 
 func (s *Server) handleGetAlert(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.store.GetAlert(r.Context(), r.PathValue("id"))
+	if raw := r.URL.Query().Get("snapshot_sequence"); raw != "" {
+		seq, e := strconv.ParseInt(raw, 10, 64)
+		if e != nil || seq < 0 {
+			writeError(w, 400, "invalid_request", "invalid snapshot_sequence")
+			return
+		}
+		rec, err = s.store.GetAlertAtSnapshot(r.Context(), r.PathValue("id"), seq)
+	}
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -486,6 +554,14 @@ func (s *Server) handleGetAlert(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetAlertRaw(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.store.GetAlert(r.Context(), r.PathValue("id"))
+	if raw := r.URL.Query().Get("snapshot_sequence"); raw != "" {
+		seq, e := strconv.ParseInt(raw, 10, 64)
+		if e != nil || seq < 0 {
+			writeError(w, 400, "invalid_request", "invalid snapshot_sequence")
+			return
+		}
+		rec, err = s.store.GetAlertAtSnapshot(r.Context(), r.PathValue("id"), seq)
+	}
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -526,13 +602,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if err := query.PinSnapshot(r.Context(), s.store, &f); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
 	f.Limit = 1
 	stats, err := s.store.AlertStats(r.Context(), f)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	coverage, err := query.Coverage(r.Context(), s.store, s.registry, f, 3*s.cfg.Sync.Interval.Get())
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshot_sequence": f.SnapshotSequence, "coverage": coverage,
 		"window": map[string]any{
 			"start": formatOptional(f.Start),
 			"end":   formatOptional(f.End),
@@ -544,6 +629,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 	q := r.URL.Query()
 	f := model.AlertFilter{
+		TimeField: q.Get("time_field"), RuleID: strings.TrimSpace(q.Get("rule_id")), FindingKind: strings.TrimSpace(q.Get("finding_kind")), VendorStatus: strings.TrimSpace(q.Get("vendor_status")), ObservableValue: strings.TrimSpace(q.Get("observable_value")), AfterID: strings.TrimSpace(q.Get("after_id")),
 		Provider:  strings.TrimSpace(q.Get("provider")),
 		AccountID: strings.TrimSpace(q.Get("account_id")),
 		Keyword:   strings.TrimSpace(firstNonEmpty(q.Get("q"), q.Get("keyword"))),
@@ -551,6 +637,26 @@ func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 		Resource:  strings.TrimSpace(q.Get("resource")),
 		Sort:      strings.TrimSpace(q.Get("sort")),
 		Limit:     50,
+	}
+	if raw := q.Get("snapshot_sequence"); raw != "" {
+		n, e := strconv.ParseInt(raw, 10, 64)
+		if e != nil || n < 0 {
+			return f, errors.New("invalid snapshot_sequence")
+		}
+		f.SnapshotSequence = &n
+	}
+	if raw := q.Get("observable_type"); raw != "" {
+		n, e := strconv.Atoi(raw)
+		if e != nil || n < 0 {
+			return f, errors.New("observable_type must be a numeric OCSF type ID")
+		}
+		f.ObservableType = &n
+	}
+	if f.AfterID != "" {
+		f.Sort = "id"
+	}
+	if f.IP != "" && net.ParseIP(f.IP) == nil {
+		return f, errors.New("invalid IP address")
 	}
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -635,7 +741,7 @@ func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 			return f, errors.New("group_key must not be empty")
 		}
 	}
-	return f, nil
+	return f, query.ValidateFilter(f)
 }
 
 // ------------------------------------------------------------------ health
@@ -674,7 +780,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			s.writeStoreError(w, err)
 			return
 		}
-		if accounts[i].Enabled && v.SyncState != nil && v.SyncState.ConsecutiveFailures > 0 {
+		if accounts[i].Enabled && v.SyncState != nil && !v.SyncState.Healthy {
 			status = "degraded"
 		}
 		items = append(items, v)
@@ -688,6 +794,34 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":  metaVersion(),
 		"accounts": items,
 	})
+}
+
+func (s *Server) handleAccountFailures(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.store.GetAccount(r.Context(), id); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	items, total, err := s.store.ListIngestFailures(r.Context(), id, 100)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	// A malformed JSON payload is still inspectable and remains byte-for-byte
+	// unchanged in storage for retry.
+	public := make([]map[string]any, 0, len(items))
+	for _, f := range items {
+		var raw any = f.Raw
+		if !json.Valid(f.Raw) {
+			raw = string(f.Raw)
+		}
+		public = append(public, map[string]any{
+			"id": f.ID, "account_id": f.AccountID, "raw": raw, "error": f.Error,
+			"attempts": f.Attempts, "mapper_version": f.MapperVersion,
+			"created_at": timeutil.Format(f.CreatedAt), "last_attempt_at": timeutil.Format(f.LastAttemptAt),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"failures": public, "total": total, "limit": 100})
 }
 
 // ----------------------------------------------------------------- helpers

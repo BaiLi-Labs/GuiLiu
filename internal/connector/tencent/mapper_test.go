@@ -3,6 +3,7 @@ package tencent
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,35 @@ func sampleAlert(t *testing.T) json.RawMessage {
 	return raw
 }
 
+func TestExtraInfoAndUnknownAlertTypesArePreserved(t *testing.T) {
+	raw := json.RawMessage(`{"ID":"new-id","Source":"new-source","Type":"new-type","SubType":"new-subtype","ExtraInfo":{"SourceIP":"203.0.113.1","ProcessCommandLine":"vendor command line","CVE":"CVE-2026-12345","FileMD5":"vendor-hash","RequestHeaders":"vendor headers"}}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.AlertType != "new-type/new-subtype" || alert.Product != "new-source" || alert.SourceIP != "203.0.113.1" || string(alert.Raw) != string(raw) {
+		t.Fatalf("alert=%+v", alert)
+	}
+	evidence, err := json.Marshal(alert.Evidences)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"vendor command line", "CVE-2026-12345", "vendor headers"} {
+		if !strings.Contains(string(evidence), value) {
+			t.Errorf("missing evidence %s", value)
+		}
+	}
+	foundHash := false
+	for _, o := range alert.Observables {
+		if o.Value == "vendor-hash" {
+			foundHash = true
+		}
+	}
+	if !foundHash {
+		t.Fatal("ExtraInfo file hash not searchable")
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	c := &Connector{}
 	alert, err := c.Normalize(sampleAlert(t))
@@ -74,13 +104,13 @@ func TestNormalize(t *testing.T) {
 	if !alert.FirstSeenAt.Equal(wantFirst) {
 		t.Fatalf("first seen = %s, want %s", alert.FirstSeenAt, wantFirst)
 	}
-	if !alert.EventTime.Equal(wantFirst.Add(time.Hour)) {
+	if !alert.EventTime.Equal(wantFirst) {
 		t.Fatalf("event time = %s", alert.EventTime)
 	}
 	if len(alert.Evidences) != 1 || alert.Evidences[0].Data["data"] != "curl http://evil.example" {
 		t.Fatalf("evidence = %+v", alert.Evidences)
 	}
-	if alert.VendorStatus != "unhandled" {
+	if alert.VendorStatus != "0" {
 		t.Fatalf("vendor status = %q", alert.VendorStatus)
 	}
 	if alert.Unmapped == nil {

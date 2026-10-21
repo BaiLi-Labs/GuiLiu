@@ -2,6 +2,7 @@ package aws
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -22,57 +23,58 @@ func normalizeFinding(f map[string]any, raw json.RawMessage) (model.Alert, error
 		stringAt(metadata, "uid"),
 	)
 	if externalID == "" {
-		externalID = connector.HashRaw(raw)
+		return model.Alert{}, fmt.Errorf("AWS source record has no native finding UID")
 	}
 	eventTime := timeAt(f, "time")
-	if eventTime.IsZero() {
-		eventTime = timeAt(info, "last_seen_time")
-	}
-	if eventTime.IsZero() {
-		eventTime = timeAt(info, "created_time")
-	}
 	firstSeen := timeAt(info, "first_seen_time")
-	if firstSeen.IsZero() {
-		firstSeen = timeAt(info, "created_time")
-	}
-	if firstSeen.IsZero() {
-		firstSeen = eventTime
-	}
 	lastSeen := timeAt(info, "last_seen_time")
-	if lastSeen.IsZero() {
-		lastSeen = timeAt(info, "modified_time")
-	}
-	if lastSeen.IsZero() {
-		lastSeen = eventTime
+	kind := model.FindingOther
+	switch int(numberAt(f, "class_uid")) {
+	case 2004:
+		kind = model.FindingDetection
+	case 2002:
+		kind = model.FindingVulnerability
+	case 2003:
+		kind = model.FindingCompliance
+	case 2005:
+		kind = model.FindingIncident
 	}
 	severity := mapSeverity(f)
 
 	alert := model.Alert{
 		ExternalID:       externalID,
-		Title:            connector.FirstNonEmpty(stringAt(info, "title"), stringAt(f, "activity_name"), stringAt(product, "name"), "AWS Security Hub finding"),
+		FindingKind:      kind,
+		RuleID:           stringAt(mapAt(info, "analytic"), "uid"),
+		SourceCreatedAt:  timeAt(info, "created_time"),
+		SourceUpdatedAt:  timeAt(info, "modified_time"),
+		OCSF:             append(json.RawMessage(nil), raw...),
+		Title:            connector.FirstNonEmpty(stringAt(info, "title"), stringAt(product, "name"), "AWS Security Hub finding"),
 		Description:      stringAt(info, "desc"),
 		Severity:         severity,
-		OriginalSeverity: connector.FirstNonEmpty(stringAt(f, "severity"), strconv.Itoa(int(numberAt(f, "severity_id")))),
+		OriginalSeverity: connector.FirstNonEmpty(stringAt(f, "severity"), scalarString(f["severity_id"])),
 		VendorStatus:     statusText(f),
 		EventTime:        eventTime,
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
 		OriginalTime:     stringAt(metadata, "original_time"),
 		Product:          connector.FirstNonEmpty(stringAt(product, "name"), "Security Hub"),
-		AlertType:        connector.FirstNonEmpty(stringAt(f, "activity_name"), firstType(info), stringAt(metadata, "event_code")),
+		AlertType:        connector.FirstNonEmpty(findingTypes(info), stringAt(metadata, "event_code"), stringAt(f, "class_name")),
 		Region:           stringAt(cloud, "region"),
 		CloudAccountUID:  stringAt(account, "uid"),
 		Raw:              append(json.RawMessage(nil), raw...),
 	}
 
-	if resources := sliceAt(f, "resources"); len(resources) > 0 {
-		if r, ok := resources[0].(map[string]any); ok {
-			alert.Resource = model.Resource{
+	for _, value := range sliceAt(f, "resources") {
+		if r, ok := value.(map[string]any); ok {
+			alert.Resources = append(alert.Resources, model.Resource{
 				ID:   stringAt(r, "uid"),
 				Name: stringAt(r, "name"),
 				Type: connector.FirstNonEmpty(stringAt(r, "type"), "resource"),
-			}
+			})
 		}
+	}
+	if len(alert.Resources) > 0 {
+		alert.Resource = alert.Resources[0]
 	}
 	alert.Observables, alert.SourceIP, alert.DestinationIP = observables(f, info)
 	if evidences := sliceAt(f, "evidences"); len(evidences) > 0 {
@@ -123,12 +125,9 @@ func mapSeverity(f map[string]any) model.Severity {
 
 func statusText(f map[string]any) string {
 	if status := stringAt(f, "status"); status != "" {
-		return strings.ToLower(status)
+		return status
 	}
-	if id := numberAt(f, "status_id"); id > 0 {
-		return strconv.Itoa(int(id))
-	}
-	return ""
+	return scalarString(f["status_id"])
 }
 
 func observables(f, info map[string]any) ([]model.Observable, string, string) {
@@ -174,22 +173,24 @@ func observables(f, info map[string]any) ([]model.Observable, string, string) {
 		}
 	}
 	// Finding resources are useful observables even without an evidence block.
-	if resources := sliceAt(f, "resources"); len(resources) > 0 {
-		if r, ok := resources[0].(map[string]any); ok {
+	for _, value := range sliceAt(f, "resources") {
+		if r, ok := value.(map[string]any); ok {
 			add("resources.uid", 10, stringAt(r, "uid"))
+			add("resources.name", 38, stringAt(r, "name"))
 		}
 	}
 	return out, sourceIP, destIP
 }
 
-func firstType(info map[string]any) string {
+func findingTypes(info map[string]any) string {
 	values := sliceAt(info, "types")
+	var types []string
 	for _, v := range values {
 		if s := scalarString(v); s != "" {
-			return s
+			types = append(types, s)
 		}
 	}
-	return ""
+	return strings.Join(types, ", ")
 }
 
 func mapAt(m map[string]any, key string) map[string]any {
@@ -260,6 +261,13 @@ func scalarString(v any) string {
 func timeAt(m map[string]any, key string) time.Time {
 	if m == nil {
 		return time.Time{}
+	}
+	// AWS OCSF documents may expose RFC3339 *_dt siblings instead of numeric
+	// millisecond timestamps. Both are vendor-provided representations.
+	if v, ok := m[key+"_dt"].(string); ok {
+		if t, valid := connector.ParseVendorTime(v); valid {
+			return t
+		}
 	}
 	switch v := m[key].(type) {
 	case string:

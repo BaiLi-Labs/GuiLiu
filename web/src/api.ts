@@ -12,7 +12,7 @@ export class ApiError extends Error {
 
 type Options = RequestInit & { skipAuthEvent?: boolean };
 
-async function request<T>(path: string, opts: Options = {}): Promise<T> {
+async function request<T>(path: string, opts: Options = {}, responseType: 'json' | 'text' = 'json'): Promise<T> {
   const { skipAuthEvent: _skip, headers, ...rest } = opts;
   const init: RequestInit = {
     credentials: 'same-origin',
@@ -50,11 +50,16 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
     const message = messages[body?.error?.code] || body?.error?.message || `${res.status} ${res.statusText}`;
     throw new ApiError(res.status, message, body?.error?.code);
   }
-  return body as T;
+  return (responseType === 'text' ? text : body) as T;
 }
 
 export function api<T>(path: string, opts: Options = {}): Promise<T> {
   return request<T>(`/api/v1${path}`, opts);
+}
+
+// Source bytes must bypass JSON.parse/stringify, which rounds large integers.
+export function sourceText(rawURL: string, opts: Options = {}): Promise<string> {
+  return request<string>(rawURL, opts, 'text');
 }
 
 export async function login(username: string, password: string): Promise<Me> {

@@ -1,5 +1,5 @@
 // Package ocsf contains the subset of the Open Cybersecurity Schema Framework
-// used by GuiLiu, modelled after OCSF Detection Finding (class_uid 2004).
+// used by GuiLiu. Classification follows explicit source semantics.
 //
 // Schema reference:
 // https://github.com/ocsf/ocsf-schema/blob/main/events/findings/detection_finding.json
@@ -18,9 +18,9 @@ const (
 	TypeUIDFindingCreate = ClassUID*100 + ActivityCreate
 )
 
-// DetectionFinding is a valid OCSF Detection Finding payload with the
+// Finding contains OCSF finding attributes with the
 // attributes GuiLiu can populate from cloud security alerts.
-type DetectionFinding struct {
+type Finding struct {
 	ClassUID     int    `json:"class_uid"`
 	ClassName    string `json:"class_name"`
 	CategoryUID  int    `json:"category_uid"`
@@ -38,7 +38,7 @@ type DetectionFinding struct {
 	EndTime   int64 `json:"end_time,omitempty"`
 
 	Message     string       `json:"message,omitempty"`
-	IsAlert     bool         `json:"is_alert"`
+	IsAlert     bool         `json:"is_alert,omitempty"`
 	Metadata    Metadata     `json:"metadata"`
 	FindingInfo FindingInfo  `json:"finding_info"`
 	Cloud       Cloud        `json:"cloud"`
@@ -48,7 +48,8 @@ type DetectionFinding struct {
 
 	// Unmapped keeps vendor fields that have no OCSF home. This is an
 	// intentionally permissive extension point; it never replaces Raw.
-	Unmapped map[string]any `json:"unmapped,omitempty"`
+	Vulnerabilities any            `json:"vulnerabilities,omitempty"`
+	Unmapped        map[string]any `json:"unmapped,omitempty"`
 }
 
 type Metadata struct {
@@ -123,6 +124,7 @@ type Resource struct {
 	Name   string `json:"name,omitempty"`
 	Type   string `json:"type,omitempty"`
 	Role   string `json:"role,omitempty"`
+	RoleID int    `json:"role_id,omitempty"`
 	Region string `json:"region,omitempty"`
 }
 

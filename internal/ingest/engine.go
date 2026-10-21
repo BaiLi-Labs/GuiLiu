@@ -288,168 +288,157 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	pageSize := connector.OptionInt(acct.Options, "page_size", e.opts.PageSize)
 	maxPages := connector.OptionInt(acct.Options, "max_pages", e.opts.MaxPages)
 	pages, fetched, created, updated, failed := 0, 0, 0, 0, 0
-	var firstRecordErr string
-
-	retryPending := func() error {
-		if len(state.PendingRecords) == 0 {
-			return nil
+	fail := func(err error) (*model.SyncRun, error) {
+		state.LastError = err.Error()
+		state.LastErrorAt = ptrNow(e.now())
+		state.ConsecutiveFailures++
+		state.LastDurationMS = e.now().Sub(started).Milliseconds()
+		if saveErr := e.store.SaveSyncState(ctx, state); saveErr != nil {
+			err = errors.Join(err, saveErr)
 		}
-		pending := state.PendingRecords
-		state.PendingRecords = nil
-		for _, raw := range pending {
-			isNew, err := e.processRecord(ctx, acct, conn, raw, end)
-			if err != nil {
-				failed++
-				if firstRecordErr == "" {
-					firstRecordErr = err.Error()
-				}
-				state.PendingRecords = append(state.PendingRecords, raw)
-				continue
-			}
-			if isNew {
-				created++
-			} else {
-				updated++
-			}
-		}
-		if len(state.PendingRecords) > 0 {
-			state.LastError = fmt.Sprintf("%d pending record(s) still failing: %s", len(state.PendingRecords), firstRecordErr)
-			state.LastErrorAt = ptrNow(e.now())
-			state.ConsecutiveFailures++
-			if serr := e.store.SaveSyncState(ctx, state); serr != nil {
-				return serr
-			}
-			return fmt.Errorf("%s", state.LastError)
-		}
-		// The page's failed records are now durable in the alert table. Keep
-		// the page token so the next fetch continues after that page.
-		return e.store.SaveSyncState(ctx, state)
+		return finish(err, pages, fetched, created, updated, failed, "")
 	}
 
+	// Retry a bounded batch without preventing collection of newer alerts.
+	var errRetry error
+	created, updated, failed, errRetry = e.retryFailures(ctx, acct, conn)
+	if errRetry != nil {
+		return fail(errRetry)
+	}
+	resetToken := false
 	for {
-		if len(state.PendingRecords) > 0 {
-			if err := retryPending(); err != nil {
-				return finish(err, pages, fetched, created, updated, failed, "")
-			}
-			if token == "" {
-				// The failed page was the last page in the window.
-				break
-			}
-		}
-
-		pages++
 		page, err := e.fetchWithRetry(ctx, conn, connector.Query{
-			Start:    start,
-			End:      end,
-			PageSize: pageSize,
-			Token:    token,
+			Start: start, End: end, PageSize: pageSize, Token: token,
 		})
 		if err != nil {
-			state.LastError = err.Error()
-			state.LastErrorAt = ptrNow(e.now())
-			if !connector.Throttled(err) {
-				state.ConsecutiveFailures++
-			}
-			state.LastDurationMS = e.now().Sub(started).Milliseconds()
-			e.store.SaveSyncState(ctx, state)
-			return finish(err, pages-1, fetched, created, updated, failed, "")
-		}
-
-		fetched += len(page.Records)
-		pageFailed := make([]json.RawMessage, 0)
-		for _, record := range page.Records {
-			isNew, err := e.processRecord(ctx, acct, conn, record.Raw, end)
-			if err != nil {
-				failed++
-				pageFailed = append(pageFailed, record.Raw)
-				if firstRecordErr == "" {
-					firstRecordErr = err.Error()
+			if token != "" && !resetToken && connector.InvalidCursor(err) {
+				// Replay this fixed window, never move the time cursor past it.
+				resetToken, token = true, ""
+				state.PendingStart, state.PendingEnd, state.PendingToken = start, end, ""
+				if err := e.store.SaveSyncState(ctx, state); err != nil {
+					return fail(err)
 				}
+				continue
+			}
+			return fail(err)
+		}
+		pages++
+		fetched += len(page.Records)
+		for _, record := range page.Records {
+			isNew, changed, err := e.processRecord(ctx, acct, conn, record.Raw, e.now())
+			if err != nil {
+				var mappingErr *mappingError
+				if !errors.As(err, &mappingErr) {
+					return fail(err) // Storage/cancellation errors must not advance a page.
+				}
+				if err := e.saveFailure(ctx, acct, conn, record.Raw, end, err); err != nil {
+					return fail(err)
+				}
+				failed++
 				continue
 			}
 			if isNew {
 				created++
-			} else {
+			} else if changed {
 				updated++
 			}
 		}
-
-		if len(pageFailed) > 0 {
-			// Never advance the cursor over a record that was not persisted.
-			// The failed raw payloads and the next page token are saved so the
-			// next run retries them instead of silently skipping a window.
-			state.PendingStart = start
-			state.PendingEnd = end
-			state.PendingToken = page.NextToken
-			state.PendingRecords = pageFailed
-			state.LastError = fmt.Sprintf("%d alert(s) failed to normalize/store: %s", len(pageFailed), firstRecordErr)
-			state.LastErrorAt = ptrNow(e.now())
-			state.LastDurationMS = e.now().Sub(started).Milliseconds()
-			state.ItemsLastRun = fetched
-			state.ConsecutiveFailures++
-			if serr := e.store.SaveSyncState(ctx, state); serr != nil {
-				return finish(serr, pages, fetched, created, updated, failed, "")
-			}
-			return finish(fmt.Errorf("%s", state.LastError), pages, fetched, created, updated, failed, "")
-		}
-
 		if page.NextToken == "" {
 			break
 		}
-		// Persist progress before requesting the next page, so a throttle or a
-		// crash mid-backfill is resumable.
-		state.PendingStart = start
-		state.PendingEnd = end
-		state.PendingToken = page.NextToken
+		if page.NextToken == token {
+			return fail(errors.New("connector returned the same page token; cursor not advanced"))
+		}
+		state.PendingStart, state.PendingEnd, state.PendingToken = start, end, page.NextToken
+		state.LastError, state.LastErrorAt, state.ConsecutiveFailures = "", nil, 0
+		state.LastDurationMS = e.now().Sub(started).Milliseconds()
+		state.ItemsLastRun = fetched
 		if err := e.store.SaveSyncState(ctx, state); err != nil {
-			return finish(err, pages, fetched, created, updated, failed, "")
+			return fail(err)
 		}
 		if pages >= maxPages {
-			// A page budget is a normal pause, not a failure: the pending token
-			// lets the next scheduled run continue where this one stopped.
-			state.LastError = ""
-			state.LastErrorAt = nil
-			state.ConsecutiveFailures = 0
-			state.LastDurationMS = e.now().Sub(started).Milliseconds()
-			if err := e.store.SaveSyncState(ctx, state); err != nil {
-				return finish(err, pages, fetched, created, updated, failed, "")
-			}
-			warning := fmt.Sprintf("page budget %d reached for window %s..%s; progress saved, next run resumes from the stored page token",
-				maxPages, start.Format(time.RFC3339), end.Format(time.RFC3339))
-			return finish(nil, pages, fetched, created, updated, failed, warning)
+			return finish(nil, pages, fetched, created, updated, failed, "page budget reached; next run resumes from the saved page token")
 		}
 		token = page.NextToken
 	}
 
 	ended := e.now()
+	if state.CoverageStart.IsZero() {
+		state.CoverageStart = start
+	}
 	state.CursorEnd = end
-	state.PendingStart = time.Time{}
-	state.PendingEnd = time.Time{}
-	state.PendingToken = ""
-	state.PendingRecords = nil
+	state.PendingStart, state.PendingEnd, state.PendingToken = time.Time{}, time.Time{}, ""
 	state.LastSuccessAt = &ended
-	state.LastError = ""
-	state.LastErrorAt = nil
+	state.LastError, state.LastErrorAt, state.ConsecutiveFailures = "", nil, 0
 	state.LastDurationMS = ended.Sub(started).Milliseconds()
 	state.ItemsLastRun = fetched
-	state.ConsecutiveFailures = 0
 	if err := e.store.SaveSyncState(ctx, state); err != nil {
-		return finish(err, pages, fetched, created, updated, failed, "")
+		return fail(err)
 	}
-
-	return finish(nil, pages, fetched, created, updated, failed, "")
+	_, remaining, err := e.store.ListIngestFailures(ctx, acct.ID, 1)
+	if err != nil {
+		return fail(err)
+	}
+	warning := ""
+	if remaining > 0 {
+		warning = fmt.Sprintf("%d record(s) retained for mapping retry", remaining)
+	}
+	return finish(nil, pages, fetched, created, updated, failed, warning)
 }
 
-func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, windowEnd time.Time) (bool, error) {
+// mappingError distinguishes malformed payloads from storage failures.
+type mappingError struct{ error }
+
+func (e *Engine) saveFailure(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, end time.Time, err error) error {
+	return e.store.SaveIngestFailure(ctx, &model.IngestFailure{
+		AccountID: acct.ID, Raw: raw, IngestedAt: e.now(),
+		MapperVersion: conn.Info().MapperVersion, Error: err.Error(),
+	})
+}
+
+func (e *Engine) retryFailures(ctx context.Context, acct model.Account, conn connector.Connector) (created, updated, failed int, err error) {
+	items, _, err := e.store.ListIngestFailures(ctx, acct.ID, 100)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, item := range items {
+		isNew, changed, processErr := e.processRecord(ctx, acct, conn, item.Raw, item.IngestedAt)
+		if processErr != nil {
+			var mappingErr *mappingError
+			if !errors.As(processErr, &mappingErr) {
+				return created, updated, failed, processErr
+			}
+			item.Error, item.MapperVersion = processErr.Error(), conn.Info().MapperVersion
+			if err := e.store.SaveIngestFailure(ctx, &item); err != nil {
+				return created, updated, failed, err
+			}
+			failed++
+			continue
+		}
+		if err := e.store.DeleteIngestFailure(ctx, item.ID); err != nil {
+			return created, updated, failed, err
+		}
+		if isNew {
+			created++
+		} else if changed {
+			updated++
+		}
+	}
+	return created, updated, failed, nil
+}
+
+func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, ingestedAt time.Time) (bool, bool, error) {
 	alert, err := conn.Normalize(raw)
 	if err != nil {
-		return false, fmt.Errorf("normalize: %w", err)
+		return false, false, &mappingError{fmt.Errorf("normalize: %w", err)}
 	}
-	rec, err := e.buildRecord(acct, conn.Info(), alert, windowEnd)
+	alert.Raw = append(json.RawMessage(nil), raw...)
+	rec, err := e.buildRecord(acct, conn.Info(), alert, ingestedAt)
 	if err != nil {
-		return false, err
+		return false, false, &mappingError{err}
 	}
-	return e.store.UpsertAlert(ctx, rec)
+	created, err := e.store.UpsertAlert(ctx, rec)
+	return created, rec.Changed, err
 }
 
 func (e *Engine) window(acct model.Account, state *model.SyncState) (time.Time, time.Time) {
@@ -483,28 +472,26 @@ func (e *Engine) newConnector(ctx context.Context, acct model.Account) (connecto
 	})
 }
 
-func (e *Engine) buildRecord(acct model.Account, desc connector.Descriptor, alert model.Alert, windowEnd time.Time) (*model.AlertRecord, error) {
-	if alert.EventTime.IsZero() {
-		alert.EventTime = windowEnd
+func (e *Engine) buildRecord(acct model.Account, desc connector.Descriptor, alert model.Alert, ingestedAt time.Time) (*model.AlertRecord, error) {
+	if alert.ExternalID == "" {
+		return nil, errors.New("alert external id is required")
 	}
-	if alert.FirstSeenAt.IsZero() {
-		alert.FirstSeenAt = alert.EventTime
-	}
-	if alert.LastSeenAt.IsZero() {
-		alert.LastSeenAt = alert.EventTime
+	if alert.FindingKind == "" {
+		alert.FindingKind = model.FindingOther
 	}
 	if alert.Region == "" {
 		alert.Region = acct.Region
 	}
 	alert.MapperVersion = desc.MapperVersion
+	alert.SourceAPI, alert.SourceAPIVersion = desc.SourceAPI, desc.APIVersion
+	connector.ApplyProvenance(&alert, acct.Provider, acct)
 
 	payload, err := normalize.Build(alert, acct, normalize.Info{
-		VendorName:     desc.Vendor,
-		ProductName:    desc.Product,
-		ProductUID:     desc.ProductUID,
-		ProductVersion: desc.APIVersion,
-		LogProvider:    desc.Vendor,
-		MapperVersion:  desc.MapperVersion,
+		VendorName:    desc.Vendor,
+		ProductName:   desc.Product,
+		ProductUID:    desc.ProductUID,
+		LogProvider:   desc.Vendor,
+		MapperVersion: desc.MapperVersion,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build ocsf payload: %w", err)
@@ -512,6 +499,7 @@ func (e *Engine) buildRecord(acct model.Account, desc connector.Descriptor, aler
 	alert.OCSF = payload
 
 	return &model.AlertRecord{
+		IngestedAt:  ingestedAt,
 		AccountID:   acct.ID,
 		AccountName: acct.Name,
 		Provider:    acct.Provider,

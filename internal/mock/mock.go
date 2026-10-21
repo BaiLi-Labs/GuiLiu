@@ -21,10 +21,6 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
-// ProviderID is kept for compatibility with older mock configs. Mock mode now
-// replaces the production providers under their real IDs.
-const ProviderID = "tencent"
-
 //go:embed fixtures/tencent.json
 var tencentFixture []byte
 
@@ -63,7 +59,7 @@ var awsCredential = []connector.CredentialField{
 }
 
 var aliyunOptions = []connector.OptionField{
-	{Name: "status", Label: "告警状态过滤", Placeholder: "留空=全部；0 未处理 / 1 已处理 ..."},
+	{Name: "status", Label: "告警状态过滤", Placeholder: "留空或 0=全部；1 未处理 / 2 已忽略 / 4 已处置"},
 }
 
 var huaweiOptions = []connector.OptionField{
@@ -95,7 +91,7 @@ var specs = []spec{
 		id: "tencent",
 		descriptor: mockDescriptor(
 			"tencent", "Tencent Cloud", "Tencent Cloud",
-			"Cloud Security Center (CSIP)", "tencent.csip", "tencent-csip/v1",
+			"Cloud Security Center (CSIP)", "tencent.csip", (&tencent.Connector{}).Info(),
 			[]connector.Product{
 				{Code: "CSIP", Name: "Cloud Security Center"},
 				{Code: "CWP", Name: "Host Security"},
@@ -111,7 +107,7 @@ var specs = []spec{
 		id: "aliyun",
 		descriptor: mockDescriptor(
 			"aliyun", "Alibaba Cloud", "Alibaba Cloud",
-			"Cloud Security Center (SAS)", "aliyun.sas", "aliyun-sas/v1",
+			"Cloud Security Center (SAS)", "aliyun.sas", (&aliyun.Connector{}).Info(),
 			[]connector.Product{{Code: "SAS", Name: "Cloud Security Center"}},
 			akCredential, aliyunOptions,
 		),
@@ -122,7 +118,7 @@ var specs = []spec{
 		id: "huawei",
 		descriptor: mockDescriptor(
 			"huawei", "Huawei Cloud", "Huawei Cloud",
-			"SecMaster (安全云脑)", "huawei.secmaster", "huawei-secmaster/v1",
+			"SecMaster (安全云脑)", "huawei.secmaster", (&huawei.Connector{}).Info(),
 			[]connector.Product{
 				{Code: "SecMaster", Name: "Security Master"},
 				{Code: "HSS", Name: "Host Security"},
@@ -138,7 +134,7 @@ var specs = []spec{
 		id: "aws",
 		descriptor: mockDescriptor(
 			"aws", "AWS", "Amazon Web Services",
-			"Security Hub", "aws.securityhub", "aws-securityhub-ocsf/v1",
+			"Security Hub", "aws.securityhub", (&aws.Connector{}).Info(),
 			[]connector.Product{
 				{Code: "SecurityHub", Name: "Security Hub"},
 				{Code: "GuardDuty", Name: "GuardDuty"},
@@ -154,7 +150,7 @@ var specs = []spec{
 		id: "gcp",
 		descriptor: mockDescriptor(
 			"gcp", "Google Cloud", "Google Cloud",
-			"Security Command Center", "gcp.scc", "gcp-scc/v1",
+			"Security Command Center", "gcp.scc", (&gcp.Connector{}).Info(),
 			[]connector.Product{{Code: "SCC", Name: "Security Command Center"}},
 			gcpCredential, gcpOptions,
 		),
@@ -165,13 +161,9 @@ var specs = []spec{
 		id: "azure",
 		descriptor: mockDescriptor(
 			"azure", "Microsoft Azure", "Microsoft",
-			"Microsoft Defender for Cloud", "azure.defender", "azure-defender/v1",
+			"Microsoft Defender for Cloud", "azure.defender", (&azure.Connector{}).Info(),
 			[]connector.Product{
 				{Code: "DefenderForCloud", Name: "Defender for Cloud"},
-				{Code: "DefenderForEndpoint", Name: "Defender for Endpoint"},
-				{Code: "DefenderForIdentity", Name: "Defender for Identity"},
-				{Code: "DefenderForCloudApps", Name: "Defender for Cloud Apps"},
-				{Code: "Sentinel", Name: "Microsoft Sentinel"},
 			},
 			azureCredential, azureOptions,
 		),
@@ -188,7 +180,7 @@ var specByID = func() map[string]*spec {
 	return out
 }()
 
-func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string, products []connector.Product, credential []connector.CredentialField, options []connector.OptionField) connector.Descriptor {
+func mockDescriptor(id, name, vendor, product, productUID string, native connector.Descriptor, products []connector.Product, credential []connector.CredentialField, options []connector.OptionField) connector.Descriptor {
 	return connector.Descriptor{
 		ID:            id,
 		Name:          name,
@@ -196,7 +188,8 @@ func mockDescriptor(id, name, vendor, product, productUID, mapperVersion string,
 		Product:       product,
 		ProductUID:    productUID,
 		APIVersion:    "mock",
-		MapperVersion: mapperVersion,
+		SourceAPI:     "Embedded fixture: " + native.SourceAPI,
+		MapperVersion: native.MapperVersion,
 		Credential:    credential,
 		OptionFields:  options,
 		Products:      products,

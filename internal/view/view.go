@@ -5,11 +5,33 @@ package view
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
+	"github.com/BaiLi-Labs/GuiLiu/internal/normalize"
 	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
 )
+
+// QueryWindow is returned with lists so pagination and group expansion can
+// reuse the exact time bounds instead of recalculating a relative range.
+type QueryWindow struct {
+	TimeField string `json:"time_field,omitempty"`
+	Start     string `json:"start,omitempty"`
+	End       string `json:"end,omitempty"`
+}
+
+func WindowFromFilter(f model.AlertFilter) QueryWindow {
+	format := func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		// Keep subsecond bounds so copying the window cannot add or drop members.
+		return t.UTC().Format(time.RFC3339Nano)
+	}
+	return QueryWindow{Start: format(f.Start), End: format(f.End), TimeField: f.TimeField}
+}
 
 type Resource struct {
 	ID   string `json:"id,omitempty"`
@@ -18,6 +40,25 @@ type Resource struct {
 }
 
 type Alert struct {
+	ObservableCount    int                          `json:"observable_count"`
+	EvidenceCount      int                          `json:"evidence_count"`
+	SourceAPI          string                       `json:"source_api"`
+	SourceAPIVersion   string                       `json:"source_api_version"`
+	RawURL             string                       `json:"raw_url,omitempty"`
+	OCSFOmissionReason string                       `json:"ocsf_omission_reason,omitempty"`
+	RuleID             string                       `json:"rule_id,omitempty"`
+	FindingKind        string                       `json:"finding_kind"`
+	SourceCreatedAt    string                       `json:"source_created_at,omitempty"`
+	SourceUpdatedAt    string                       `json:"source_updated_at,omitempty"`
+	IngestedAt         string                       `json:"ingested_at"`
+	LastIngestedAt     string                       `json:"last_ingested_at"`
+	RawHash            string                       `json:"raw_hash"`
+	Revision           int                          `json:"revision"`
+	Sequence           int64                        `json:"sequence"`
+	Provenance         map[string]model.FieldOrigin `json:"provenance,omitempty"`
+	OccurrenceCount    *int64                       `json:"occurrence_count,omitempty"`
+	OccurrenceScope    string                       `json:"occurrence_scope,omitempty"`
+
 	ID               string          `json:"id"`
 	Provider         string          `json:"provider"`
 	AccountID        string          `json:"account_id"`
@@ -38,6 +79,7 @@ type Alert struct {
 	LastSeenAt       string          `json:"last_seen_at"`
 	Region           string          `json:"region,omitempty"`
 	Resource         Resource        `json:"resource"`
+	Resources        []Resource      `json:"resources,omitempty"`
 	SourceIP         string          `json:"source_ip,omitempty"`
 	DestinationIP    string          `json:"destination_ip,omitempty"`
 	Actor            string          `json:"actor,omitempty"`
@@ -66,6 +108,10 @@ type Evidence struct {
 
 func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 	a := Alert{
+		ObservableCount: len(rec.Observables), EvidenceCount: len(rec.Evidences),
+		SourceAPI: rec.SourceAPI, SourceAPIVersion: rec.SourceAPIVersion,
+		RuleID: rec.RuleID, FindingKind: rec.FindingKind, SourceCreatedAt: timeutil.Format(rec.SourceCreatedAt), SourceUpdatedAt: timeutil.Format(rec.SourceUpdatedAt), IngestedAt: timeutil.Format(rec.IngestedAt), LastIngestedAt: timeutil.Format(rec.LastIngestedAt), RawHash: rec.RawHash, Revision: rec.Revision, Sequence: rec.Sequence, OccurrenceCount: rec.OccurrenceCount, OccurrenceScope: rec.OccurrenceScope,
+
 		ID:               rec.ID,
 		Provider:         rec.Provider,
 		AccountID:        rec.AccountID,
@@ -74,7 +120,6 @@ func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 		ExternalID:       rec.ExternalID,
 		Product:          rec.Product,
 		Title:            rec.Title,
-		Description:      rec.Description,
 		Severity:         rec.Severity.String(),
 		SeverityID:       int(rec.Severity),
 		OriginalSeverity: rec.OriginalSeverity,
@@ -95,23 +140,39 @@ func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 		CreatedAt:        timeutil.Format(rec.CreatedAt),
 		UpdatedAt:        timeutil.Format(rec.UpdatedAt),
 	}
-	for _, o := range rec.Observables {
-		if o.Value == "" {
-			continue
+	if includePayload {
+		a.Description = rec.Description
+		for _, o := range rec.Observables {
+			if o.Value == "" {
+				continue
+			}
+			a.Observables = append(a.Observables, Observable{Name: o.Name, Type: o.Type, TypeID: o.TypeID, Value: o.Value})
 		}
-		a.Observables = append(a.Observables, Observable{Name: o.Name, Type: o.Type, TypeID: o.TypeID, Value: o.Value})
+		for _, e := range rec.Evidences {
+			a.Evidences = append(a.Evidences, Evidence{Type: e.Type, Data: e.Data})
+		}
 	}
-	for _, e := range rec.Evidences {
-		a.Evidences = append(a.Evidences, Evidence{Type: e.Type, Data: e.Data})
+	if len(rec.OCSF) == 0 {
+		a.OCSFOmissionReason = normalize.OmissionReason(rec.Alert)
+	}
+	if rec.Revision > 0 {
+		a.RawURL = fmt.Sprintf("/api/v1/alerts/%s/revisions/%d/raw", url.PathEscape(rec.ID), rec.Revision)
 	}
 	if includePayload {
+		a.Provenance = rec.Provenance
 		a.OCSF = rec.OCSF
 		a.Raw = rec.Raw
+		for _, r := range rec.Resources {
+			a.Resources = append(a.Resources, Resource{ID: r.ID, Name: r.Name, Type: r.Type})
+		}
 	}
 	return a
 }
 
 type SyncState struct {
+	CoverageStart       string `json:"coverage_start,omitempty"`
+	Status              string `json:"status"`
+	FailedRecords       int    `json:"failed_records"`
 	CursorEnd           string `json:"cursor_end,omitempty"`
 	Pending             bool   `json:"pending"`
 	PendingCount        int    `json:"pending_count,omitempty"`
@@ -125,14 +186,21 @@ type SyncState struct {
 	Healthy             bool   `json:"healthy"`
 }
 
-func SyncStateFromModel(s *model.SyncState) SyncState {
+func SyncStateFromModel(s *model.SyncState, maxAge ...time.Duration) SyncState {
 	if s == nil {
 		return SyncState{}
 	}
+	age := 15 * time.Minute
+	if len(maxAge) > 0 && maxAge[0] > 0 {
+		age = maxAge[0]
+	}
+	status := s.Health(time.Now().UTC(), age)
 	v := SyncState{
+		CoverageStart:       timeutil.Format(s.CoverageStart),
+		Status:              status,
+		FailedRecords:       s.FailedRecords,
 		CursorEnd:           timeutil.Format(s.CursorEnd),
-		Pending:             s.PendingToken != "" || len(s.PendingRecords) > 0,
-		PendingCount:        len(s.PendingRecords),
+		Pending:             !s.PendingEnd.IsZero() || s.PendingToken != "",
 		LastSuccessAt:       ptrFormat(s.LastSuccessAt),
 		LastAttemptAt:       ptrFormat(s.LastAttemptAt),
 		LastError:           s.LastError,
@@ -140,7 +208,7 @@ func SyncStateFromModel(s *model.SyncState) SyncState {
 		LastDurationMS:      s.LastDurationMS,
 		ItemsLastRun:        s.ItemsLastRun,
 		ConsecutiveFailures: s.ConsecutiveFailures,
-		Healthy:             s.Healthy(),
+		Healthy:             status == "healthy",
 	}
 	return v
 }
@@ -229,4 +297,20 @@ func ptrFormat(t *time.Time) string {
 		return ""
 	}
 	return timeutil.Format(*t)
+}
+
+type Revision struct {
+	ID            string `json:"id"`
+	AlertID       string `json:"alert_id"`
+	Revision      int    `json:"revision"`
+	Sequence      int64  `json:"sequence"`
+	CapturedAt    string `json:"captured_at"`
+	RawHash       string `json:"raw_hash"`
+	MapperVersion string `json:"mapper_version"`
+	ChangeType    string `json:"change_type"`
+	Record        Alert  `json:"record"`
+}
+
+func RevisionFromModel(r model.AlertRevision) Revision {
+	return Revision{ID: r.ID, AlertID: r.AlertID, Revision: r.Revision, Sequence: r.Sequence, CapturedAt: timeutil.Format(r.CapturedAt), RawHash: r.RawHash, MapperVersion: r.MapperVersion, ChangeType: r.ChangeType, Record: AlertFromRecord(r.Record, false)}
 }

@@ -14,22 +14,19 @@ import (
 func normalizeAlert(a *secmastermodel.ListAlertRsp, raw json.RawMessage) model.Alert {
 	externalID := connector.FirstNonEmpty(connector.Str(a.Id), connector.Str(a.OriginId))
 	if externalID == "" {
-		externalID = connector.HashRaw(raw)
+		externalID = ""
 	}
 	firstSeen, _ := connector.ParseVendorTime(connector.Str(a.FirstObservedTime))
 	lastSeen, _ := connector.ParseVendorTime(connector.Str(a.LastObservedTime))
 	created, _ := connector.ParseVendorTime(connector.Str(a.CreateTime))
-	arrived, _ := connector.ParseVendorTime(connector.Str(a.ArriveTime))
-	eventTime := firstTime(lastSeen, firstSeen, created, arrived)
-	if firstSeen.IsZero() {
-		firstSeen = eventTime
-	}
-	if lastSeen.IsZero() {
-		lastSeen = eventTime
-	}
+	updated, _ := connector.ParseVendorTime(connector.Str(a.UpdateTime))
+	eventTime := firstSeen
 
 	alert := model.Alert{
 		ExternalID:       externalID,
+		FindingKind:      model.FindingDetection,
+		SourceCreatedAt:  created,
+		SourceUpdatedAt:  updated,
 		Title:            connector.FirstNonEmpty(connector.Str(a.Title), alertTypeLabel(a), "Huawei Cloud security alert"),
 		Description:      connector.Str(a.Description),
 		Severity:         mapSeverity(a),
@@ -38,11 +35,12 @@ func normalizeAlert(a *secmastermodel.ListAlertRsp, raw json.RawMessage) model.A
 		EventTime:        eventTime,
 		FirstSeenAt:      firstSeen,
 		LastSeenAt:       lastSeen,
-		OriginalTime:     connector.FirstNonEmpty(connector.Str(a.LastObservedTime), connector.Str(a.CreateTime), connector.Str(a.ArriveTime)),
+		OriginalTime:     connector.Str(a.FirstObservedTime),
 		Product:          productName(a),
 		AlertType:        alertTypeLabel(a),
 		Region:           connector.Str(a.RegionId),
 		CloudAccountUID:  connector.Str(a.DomainId),
+		Actor:            connector.Str(a.Actor),
 		Raw:              append(json.RawMessage(nil), raw...),
 	}
 
@@ -57,15 +55,23 @@ func normalizeAlert(a *secmastermodel.ListAlertRsp, raw json.RawMessage) model.A
 			}
 		}
 	}
-	if a.ResourceList != nil && len(*a.ResourceList) > 0 {
-		r := &(*a.ResourceList)[0]
-		alert.Resource = model.Resource{
-			ID:   connector.Str(r.Id),
-			Name: connector.Str(r.Name),
-			Type: connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource"),
+	if a.ResourceList != nil {
+		for _, r := range *a.ResourceList {
+			alert.Resources = append(alert.Resources, model.Resource{
+				ID: connector.Str(r.Id), Name: connector.Str(r.Name),
+				Type: connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource"),
+			})
 		}
 	}
+	if len(alert.Resources) > 0 {
+		alert.Resource = alert.Resources[0]
+	}
 
+	if a.Count != nil && *a.Count >= 0 {
+		n := int64(*a.Count)
+		alert.OccurrenceCount = &n
+		alert.OccurrenceScope = "huawei.secmaster.alert_count"
+	}
 	alert.Observables = observables(a, alert)
 	if ev := evidence(a); ev != nil {
 		alert.Evidences = []model.Evidence{*ev}
@@ -102,17 +108,7 @@ func handleStatusText(a *secmastermodel.ListAlertRsp) string {
 	if a.HandleStatus == nil {
 		return ""
 	}
-	status := strings.ToLower(a.HandleStatus.Value())
-	switch status {
-	case "open":
-		return "unhandled"
-	case "block":
-		return "blocked"
-	case "closed":
-		return "closed"
-	default:
-		return status
-	}
+	return a.HandleStatus.Value()
 }
 
 func alertTypeLabel(a *secmastermodel.ListAlertRsp) string {
@@ -141,11 +137,30 @@ func observables(a *secmastermodel.ListAlertRsp, alert model.Alert) []model.Obse
 	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
 	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	for _, r := range alert.Resources {
+		add("resources.uid", ocsf.ObservableResourceUID, r.ID)
+	}
 	if a.NetworkList != nil {
 		for i := range *a.NetworkList {
 			n := &(*a.NetworkList)[i]
+			add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.SrcIp))
+			add("dst_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.DestIp))
 			add("src_endpoint.domain", 0, connector.Str(n.SrcDomain))
 			add("dst_endpoint.domain", 0, connector.Str(n.DestDomain))
+		}
+	}
+	if a.FileInfo != nil {
+		for _, f := range *a.FileInfo {
+			add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(f.FileMd5))
+			add("file.hash.sha256", ocsf.ObservableFileHash, connector.Str(f.FileSha256))
+			add("file.hash", ocsf.ObservableFileHash, connector.Str(f.FileHash))
+			add("file.name", ocsf.ObservableFileName, connector.Str(f.FilePath))
+		}
+	}
+	if a.UserInfo != nil {
+		for _, u := range *a.UserInfo {
+			add("user.name", ocsf.ObservableUserName, connector.Str(u.UserName))
+			add("user.uid", ocsf.ObservableResourceUID, connector.Str(u.UserId))
 		}
 	}
 	return out
@@ -170,6 +185,9 @@ func evidence(a *secmastermodel.ListAlertRsp) *model.Evidence {
 	}
 	if a.UserInfo != nil {
 		data["user_info"] = a.UserInfo
+	}
+	if a.Remediation != nil {
+		data["remediation"] = a.Remediation
 	}
 	if len(data) == 0 {
 		return nil

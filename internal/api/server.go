@@ -65,6 +65,11 @@ func (s *Server) Handler() http.Handler {
 
 	api.HandleFunc("GET /meta", s.handleMeta)
 	api.HandleFunc("GET /providers", s.handleProviders)
+	api.HandleFunc("GET /providers/{id}/mapping", s.handleMapping)
+	api.HandleFunc("GET /coverage", s.handleCoverage)
+	api.HandleFunc("GET /alerts/changes", s.handleChanges)
+	api.HandleFunc("GET /alerts/{id}/revisions/{revision}", s.handleRevision)
+	api.HandleFunc("GET /alerts/{id}/revisions/{revision}/raw", s.handleRevisionRaw)
 
 	api.HandleFunc("GET /accounts", s.handleListAccounts)
 	api.HandleFunc("POST /accounts", s.adminOnly(s.handleCreateAccount))
@@ -74,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /accounts/{id}/check", s.adminOnly(s.handleCheckAccount))
 	api.HandleFunc("POST /accounts/{id}/sync", s.adminOnly(s.handleSyncAccount))
 	api.HandleFunc("GET /accounts/{id}/health", s.handleAccountHealth)
+	api.HandleFunc("GET /accounts/{id}/failures", s.handleAccountFailures)
 
 	api.HandleFunc("POST /sync", s.adminOnly(s.handleSyncAll))
 	api.HandleFunc("GET /sync-runs", s.handleSyncRuns)
