@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/api"
+	"github.com/BaiLi-Labs/GuiLiu/internal/asset"
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -138,6 +139,15 @@ func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log 
 			return fmt.Errorf("seed mock data for %s: %w", acct.Name, err)
 		}
 		seeded++
+		if acct.Provider == "tencent" && acct.AccountUID != "" && acct.Region != "" {
+			value, err := asset.SyntheticTencent(ctx, acct, "ins-mock0001", connector.NewLimiter(100000))
+			if err != nil {
+				return err
+			}
+			if err := st.SaveAsset(ctx, value); err != nil {
+				return err
+			}
+		}
 		log.Info("mock data ready", "account", acct.Name, "alerts", run.Fetched)
 	}
 	if seeded == 0 {

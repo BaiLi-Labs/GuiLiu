@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BaiLi-Labs/GuiLiu/internal/asset"
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -35,6 +36,7 @@ type Server struct {
 	mcp       *mcp.Server
 	log       *slog.Logger
 	startedAt time.Time
+	assets    *asset.Service
 }
 
 func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *connector.Registry, cipher *secret.Cipher, mcpServer *mcp.Server, authService *auth.Service, log *slog.Logger) *Server {
@@ -51,6 +53,7 @@ func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *co
 		mcp:       mcpServer,
 		log:       log,
 		startedAt: time.Now().UTC(),
+		assets:    asset.New(st, cipher, cfg.Mock),
 	}
 }
 
@@ -67,6 +70,12 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /providers", s.handleProviders)
 	api.HandleFunc("GET /providers/{id}/mapping", s.handleMapping)
 	api.HandleFunc("GET /coverage", s.handleCoverage)
+	api.HandleFunc("GET /assets", s.handleListAssets)
+	api.HandleFunc("GET /assets/{id}", s.handleGetAsset)
+	api.HandleFunc("GET /assets/{id}/findings", s.handleAssetFindings)
+	api.HandleFunc("GET /assets/{id}/revisions/{revision}/components/{component}/raw", s.handleAssetRaw)
+	api.HandleFunc("GET /alerts/{id}/asset-context", s.handleAssetContext)
+	api.HandleFunc("POST /accounts/{id}/assets/refresh", s.adminOnly(s.handleAssetRefresh))
 	api.HandleFunc("GET /alerts/changes", s.handleChanges)
 	api.HandleFunc("GET /alerts/{id}/revisions/{revision}", s.handleRevision)
 	api.HandleFunc("GET /alerts/{id}/revisions/{revision}/raw", s.handleRevisionRaw)

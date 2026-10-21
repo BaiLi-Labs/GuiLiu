@@ -334,6 +334,10 @@ type SyncRun struct {
 
 // AlertFilter is shared by REST, MCP and the store.
 type AlertFilter struct {
+	AccountUID       string
+	Region           string
+	ExactResourceID  string
+	ResourceType     string
 	TimeField        string
 	Provider         string
 	AccountID        string

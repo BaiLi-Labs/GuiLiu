@@ -583,6 +583,14 @@ summary {
 .detail-fields dd {
   overflow-wrap: anywhere;
 }
+.detail-fields.asset-fields {
+  grid-template-columns: minmax(70px, 95px) minmax(0, 1fr);
+  gap: 8px 12px;
+  font-size: 12px;
+}
+.detail-fields.asset-fields dd {
+  margin-bottom: 0;
+}
 .cell-title {
   display: block;
 }

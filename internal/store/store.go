@@ -19,6 +19,12 @@ var (
 type Store interface {
 	Close() error
 	Ping(ctx context.Context) error
+	SaveAsset(ctx context.Context, asset *model.Asset) error
+	GetAsset(ctx context.Context, id string, revision int) (*model.Asset, error)
+	ListAssets(ctx context.Context, filter model.AssetFilter) ([]model.Asset, error)
+	BeginAssetRefresh(ctx context.Context, attempt model.AssetRefresh, cooldown time.Duration) (bool, error)
+	FinishAssetRefresh(ctx context.Context, attempt model.AssetRefresh) error
+	GetAssetRefresh(ctx context.Context, accountID, region, resourceID string) (*model.AssetRefresh, error)
 
 	CreateAccount(ctx context.Context, account *model.Account) error
 	// UpdateAccount persists account fields. A non-nil credential replaces the

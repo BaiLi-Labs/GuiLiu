@@ -28,6 +28,8 @@ A typical workflow: connect cloud accounts, filter or group alerts, inspect the 
 
 See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 5 requires a new database; existing databases are rejected without being erased.
 
+The first asset adapter provides Tencent CVM metadata, OS, IPs, VPC, subnet, security group policies, and tags. Reads use saved local observations; administrators can explicitly refresh one instance. This new capability has synthetic-response validation only and awaits real-account verification. Software, listening ports, and reachability observations are not collected. See the [asset contract](docs/security-data-access.md#资产上下文首版).
+
 ## Connector coverage
 
 Each connector targets a specific cloud security API. Other products are visible only when their alerts are included by that upstream service.

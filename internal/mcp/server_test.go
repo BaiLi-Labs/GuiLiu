@@ -86,7 +86,7 @@ func TestInitializeAndTools(t *testing.T) {
 
 	resp = call(t, srv, "tools/list", map[string]any{})
 	tools := resp.Result.(map[string]any)["tools"].([]map[string]any)
-	if len(tools) != 14 {
+	if len(tools) != 19 {
 		t.Fatalf("tools = %d", len(tools))
 	}
 

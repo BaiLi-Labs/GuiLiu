@@ -23,6 +23,7 @@ const maxRange = 90 * 24 * time.Hour
 
 func (s *Server) registerTools() {
 	s.registerDataTools()
+	s.registerAssetTools()
 	s.register(Tool{
 		Name:        "list_cloud_accounts",
 		Description: "List configured cloud accounts with ingestion health. Credentials are never returned.",
@@ -197,21 +198,8 @@ func (s *Server) toolGetAlertGroup(ctx context.Context, args map[string]any) (an
 }
 
 func (s *Server) toolGetAlert(ctx context.Context, args map[string]any) (any, error) {
+	rec, err := s.readFindingArgs(ctx, args)
 	id := argString(args, "alert_id")
-	if id == "" {
-		return nil, errors.New("alert_id is required")
-	}
-	rec, err := s.store.GetAlert(ctx, id)
-	if seq, ok := args["snapshot_sequence"]; ok {
-		n, e := parseInteger(seq)
-		if e != nil || n < 0 {
-			return nil, fmt.Errorf("invalid snapshot_sequence")
-		}
-		rec, err = s.store.GetAlertAtSnapshot(ctx, id, n)
-	}
-	if rev := argInt(args, "revision", 0, 0, 2147483647); rev > 0 {
-		rec, err = s.store.GetAlertRevision(ctx, id, rev)
-	}
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("alert %s not found", id)
@@ -224,11 +212,8 @@ func (s *Server) toolGetAlert(ctx context.Context, args map[string]any) (any, er
 }
 
 func (s *Server) toolGetAlertEvidence(ctx context.Context, args map[string]any) (any, error) {
+	rec, err := s.readFindingArgs(ctx, args)
 	id := argString(args, "alert_id")
-	if id == "" {
-		return nil, errors.New("alert_id is required")
-	}
-	rec, err := s.store.GetAlert(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("alert %s not found", id)
@@ -237,7 +222,8 @@ func (s *Server) toolGetAlertEvidence(ctx context.Context, args map[string]any) 
 	}
 	a := view.AlertFromRecord(rec, true)
 	return map[string]any{
-		"alert_id":    rec.ID,
+		"alert_id": rec.ID,
+		"revision": rec.Revision, "raw_hash": a.RawHash, "raw_url": a.RawURL, "provenance": a.Provenance,
 		"title":       rec.Title,
 		"severity":    rec.Severity.String(),
 		"event_time":  a.EventTime,

@@ -5,6 +5,7 @@ import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
 import { AlertFields } from '../components/AlertFields';
+import { AssetContextPanel } from '../components/AssetContext';
 import {
   CopyButton,
   Drawer,
@@ -666,6 +667,7 @@ function AlertDrawer({
           <div role="tabpanel" id={`alert-panel-${tab}`} aria-labelledby={`alert-tab-${tab}`}>
             {tab === 'raw' ? (
               <div className="space-y-5">
+                <AssetContextPanel key={`${detail.id}:${detail.revision}`} detail={detail} isAdmin={isAdmin} />
                 {detail.description ? (
                   <p className="whitespace-pre-wrap text-sm leading-relaxed">{detail.description}</p>
                 ) : null}

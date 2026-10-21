@@ -196,3 +196,32 @@ CREATE TABLE IF NOT EXISTS alert_versions AS SELECT id, provider, account_id, ac
 CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_identity ON alert_versions(id,sequence);
 CREATE INDEX IF NOT EXISTS idx_versions_sequence ON alert_versions(sequence);
 PRAGMA user_version = 5;
+
+-- Independent, opt-in control-plane observations. No Finding feed entries.
+CREATE TABLE IF NOT EXISTS assets (
+ id TEXT PRIMARY KEY,
+ account_id TEXT NOT NULL,
+ provider TEXT NOT NULL,
+ account_uid TEXT NOT NULL,
+ region TEXT NOT NULL,
+ resource_id TEXT NOT NULL,
+ revision INTEGER NOT NULL,
+ content_hash TEXT NOT NULL,
+ record TEXT NOT NULL,
+ UNIQUE(provider, account_uid, region, resource_id)
+);
+CREATE INDEX IF NOT EXISTS idx_assets_scope ON assets(account_id, id);
+CREATE TABLE IF NOT EXISTS asset_revisions (
+ asset_id TEXT NOT NULL,
+ revision INTEGER NOT NULL,
+ record TEXT NOT NULL,
+ PRIMARY KEY(asset_id, revision)
+);
+CREATE TABLE IF NOT EXISTS asset_refreshes (
+ account_id TEXT NOT NULL,
+ region TEXT NOT NULL,
+ resource_id TEXT NOT NULL,
+ status TEXT NOT NULL,
+ attempted_at INTEGER NOT NULL,
+ PRIMARY KEY(account_id, region, resource_id)
+);

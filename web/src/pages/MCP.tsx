@@ -8,6 +8,11 @@ import { formatDate } from '../lib';
 import type { APIKey } from '../types';
 
 const TOOLS = [
+ ['list_assets', '查询本地已保存资产，不访问云端'],
+ ['get_asset', '读取资产基础信息、组件状态与精确修订'],
+ ['get_alert_asset_context', '按完整资源身份取得告警的当前资产上下文'],
+ ['list_asset_findings', '查询同一明确资源身份的已保存告警'],
+ ['get_asset_component', '按修订读取资产组件的精确原始证据'],
  ['list_alert_changes', '按持久序号读取新增与变化，支持断点续读'],
  ['get_data_coverage', '查询来源范围、历史起点、同步水位与完整性限制'],
  ['get_alert_revisions', '分页读取全部修订与对应原始证据'],

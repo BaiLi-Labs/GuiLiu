@@ -107,3 +107,76 @@ func TestLateRevisionFeedAndSnapshotExposeSeparateVersions(t *testing.T) {
 		t.Fatalf("historical observation=%s", body)
 	}
 }
+
+func TestFindingSelectionAndEvidenceMatchAcrossRESTAndMCP(t *testing.T) {
+	ts, st, _ := setup(t, true)
+	client := newClient(t, ts)
+	id := createAccount(t, ts, client, "")
+	rec := seedAlert(t, st, id)
+	original, err := st.GetAlert(context.Background(), rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Title = "changed"
+	rec.Raw = json.RawMessage(`{"id":"updated","integer":9007199254740993}`)
+	if _, err := st.UpsertAlert(context.Background(), rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"get_alert", "get_alert_evidence"} {
+		request := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":%q,"arguments":{"alert_id":%q,"revision":1}}}`, name, rec.ID)
+		response, body := do(t, client, "POST", ts.URL+"/mcp", "", request)
+		var rpc struct {
+			Result struct {
+				IsError bool `json:"isError"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"result"`
+		}
+		if response.StatusCode != 200 || json.Unmarshal(body, &rpc) != nil || rpc.Result.IsError || len(rpc.Result.Content) != 1 {
+			t.Fatalf("MCP %s", body)
+		}
+		var payload map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(rpc.Result.Content[0].Text), &payload)
+		if name == "get_alert" {
+			var d view.Alert
+			_ = json.Unmarshal(payload["alert"], &d)
+			if d.Revision != 1 || d.RawHash != original.RawHash {
+				t.Fatal("MCP did not pin revision")
+			}
+		} else {
+			var revision int
+			var hash string
+			_ = json.Unmarshal(payload["revision"], &revision)
+			_ = json.Unmarshal(payload["raw_hash"], &hash)
+			if revision != 1 || hash != original.RawHash || len(payload["raw_url"]) == 0 {
+				t.Fatal("evidence did not pin revision")
+			}
+		}
+	}
+	response, body := do(t, client, "GET", ts.URL+"/api/v1/alerts/"+rec.ID+"?revision=1", "", "")
+	var d view.Alert
+	if response.StatusCode != 200 || json.Unmarshal(body, &d) != nil || d.RawHash != original.RawHash {
+		t.Fatal("REST did not pin revision")
+	}
+	response, body = do(t, client, "GET", ts.URL+"/api/v1/alerts/"+rec.ID+"/raw?revision=1", "", "")
+	if response.StatusCode != 200 || string(body) != string(original.Raw) {
+		t.Fatal("REST raw did not pin revision")
+	}
+	response, _ = do(t, client, "GET", ts.URL+"/api/v1/alerts/"+rec.ID+"?revision=1&snapshot_sequence=0", "", "")
+	if response.StatusCode != 400 {
+		t.Fatal("ambiguous selection accepted")
+	}
+	for _, selection := range []string{`"revision":0`, `"revision":1.5`, `"revision":1,"snapshot_sequence":0`, `"snapshot_sequence":999999`} {
+		request := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_alert","arguments":{"alert_id":%q,%s}}}`, rec.ID, selection)
+		_, body := do(t, client, "POST", ts.URL+"/mcp", "", request)
+		var rpc struct {
+			Result struct {
+				IsError bool `json:"isError"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(body, &rpc) != nil || !rpc.Result.IsError {
+			t.Fatalf("invalid selector accepted: %s", body)
+		}
+	}
+}

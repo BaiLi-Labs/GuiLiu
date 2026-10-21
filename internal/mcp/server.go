@@ -135,7 +135,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		"instructions": "GuiLiu is a read-only, vendor-neutral security data hub. " +
 			"Use list_alerts/search_alerts_by_ip/search_alerts_by_asset to query normalized cloud alerts, " +
 			"list_alert_groups/get_alert_group to browse exact-field groups while preserving original alerts, " +
-			"get_alert for full OCSF payload and raw vendor evidence, and get_connector_health to check ingestion freshness. " +
+			"get_alert for full OCSF payload and raw vendor evidence, get_alert_asset_context for current local CVM metadata, list_asset_findings for exact resource matches, get_asset_component for asset evidence, and get_connector_health to check ingestion freshness. " +
 			"All tools are read-only and scoped to the configured accounts.",
 	}
 }
@@ -272,7 +272,7 @@ func (s *Server) register(t Tool) {
 				props[key] = value
 			}
 			props["offset"] = map[string]any{"type": "integer", "minimum": 0, "description": "Page offset; prefer ID cursor for deep traversal"}
-		case "get_alert":
+		case "get_alert", "get_alert_evidence":
 			props["snapshot_sequence"] = map[string]any{"type": "integer", "minimum": 0, "description": "Read the detail from a pinned snapshot"}
 			props["revision"] = map[string]any{"type": "integer", "minimum": 1, "description": "Exact revision from a change feed entry"}
 		}

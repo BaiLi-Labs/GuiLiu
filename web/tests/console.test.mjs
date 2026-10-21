@@ -90,6 +90,19 @@ const { readAlertRoute, queryFor } = load('src/pages/Alerts.tsx');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 
+test('asset summary shows scoped source facts, freshness and synthetic limits in both languages', () => {
+  const { AssetSummary } = load('src/components/AssetContext.tsx');
+  const asset = { id: 'a', account_id: 'connection', account_uid: '100000000001', provider: 'tencent', region: 'ap-guangzhou', resource_id: 'ins-demo', resource_type: 'cvm', name: 'source-name', os: 'source-os', security_group_ids: ['sg-demo'], tags: [{ key: '原始标签', value: 'prod' }], revision: 2, observed_at: new Date().toISOString(), last_observed_at: new Date().toISOString(), synthetic: true, components: {}, provenance: {} };
+  i18n.setLocale('en-US');
+  let html = renderToStaticMarkup(React.createElement(AssetSummary, { asset }));
+  for (const text of ['source-name', 'source-os', 'sg-demo', '原始标签=prod', '100000000001', 'Synthetic asset data', 'do not prove listening or reachability', 'Unknown']) assert.ok(html.includes(text), text);
+  assert.ok(!html.includes('Nginx'));
+  i18n.setLocale('zh-CN');
+  html = renderToStaticMarkup(React.createElement(AssetSummary, { asset }));
+  assert.ok(html.includes('合成资产数据'));
+  assert.ok(html.includes('不代表告警发生时的状态'));
+});
+
 test('source JSON text preserves exact bytes and large integer precision', async () => {
   const { sourceText } = load('src/api.ts');
   responseText = '{\n  "unknownVendorField": 9007199254740993\n}';

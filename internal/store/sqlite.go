@@ -139,7 +139,7 @@ func (s *SQLite) UpdateAccount(ctx context.Context, a *model.Account, credential
 	}
 	if scopeChanged {
 		var count int
-		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sync_states WHERE account_id=?", a.ID).Scan(&count); err != nil {
+		if err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM sync_states WHERE account_id=?)+(SELECT COUNT(*) FROM assets WHERE account_id=?)", a.ID, a.ID).Scan(&count); err != nil {
 			return err
 		}
 		if count > 0 {
@@ -917,6 +917,18 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 	if f.AccountID != "" {
 		clauses = append(clauses, "account_id = ?")
 		args = append(args, f.AccountID)
+	}
+	if f.AccountUID != "" {
+		clauses = append(clauses, "account_uid=?")
+		args = append(args, f.AccountUID)
+	}
+	if f.Region != "" {
+		clauses = append(clauses, "region=?")
+		args = append(args, f.Region)
+	}
+	if f.ExactResourceID != "" {
+		clauses = append(clauses, "((resource_id=? AND resource_type=?) OR EXISTS (SELECT 1 FROM json_each(canonical,'$.resources') r WHERE json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.type')=?))")
+		args = append(args, f.ExactResourceID, f.ResourceType, f.ExactResourceID, f.ResourceType)
 	}
 	if len(f.Severities) > 0 {
 		ph := make([]string, len(f.Severities))

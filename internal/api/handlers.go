@@ -536,34 +536,26 @@ func (s *Server) handleGetAlertRevisions(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetAlert(w http.ResponseWriter, r *http.Request) {
-	rec, err := s.store.GetAlert(r.Context(), r.PathValue("id"))
-	if raw := r.URL.Query().Get("snapshot_sequence"); raw != "" {
-		seq, e := strconv.ParseInt(raw, 10, 64)
-		if e != nil || seq < 0 {
-			writeError(w, 400, "invalid_request", "invalid snapshot_sequence")
-			return
-		}
-		rec, err = s.store.GetAlertAtSnapshot(r.Context(), r.PathValue("id"), seq)
-	}
+	rec, err := s.readFinding(r)
 	if err != nil {
-		s.writeStoreError(w, err)
+		if errors.Is(err, query.ErrInvalidFindingSelection) {
+			writeError(w, 400, "invalid_request", err.Error())
+		} else {
+			s.writeStoreError(w, err)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, view.AlertFromRecord(rec, true))
 }
 
 func (s *Server) handleGetAlertRaw(w http.ResponseWriter, r *http.Request) {
-	rec, err := s.store.GetAlert(r.Context(), r.PathValue("id"))
-	if raw := r.URL.Query().Get("snapshot_sequence"); raw != "" {
-		seq, e := strconv.ParseInt(raw, 10, 64)
-		if e != nil || seq < 0 {
-			writeError(w, 400, "invalid_request", "invalid snapshot_sequence")
-			return
-		}
-		rec, err = s.store.GetAlertAtSnapshot(r.Context(), r.PathValue("id"), seq)
-	}
+	rec, err := s.readFinding(r)
 	if err != nil {
-		s.writeStoreError(w, err)
+		if errors.Is(err, query.ErrInvalidFindingSelection) {
+			writeError(w, 400, "invalid_request", err.Error())
+		} else {
+			s.writeStoreError(w, err)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
