@@ -7,6 +7,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+The project remains in `0.x` development; `1.0` has not been released. See the [current version](internal/version/VERSION), [changelog](CHANGELOG.md) and [versioning policy](docs/versioning.md).
+
 GuiLiu collects alerts from cloud security services, normalizes them into a shared fact contract with source-appropriate OCSF projections, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, or read-only MCP tools.
 
 Built by [BaiLi Labs](https://github.com/BaiLi-Labs). Self-hosted, with a single Go binary and an embedded web console.
@@ -22,13 +24,15 @@ GuiLiu provides a common data layer:
 - **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed mappings retain their raw payload separately and are retried without blocking newer alerts.
 - **Consistent queries.** A shared fact contract for source severity/status, accounts, assets, IPs, hashes, users and evidence. OCSF classification follows source semantics; missing facts remain unknown.
 - **Original data.** Vendor JSON and mapping versions remain available alongside normalized fields. Query-time grouping preserves the underlying alerts.
-- **Human and agent access.** One dataset across the console, REST API, and fourteen read-only MCP tools. Bring your own agent.
+- **Human and agent access.** One dataset across the console, REST API, and 20 read-only MCP tools. Bring your own agent.
 
 A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP. Analysis and response stay with the tools you choose.
 
 See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 5 requires a new database; existing databases are rejected without being erased.
 
-The first asset adapter provides Tencent CVM metadata, OS, IPs, VPC, subnet, security group policies, and tags. Reads use saved local observations; administrators can explicitly refresh one instance. This new capability has synthetic-response validation only and awaits real-account verification. Software, listening ports, and reachability observations are not collected. See the [asset contract](docs/security-data-access.md#资产上下文首版).
+The first asset adapter provides Tencent CVM metadata, OS, IPs, and tags, with scoped references to independent security groups, VPCs and subnets. Follow those references to query names, CIDRs, tags, source policy evidence and revisions. Reads use saved local observations; administrators can explicitly refresh an instance or one network resource. This new capability has synthetic-response validation only and awaits real-account verification. Software, listening ports, and reachability observations are not collected. See the [asset contract](docs/security-data-access.md#资产上下文首版).
+
+Web, REST and MCP access is recorded in a persistent audit with user/API key identity, query scope, result references and timing. Administrators can trace related calls in **Access audit**. Credentials and raw evidence bodies are excluded; retention defaults to 90 days. See the [audit contract](docs/access-audit.md).
 
 ## Connector coverage
 
@@ -103,6 +107,7 @@ In **API & MCP**, create an API key and copy the HTTP configuration into your MC
 | Query alerts                   | `list_alerts`, `search_alerts_by_ip`, `search_alerts_by_asset`        |
 | Group and expand               | `list_alert_groups`, `get_alert_group`                                |
 | Inspect evidence               | `get_alert`, `get_alert_evidence`                                     |
+| Investigate assets and networks | `get_alert_asset_context`, `get_asset_by_reference`, `get_asset_component`, `list_asset_findings` |
 | Inspect coverage and ingestion | `list_cloud_accounts`, `get_alert_statistics`, `get_connector_health` |
 
 For example, ask your agent to find high-severity alerts from the last 24 hours, group by type and asset, then expand the original alerts and cite their IDs. Groups match exact field values; counts are alert records, and maximum severity comes from the vendor-mapped member levels. Grouping makes no false-positive judgments. Check ingestion progress before interpreting an empty result.

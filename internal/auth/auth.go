@@ -61,10 +61,12 @@ type Config struct {
 
 // Principal is the authenticated caller attached to a request context.
 type Principal struct {
-	User      model.User
-	Kind      string // session | api_key | dev
-	ExpiresAt time.Time
-	TokenHash string
+	User       model.User
+	Kind       string // session | api_key | dev
+	ExpiresAt  time.Time
+	TokenHash  string
+	APIKeyID   string
+	APIKeyName string
 }
 
 // IsAdmin reports whether the caller may mutate accounts or alert state.
@@ -260,16 +262,16 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*Principal, e
 		return &Principal{User: *user, Kind: "session", ExpiresAt: expires, TokenHash: hash}, nil
 	case strings.HasPrefix(token, APIKeyPrefix):
 		hash := hashToken(token)
-		user, expires, err := s.store.GetUserByAPIKey(ctx, hash, now)
+		user, key, err := s.store.GetUserByAPIKey(ctx, hash, now)
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, ErrUnauthorized
 		}
 		if err != nil {
 			return nil, err
 		}
-		p := &Principal{User: *user, Kind: "api_key", TokenHash: hash}
-		if expires != nil {
-			p.ExpiresAt = *expires
+		p := &Principal{User: *user, Kind: "api_key", TokenHash: hash, APIKeyID: key.ID, APIKeyName: key.Name}
+		if key.ExpiresAt != nil {
+			p.ExpiresAt = *key.ExpiresAt
 		}
 		return p, nil
 	default:

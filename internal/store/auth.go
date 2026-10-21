@@ -263,16 +263,17 @@ func (s *SQLite) RevokeUserAPIKeys(ctx context.Context, userID string, revokedAt
 	return err
 }
 
-func (s *SQLite) GetUserByAPIKey(ctx context.Context, keyHash string, now time.Time) (*model.User, *time.Time, error) {
+func (s *SQLite) GetUserByAPIKey(ctx context.Context, keyHash string, now time.Time) (*model.User, *model.APIKey, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.updated_at, u.password_changed_at, k.expires_at
+		SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.updated_at, u.password_changed_at, k.expires_at, k.id, k.name
 		FROM api_keys k JOIN users u ON u.id = k.user_id
 		WHERE k.key_hash = ? AND k.revoked_at = 0 AND (k.expires_at = 0 OR k.expires_at > ?) AND u.disabled = 0`,
 		keyHash, millis(now))
 	var u model.User
+	var key model.APIKey
 	var disabled int
 	var created, updated, changed, expires int64
-	err := row.Scan(&u.ID, &u.Username, &u.Role, &disabled, &created, &updated, &changed, &expires)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &disabled, &created, &updated, &changed, &expires, &key.ID, &key.Name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -283,5 +284,6 @@ func (s *SQLite) GetUserByAPIKey(ctx context.Context, keyHash string, now time.T
 	u.CreatedAt = fromMillis(created)
 	u.UpdatedAt = fromMillis(updated)
 	u.PasswordChangedAt = fromMillis(changed)
-	return &u, ptrTime(expires), nil
+	key.ExpiresAt = ptrTime(expires)
+	return &u, &key, nil
 }

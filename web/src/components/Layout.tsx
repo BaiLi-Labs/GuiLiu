@@ -8,6 +8,7 @@ import {
   LogOut,
   RefreshCw,
   Terminal,
+  ScrollText,
 } from 'lucide-react';
 import { api, logout } from '../api';
 import { useI18n } from '../i18n';
@@ -23,10 +24,11 @@ const NAV = [
   { page: 'accounts', label: '云账号', icon: Cloud },
   { page: 'health', label: '接入状态', icon: Activity },
   { page: 'mcp', label: 'API 与 MCP', icon: Terminal },
+  { page: 'audit', label: '操作审计', icon: ScrollText },
 ] as const;
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { me, meta, page, go, toast, refresh, refreshNonce } = useApp();
+  const { me, meta, page, go, toast, refresh, refreshNonce, isAdmin } = useApp();
   const { t } = useI18n();
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [service, setService] = useState('检查中');
@@ -65,7 +67,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   const navigation = (mobile = false) =>
-    NAV.map(({ page: destination, label, icon: Icon }) => (
+    NAV.filter(item => item.page !== 'audit' || isAdmin).map(({ page: destination, label, icon: Icon }) => (
       <a
         key={destination}
         href={`#/${destination}`}

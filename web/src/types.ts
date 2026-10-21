@@ -322,7 +322,7 @@ export interface AccountPayload {
   [key: string]: unknown;
 }
 
-export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp';
+export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp' | 'audit';
 
 export interface Coverage {
  complete: boolean;

@@ -225,3 +225,22 @@ CREATE TABLE IF NOT EXISTS asset_refreshes (
  attempted_at INTEGER NOT NULL,
  PRIMARY KEY(account_id, region, resource_id)
 );
+
+-- Access audit is separate from Findings and their change sequence.
+CREATE TABLE IF NOT EXISTS audit_events (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+ request_id TEXT NOT NULL,
+ surface TEXT NOT NULL,
+ operation TEXT NOT NULL,
+ tool TEXT NOT NULL,
+ user_id TEXT NOT NULL,
+ username TEXT NOT NULL,
+ api_key_id TEXT NOT NULL,
+ outcome TEXT NOT NULL,
+ started_at INTEGER NOT NULL,
+ record TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_events(request_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_events(user_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_audit_key ON audit_events(api_key_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_audit_started ON audit_events(started_at,sequence);

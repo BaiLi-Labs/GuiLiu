@@ -7,6 +7,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+当前处于 `0.x` 开发阶段，尚未发布 `1.0`。查看[当前版本](internal/version/VERSION)、[更新日志](CHANGELOG.md)与[版本管理约定](docs/versioning.md)。
+
 归流接入分散在各云安全产品中的告警，统一字段、保留厂商原始数据，并通过控制台、REST API 和只读 MCP 提供一致的数据访问。安全团队和企业自己的 Agent 使用同一份数据。
 
 由 [BaiLi Labs](https://github.com/BaiLi-Labs) 开发，支持自托管。控制台随 Go 服务打包为单个二进制。
@@ -22,13 +24,15 @@
 - **可靠接入**：增量窗口、限流重试、页级断点续传。映射失败的原始载荷独立保存并自动重试，不阻塞后续采集。
 - **统一查询**：账号、来源等级与状态、资产、IP、Hash、用户和证据使用同一套事实契约；OCSF 按来源语义投影，不推造缺失字段。
 - **保留原始数据**：统一字段之外，可查看厂商原始 JSON 和映射版本；查询时分组保留全部原始告警。
-- **人和 Agent 共用**：控制台、REST API、19 个只读 MCP 工具访问同一份数据，可接入企业现有 Agent。
+- **人和 Agent 共用**：控制台、REST API、20 个只读 MCP 工具访问同一份数据，可接入企业现有 Agent。
 
 一次典型使用流程：接入云账号，筛选或分组告警，检查原始数据，再让已有 Agent 通过 MCP 查询相同记录。研判与响应由团队选择的工具完成。
 
 详见[安全数据访问契约](docs/security-data-access.md)：持久 Change Feed、固定查询快照、字段溯源、完整修订分页与机器可读覆盖范围。开发阶段 schema 5 不迁移旧数据库，请使用新数据库文件；服务不会自动清空旧数据。
 
-资产首版提供腾讯云 CVM 的基础上下文：实例、操作系统、IP、VPC、子网、安全组策略和标签。普通查询只读本地观测，管理员可显式刷新指定实例。该新增能力目前仅通过合成响应验证，待真实账号验证；不提供软件、监听端口或可达性观测。详见[资产访问契约](docs/security-data-access.md#资产上下文首版)。
+资产首版提供腾讯云 CVM 的实例、操作系统、IP 和标签，并通过完整作用域引用关联独立的安全组、VPC 与子网，可继续查询名称、CIDR、标签、策略原始证据和修订。普通查询只读本地观测，管理员可显式刷新指定实例或单个网络资源。该新增能力目前仅通过合成响应验证，待真实账号验证；不提供软件、监听端口或可达性观测。详见[资产访问契约](docs/security-data-access.md#资产上下文首版)。
+
+Web、REST 与 MCP 的查询和操作写入独立的持久审计，记录用户/API Key 身份、查询范围、结果引用及耗时，管理员可在“操作审计”页追溯同一请求。审计不保存凭据或原始证据正文，默认保留 90 天。详见[操作审计说明](docs/access-audit.md)。
 
 产品长期边界与当前交付范围见[产品方向与设计约束](docs/product-direction.md)。
 
@@ -103,6 +107,7 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 | 任务           | MCP 工具                                                              |
 | -------------- | --------------------------------------------------------------------- |
 | 查询告警       | `list_alerts`、`search_alerts_by_ip`、`search_alerts_by_asset`        |
+| 资产与网络调查 | `get_alert_asset_context`、`get_asset_by_reference`、`get_asset_component`、`list_asset_findings` |
 | 分组与展开     | `list_alert_groups`、`get_alert_group`                                |
 | 检查证据       | `get_alert`、`get_alert_evidence`                                     |
 | 检查接入与采集 | `list_cloud_accounts`、`get_alert_statistics`、`get_connector_health` |

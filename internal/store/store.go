@@ -19,6 +19,11 @@ var (
 type Store interface {
 	Close() error
 	Ping(ctx context.Context) error
+	StartAuditEvent(ctx context.Context, event *model.AuditEvent) error
+	IdentifyAuditEvent(ctx context.Context, event *model.AuditEvent) error
+	FinishAuditEvent(ctx context.Context, event *model.AuditEvent) error
+	ListAuditEvents(ctx context.Context, filter model.AuditFilter) ([]model.AuditEvent, error)
+	PruneAuditEvents(ctx context.Context, before time.Time) (int64, error)
 	SaveAsset(ctx context.Context, asset *model.Asset) error
 	GetAsset(ctx context.Context, id string, revision int) (*model.Asset, error)
 	ListAssets(ctx context.Context, filter model.AssetFilter) ([]model.Asset, error)
@@ -84,5 +89,5 @@ type Store interface {
 	ListAPIKeys(ctx context.Context, userID string) ([]model.APIKey, error)
 	RevokeAPIKey(ctx context.Context, id, userID string, revokedAt time.Time) error
 	RevokeUserAPIKeys(ctx context.Context, userID string, revokedAt time.Time) error
-	GetUserByAPIKey(ctx context.Context, keyHash string, now time.Time) (*model.User, *time.Time, error)
+	GetUserByAPIKey(ctx context.Context, keyHash string, now time.Time) (*model.User, *model.APIKey, error)
 }

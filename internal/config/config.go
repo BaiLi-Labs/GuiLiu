@@ -50,8 +50,13 @@ type Config struct {
 	LogLevel      string          `json:"log_level"`
 	Mock          bool            `json:"mock"`
 	Auth          AuthConfig      `json:"auth"`
+	Audit         AuditConfig     `json:"audit"`
 	Sync          SyncConfig      `json:"sync"`
 	Accounts      []AccountConfig `json:"accounts"`
+}
+
+type AuditConfig struct {
+	RetentionDays int `json:"retention_days"`
 }
 
 type AuthConfig struct {
@@ -96,6 +101,7 @@ func Default() *Config {
 		Database:      "data/guiliu.db",
 		SecretKeyFile: "data/secret.key",
 		LogLevel:      "info",
+		Audit:         AuditConfig{RetentionDays: 90},
 		Auth: AuthConfig{
 			SessionTTL: Duration(12 * time.Hour),
 			AdminUser:  "admin",
@@ -196,6 +202,9 @@ func envBool(v string) bool {
 }
 
 func (c *Config) Validate() error {
+	if c.Audit.RetentionDays < 1 || c.Audit.RetentionDays > 3650 {
+		return fmt.Errorf("audit.retention_days must be between 1 and 3650")
+	}
 	if strings.TrimSpace(c.Listen) == "" {
 		return fmt.Errorf("listen address is required")
 	}

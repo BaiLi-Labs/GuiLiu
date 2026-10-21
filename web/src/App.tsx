@@ -8,6 +8,7 @@ import { Alerts } from './pages/Alerts';
 import { Accounts } from './pages/Accounts';
 import { Health } from './pages/Health';
 import { MCP } from './pages/MCP';
+import { Audit } from './pages/Audit';
 import { AppContext } from './state';
 import { isAdmin, useHashPage } from './lib';
 import { useI18n } from './i18n';
@@ -41,6 +42,7 @@ export default function App() {
       accounts: '云账号',
       health: '接入状态',
       mcp: 'API 与 MCP',
+      audit: '操作审计',
     };
     document.title = `${t(names[page])} · GuiLiu`;
   }, [locale, page]);
@@ -127,6 +129,7 @@ export default function App() {
         {page === 'accounts' ? <Accounts /> : null}
         {page === 'health' ? <Health /> : null}
         {page === 'mcp' ? <MCP /> : null}
+        {page === 'audit' ? <Audit /> : null}
       </Layout>
       {toastState ? (
         <div

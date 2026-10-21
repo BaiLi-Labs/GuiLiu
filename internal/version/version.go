@@ -1,10 +1,18 @@
 package version
 
-// Overridden at build time:
+import (
+	_ "embed"
+	"strings"
+)
+
+// VERSION is the product version source for plain Go builds, Make and Docker.
+// Commit and BuildDate identify a build independently of its product version.
 //
-//	go build -ldflags "-X github.com/BaiLi-Labs/GuiLiu/internal/version.Version=1.2.3"
+//go:embed VERSION
+var sourceVersion string
+
 var (
-	Version   = "0.1.0"
+	Version   = strings.TrimSpace(sourceVersion)
 	Commit    = "dev"
 	BuildDate = ""
 )

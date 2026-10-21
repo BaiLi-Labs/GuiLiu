@@ -4,6 +4,8 @@ import { useI18n } from '../i18n';
 import { formatTime } from '../lib';
 import { VendorFields } from './AlertFields';
 import type { Alert } from '../types';
+import { ResourceLinks } from './ResourceLinks';
+import type { AssetReference } from './ResourceLinks';
 
 export interface Asset {
   id: string; account_id: string; account_uid: string; provider: string; region: string;
@@ -12,6 +14,8 @@ export interface Asset {
   vpc_id?: string; subnet_id?: string; security_group_ids?: string[] | null;
   tags?: { key: string; value: string }[] | null; revision: number; observed_at: string;
   last_observed_at: string; synthetic: boolean; provenance: unknown;
+  references?: AssetReference[];
+  network?: { description?: string; cidr_block?: string; ipv6_cidr_block?: string; is_default?: boolean; source_created_time?: string };
   components: Record<string, { status: string; reason?: string; raw_url?: string; raw_hash?: string; source_api?: string; observed_at?: string }>;
 }
 export interface AssetContext {
@@ -102,6 +106,7 @@ export function AssetContextPanel({ detail, isAdmin }: { detail: Alert; isAdmin:
     <p className="text-xs text-[var(--muted)]">{value ? t(messages[value.reason || value.status] || value.reason || value.status) : t('加载中…')}</p>
     {value?.asset ? <>
       <AssetSummary asset={value.asset} />
+      <ResourceLinks references={value.asset.references || []} isAdmin={isAdmin} />
       {Object.entries(value.asset.components).map(([key, component]) => <details className="disclosure" key={key}>
         <summary className="break-all">{key.startsWith('security_group:') ? `${t('安全组策略')} · ${key.slice('security_group:'.length)}` : t(componentLabels[key] || key)} · {t(messages[component.status] || component.status)}</summary>
         {component.reason ? <p className="text-xs">{t(messages[component.reason] || component.reason)}</p> : null}
@@ -121,7 +126,7 @@ export function AssetContextPanel({ detail, isAdmin }: { detail: Alert; isAdmin:
     {notice ? <p role="status" className="text-xs">{t(messages[notice] || notice)}</p> : null}
     {isAdmin && value?.refresh_account_id && value.resource_id ? <>
       <button className="btn btn-sm" disabled={busy} onClick={refresh}>{t(busy ? '加载中…' : '从云端刷新资产')}</button>
-      <p className="text-xs text-[var(--muted)]">{t('显式刷新最多请求 6 次云 API，超时 15 秒，5 分钟内复用结果；需配置真实账号 UID 和地域。')}</p>
+      <p className="text-xs text-[var(--muted)]">{t('显式刷新最多请求 9 次云 API，超时 15 秒，5 分钟内复用结果；需配置真实账号 UID 和地域。')}</p>
     </> : null}
   </section>;
 }

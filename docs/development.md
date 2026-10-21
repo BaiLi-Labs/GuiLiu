@@ -2,6 +2,8 @@
 
 > 产品介绍、功能概览和快速体验见根目录 [README](../README.md)。本文保留配置、构建、API、MCP、连接器开发和验证细节。
 
+版本来源、升版命令与发布约定见[版本管理](versioning.md)，各开发里程碑见[更新日志](../CHANGELOG.md)。
+
 GuiLiu 把多家云厂商的安全告警统一接入、标准化为统一事实，并按来源语义提供 [OCSF](https://github.com/ocsf/ocsf-schema) 投影，并提供 Web 控制台、REST API 和只读 MCP，供人和 Agent 使用同一份数据。
 
 六家云的实际采集范围、SDK 字段清单和未覆盖边界见 [告警覆盖核对](alert-coverage.md)。接入一个安全汇总接口不表示已采集该云所有产品和全部历史。
@@ -43,7 +45,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），以 React 组件内嵌，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
-| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，10 个只读工具；HTTP 使用 API Key |
+| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，20 个只读工具；HTTP 使用 API Key |
 | Mock | `make mock` 启动免登录的六家云合成数据（56 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |

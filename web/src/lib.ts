@@ -125,7 +125,7 @@ export type RouteParams = Record<string, string>;
 
 export function parseHashPage(hash: string): Page {
   const raw = hash.replace(/^#\/?/, '').split(/[/?]/)[0];
-  const pages: Page[] = ['overview', 'alerts', 'accounts', 'health', 'mcp'];
+  const pages: Page[] = ['overview', 'alerts', 'accounts', 'health', 'mcp', 'audit'];
   return pages.includes(raw as Page) ? (raw as Page) : 'overview';
 }
 

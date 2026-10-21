@@ -1,7 +1,11 @@
 FROM node:22-alpine AS web
 
-WORKDIR /web
-COPY web/package.json web/package-lock.json ./
+WORKDIR /src
+COPY internal/version/VERSION ./internal/version/VERSION
+COPY scripts/version.mjs ./scripts/version.mjs
+COPY CHANGELOG.md ./CHANGELOG.md
+COPY web/package.json web/package-lock.json ./web/
+WORKDIR /src/web
 RUN npm ci
 COPY web/ ./
 RUN npm run build
@@ -12,11 +16,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=web /web/dist ./web/dist
-ARG VERSION=dev
+COPY --from=web /src/web/dist ./web/dist
 ARG COMMIT=dev
+ARG BUILD_DATE
 RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags "-s -w -X github.com/BaiLi-Labs/GuiLiu/internal/version.Version=${VERSION} -X github.com/BaiLi-Labs/GuiLiu/internal/version.Commit=${COMMIT}" \
+    -ldflags "-s -w -X github.com/BaiLi-Labs/GuiLiu/internal/version.Commit=${COMMIT} -X github.com/BaiLi-Labs/GuiLiu/internal/version.BuildDate=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
     -o /out/guiliu ./cmd/guiliu
 
 FROM alpine:3.20

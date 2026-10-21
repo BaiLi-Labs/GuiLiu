@@ -9,7 +9,8 @@ import (
 )
 
 func (s *Server) registerAssetTools() {
-	s.register(Tool{Name: "list_assets", Description: "Read locally saved control-plane assets. No cloud API calls, no complete-inventory guarantee. Only explicit filters are supported; page with next_cursor as after_id.", InputSchema: obj(map[string]any{"provider": strProp("Provider"), "account_id": strProp("Connection ID"), "account_uid": strProp("Native cloud account UID"), "region": strProp("Region"), "resource_id": strProp("Exact native resource ID"), "after_id": strProp("Previous next_cursor"), "limit": intProp("Maximum assets", 20, 1, 100)}), Handler: s.toolListAssets})
+	s.register(Tool{Name: "get_asset_by_reference", Description: "Follow an explicit scoped resource reference to a saved CVM, security group, VPC or subnet. Copy the identity fields from references. Reports missing/stale data and recent refresh failures. Does not call cloud APIs.", InputSchema: obj(map[string]any{"provider": strProp("Provider"), "account_id": strProp("Optional source connection ID, for refresh status"), "account_uid": strProp("Native cloud account UID"), "region": strProp("Cloud region"), "resource_type": strProp("cvm, security_group, vpc or subnet"), "resource_id": strProp("Exact native resource ID")}, "provider", "account_uid", "region", "resource_type", "resource_id"), Handler: s.toolAssetLookup})
+	s.register(Tool{Name: "list_assets", Description: "Read locally saved control-plane assets. No cloud API calls, no complete-inventory guarantee. Only explicit filters are supported; page with next_cursor as after_id.", InputSchema: obj(map[string]any{"provider": strProp("Provider"), "account_id": strProp("Connection ID"), "account_uid": strProp("Native cloud account UID"), "region": strProp("Region"), "resource_id": strProp("Exact native resource ID"), "resource_type": strProp("cvm, security_group, vpc or subnet"), "after_id": strProp("Previous next_cursor"), "limit": intProp("Maximum assets", 20, 1, 100)}), Handler: s.toolListAssets})
 	s.register(Tool{Name: "get_asset", Description: "Read an independent local asset observation, optionally at an exact asset revision. This is not the asset state at a Finding's event time.", InputSchema: obj(map[string]any{"asset_id": strProp("Asset ID"), "revision": map[string]any{"type": "integer", "minimum": 1}}, "asset_id"), Handler: s.toolGetAsset})
 	s.register(Tool{Name: "get_alert_asset_context", Description: "Read current local CVM context for an explicit host reference with matching provider, account UID, region and native resource ID. Missing or stale data is explicit. Never refreshes cloud data.", InputSchema: obj(map[string]any{"alert_id": strProp("Finding ID"), "revision": map[string]any{"type": "integer", "minimum": 1}, "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0}}, "alert_id"), Handler: s.toolAssetContext})
 	s.register(Tool{Name: "list_asset_findings", Description: "Query stored Findings with the same scoped native host identity. IP and name are not identity links. Reuse snapshot_sequence and next_cursor for paging.", InputSchema: obj(map[string]any{"asset_id": strProp("Asset ID"), "after_id": strProp("Previous next_cursor"), "limit": intProp("Maximum Findings", 20, 1, 100), "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0}}, "asset_id"), Handler: s.toolAssetFindings})
@@ -61,14 +62,21 @@ func requiredAssetString(args map[string]any, key string) (string, error) {
 }
 
 func (s *Server) toolListAssets(ctx context.Context, args map[string]any) (any, error) {
-	if e := strictAssetArgs(args, "provider", "account_id", "account_uid", "region", "resource_id", "after_id", "limit"); e != nil {
+	if e := strictAssetArgs(args, "provider", "account_id", "account_uid", "region", "resource_id", "resource_type", "after_id", "limit"); e != nil {
 		return nil, e
 	}
 	n, e := assetArgInt(args, "limit", 20, 1, 100)
 	if e != nil {
 		return nil, e
 	}
-	return query.AssetList(ctx, s.store, model.AssetFilter{Provider: argString(args, "provider"), AccountID: argString(args, "account_id"), AccountUID: argString(args, "account_uid"), Region: argString(args, "region"), ResourceID: argString(args, "resource_id"), AfterID: argString(args, "after_id"), Limit: int(n)})
+	return query.AssetList(ctx, s.store, model.AssetFilter{Provider: argString(args, "provider"), AccountID: argString(args, "account_id"), AccountUID: argString(args, "account_uid"), Region: argString(args, "region"), ResourceID: argString(args, "resource_id"), ResourceType: argString(args, "resource_type"), AfterID: argString(args, "after_id"), Limit: int(n)})
+}
+
+func (s *Server) toolAssetLookup(ctx context.Context, args map[string]any) (any, error) {
+	if e := strictAssetArgs(args, "provider", "account_id", "account_uid", "region", "resource_type", "resource_id"); e != nil {
+		return nil, e
+	}
+	return query.LookupAsset(ctx, s.store, model.AssetFilter{Provider: argString(args, "provider"), AccountID: argString(args, "account_id"), AccountUID: argString(args, "account_uid"), Region: argString(args, "region"), ResourceType: argString(args, "resource_type"), ResourceID: argString(args, "resource_id")})
 }
 func (s *Server) toolGetAsset(ctx context.Context, args map[string]any) (any, error) {
 	if e := strictAssetArgs(args, "asset_id", "revision"); e != nil {

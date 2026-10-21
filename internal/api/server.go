@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/asset"
+	"github.com/BaiLi-Labs/GuiLiu/internal/audit"
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -40,6 +41,9 @@ type Server struct {
 }
 
 func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *connector.Registry, cipher *secret.Cipher, mcpServer *mcp.Server, authService *auth.Service, log *slog.Logger) *Server {
+	if cfg.Audit.RetentionDays == 0 {
+		cfg.Audit.RetentionDays = 90
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -71,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /providers/{id}/mapping", s.handleMapping)
 	api.HandleFunc("GET /coverage", s.handleCoverage)
 	api.HandleFunc("GET /assets", s.handleListAssets)
+	api.HandleFunc("GET /assets/lookup", s.handleAssetLookup)
 	api.HandleFunc("GET /assets/{id}", s.handleGetAsset)
 	api.HandleFunc("GET /assets/{id}/findings", s.handleAssetFindings)
 	api.HandleFunc("GET /assets/{id}/revisions/{revision}/components/{component}/raw", s.handleAssetRaw)
@@ -102,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /stats", s.handleStats)
 
 	api.HandleFunc("GET /health", s.handleHealth)
+	api.HandleFunc("GET /audit-events", s.adminOnly(s.handleAuditEvents))
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /healthz", s.handleHealthz)
@@ -111,7 +117,7 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/mcp/", s.requireAuth(http.HandlerFunc(s.mcp.ServeHTTP)))
 	root.Handle("/", web.Handler())
 
-	return s.recoverer(s.accessLog(root))
+	return s.auditHTTP(s.recoverer(root))
 }
 
 // ------------------------------------------------------------- middleware
@@ -119,8 +125,20 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.auth.DevMode() {
-			ctx := auth.WithPrincipal(r.Context(), s.auth.DevPrincipal())
-			next.ServeHTTP(w, r.WithContext(ctx))
+			p := s.auth.DevPrincipal()
+			if audit.SetPrincipal(r.Context(), p) != nil {
+				writeError(w, 503, "audit_unavailable", "access audit is unavailable; operation was not started")
+				return
+			}
+			ctx := auth.WithPrincipal(r.Context(), p)
+			routed := r.WithContext(ctx)
+			next.ServeHTTP(w, routed)
+			if span := audit.FromContext(ctx); span != nil && routed.Pattern != "" {
+				span.Event.Operation = routed.Pattern
+				if !strings.Contains(routed.Pattern, " ") {
+					span.Event.Operation = r.Method + " " + routed.Pattern
+				}
+			}
 			return
 		}
 		token, fromCookie := tokenFromRequest(r)
@@ -134,13 +152,24 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			s.unauthorized(w)
 			return
 		}
+		if audit.SetPrincipal(r.Context(), principal) != nil {
+			writeError(w, 503, "audit_unavailable", "access audit is unavailable; operation was not started")
+			return
+		}
 		// Cookie auth is SameSite=Lax; additionally reject cross-origin
 		// state-changing requests as defense in depth.
 		if fromCookie && isUnsafeMethod(r.Method) && !sameOrigin(r) {
 			writeError(w, http.StatusForbidden, "forbidden", "cross-origin request rejected")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
+		routed := r.WithContext(auth.WithPrincipal(r.Context(), principal))
+		next.ServeHTTP(w, routed)
+		if span := audit.FromContext(r.Context()); span != nil && routed.Pattern != "" {
+			span.Event.Operation = routed.Pattern
+			if !strings.Contains(routed.Pattern, " ") {
+				span.Event.Operation = r.Method + " " + routed.Pattern
+			}
+		}
 	})
 }
 
@@ -194,27 +223,11 @@ func sameOrigin(r *http.Request) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
-func (s *Server) accessLog(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
-			s.log.Info("http",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", rec.status,
-				"duration_ms", time.Since(start).Milliseconds(),
-			)
-		}
-	})
-}
-
 func (s *Server) recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if v := recover(); v != nil {
-				s.log.Error("panic", "error", v, "stack", string(debug.Stack()))
+				s.log.Error("panic", "stack", string(debug.Stack()))
 				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
 		}()
@@ -222,19 +235,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	})
 }
 
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
 // ---------------------------------------------------------------- helpers
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	if observer, ok := w.(interface{ ObserveResult(any) }); ok {
+		observer.ObserveResult(v)
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
@@ -254,6 +260,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return err
+	}
+	if observer, ok := w.(interface{ ObserveRequest(any) }); ok {
+		observer.ObserveRequest(dst)
 	}
 	return nil
 }

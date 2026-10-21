@@ -19,6 +19,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
+	"github.com/BaiLi-Labs/GuiLiu/internal/version"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
@@ -26,6 +27,8 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name":                  "guiliu",
 		"version":               metaVersion(),
+		"commit":                version.Commit,
+		"build_date":            version.BuildDate,
 		"ocsf_version":          "1.6.0",
 		"started_at":            timeutil.Format(s.startedAt),
 		"auth_enabled":          !s.auth.DevMode(),

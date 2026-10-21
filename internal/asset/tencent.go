@@ -20,7 +20,7 @@ import (
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
 )
 
-const MapperVersion = "tencent-cvm/v1"
+const MapperVersion = "tencent-cvm/v2"
 const MaxSecurityGroups = 5
 
 var instanceID = regexp.MustCompile(`^ins-[a-zA-Z0-9]+$`)
@@ -40,7 +40,7 @@ func TencentCall(cred connector.Credential, region string) Call {
 		p := profile.NewClientProfile()
 		p.HttpProfile.Endpoint = service + ".tencentcloudapi.com"
 		p.HttpProfile.ReqTimeout = 10
-		// No automatic request retry: the entire refresh has a strict six-call budget.
+		// No automatic retries: explicit refreshes have a fixed request budget.
 		p.NetworkFailureMaxRetries = 0
 		p.RateLimitExceededMaxRetries = 0
 		clients[service] = common.NewCommonClient(c, region, p).WithHttpTransport(boundedTransport{http.DefaultTransport})
@@ -167,6 +167,15 @@ func ReadTencent(ctx context.Context, a model.Account, id string, call Call, lim
 	}
 	if sourceHas(page.InstanceSet[0], "/Tags") && out.Tags == nil {
 		out.Tags = []model.AssetTag{}
+	}
+	if i.VirtualPrivateCloud.VpcId != "" {
+		out.References = append(out.References, reference(a, "vpc", i.VirtualPrivateCloud.VpcId, "belongs_to_vpc", "instance", "/VirtualPrivateCloud/VpcId"))
+	}
+	if i.VirtualPrivateCloud.SubnetId != "" {
+		out.References = append(out.References, reference(a, "subnet", i.VirtualPrivateCloud.SubnetId, "in_subnet", "instance", "/VirtualPrivateCloud/SubnetId"))
+	}
+	for n, id := range i.SecurityGroupIds {
+		out.References = append(out.References, reference(a, "security_group", id, "attached_security_group", "instance", fmt.Sprintf("/SecurityGroupIds/%d", n)))
 	}
 	for field, path := range map[string]string{"resource_id": "/InstanceId", "name": "/InstanceName", "os": "/OsName", "state": "/InstanceState", "instance_type": "/InstanceType", "zone": "/Placement/Zone", "public_ips": "/PublicIpAddresses", "private_ips": "/PrivateIpAddresses", "vpc_id": "/VirtualPrivateCloud/VpcId", "subnet_id": "/VirtualPrivateCloud/SubnetId", "security_group_ids": "/SecurityGroupIds", "tags": "/Tags"} {
 		// Paths are relative to the exact instance component, not the list envelope.

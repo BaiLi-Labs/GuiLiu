@@ -16,7 +16,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/BaiLi-Labs/GuiLiu/internal/audit"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/version"
 )
@@ -87,7 +89,50 @@ const (
 
 // Handle processes one JSON-RPC message. A nil response means the message was a
 // notification and must not be answered.
-func (s *Server) Handle(ctx context.Context, req *Request) *Response {
+func (s *Server) Handle(ctx context.Context, req *Request) (response *Response) {
+	surface := "mcp_stdio"
+	if audit.FromContext(ctx) != nil {
+		surface = "mcp_http"
+	}
+	operation := req.Method
+	switch operation {
+	case "initialize", "notifications/initialized", "notifications/cancelled", "ping", "tools/list", "tools/call":
+	default:
+		operation = "unknown_method"
+	}
+	ctx, span, err := audit.Begin(ctx, s.store, s.log, model.AuditEvent{Surface: surface, Operation: operation})
+	if err != nil {
+		return s.errResponse(req.ID, codeInternalError, "access audit unavailable; operation was not started")
+	}
+	defer func() {
+		outcome, code := "success", ""
+		if recover() != nil {
+			response = s.errResponse(req.ID, codeInternalError, "internal tool error")
+			code = "panic"
+		}
+		if response != nil && response.Error != nil {
+			outcome = "error"
+			span.Event.Summary["rpc_error_code"] = response.Error.Code
+			if code == "" {
+				code = "rpc_error"
+			}
+		}
+		if response != nil {
+			if result, ok := response.Result.(map[string]any); ok && result["isError"] == true {
+				outcome = "error"
+				code = "tool_error"
+			}
+		}
+		if ctx.Err() != nil && outcome == "success" {
+			outcome = "cancelled"
+			code = "request_cancelled"
+		}
+		span.Finish(ctx, outcome, code)
+	}()
+	return s.handle(ctx, req)
+}
+
+func (s *Server) handle(ctx context.Context, req *Request) *Response {
 	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
 		return s.errResponse(req.ID, codeInvalidRequest, "unsupported jsonrpc version")
 	}
@@ -135,7 +180,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		"instructions": "GuiLiu is a read-only, vendor-neutral security data hub. " +
 			"Use list_alerts/search_alerts_by_ip/search_alerts_by_asset to query normalized cloud alerts, " +
 			"list_alert_groups/get_alert_group to browse exact-field groups while preserving original alerts, " +
-			"get_alert for full OCSF payload and raw vendor evidence, get_alert_asset_context for current local CVM metadata, list_asset_findings for exact resource matches, get_asset_component for asset evidence, and get_connector_health to check ingestion freshness. " +
+			"get_alert for full OCSF payload and raw vendor evidence, get_alert_asset_context for current local CVM metadata, get_asset_by_reference to follow scoped references to local security groups, VPCs and subnets, list_asset_findings for exact host matches, get_asset_component for asset evidence, and get_connector_health to check ingestion freshness. " +
 			"All tools are read-only and scoped to the configured accounts.",
 	}
 }
@@ -148,6 +193,10 @@ func (s *Server) callTool(ctx context.Context, req *Request) *Response {
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return s.errResponse(req.ID, codeInvalidParams, "invalid tools/call params: "+err.Error())
 	}
+	if span := audit.FromContext(ctx); span != nil {
+		span.Event.Tool = audit.Text(params.Name)
+		span.Event.Parameters = audit.Parameters(params.Arguments)
+	}
 	tool, ok := s.tools[params.Name]
 	if !ok {
 		return s.errResponse(req.ID, codeInvalidParams, "unknown tool: "+params.Name)
@@ -155,13 +204,20 @@ func (s *Server) callTool(ctx context.Context, req *Request) *Response {
 	if params.Arguments == nil {
 		params.Arguments = map[string]any{}
 	}
+	if span := audit.FromContext(ctx); span != nil {
+		span.Event.Tool = tool.Name
+		span.Event.Parameters = audit.Parameters(params.Arguments)
+	}
 	result, err := tool.Handler(ctx, params.Arguments)
 	if err != nil {
-		s.log.Debug("mcp tool failed", "tool", params.Name, "error", err)
+		s.log.Debug("mcp tool failed", "tool", tool.Name)
 		return s.result(req.ID, map[string]any{
 			"content": []map[string]any{{"type": "text", "text": err.Error()}},
 			"isError": true,
 		})
+	}
+	if span := audit.FromContext(ctx); span != nil {
+		span.Event.Summary = audit.Summary(result)
 	}
 	text, err := marshalResult(result)
 	if err != nil {
@@ -206,6 +262,7 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 		}
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
+			s.auditParseError(ctx, "mcp_stdio")
 			_ = enc.Encode(s.errResponse(nil, codeParseError, "parse error: "+err.Error()))
 			continue
 		}
@@ -229,6 +286,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var req Request
 		dec := json.NewDecoder(body)
 		if err := dec.Decode(&req); err != nil {
+			s.auditParseError(r.Context(), "mcp_http")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(s.errResponse(nil, codeParseError, "parse error: "+err.Error()))
@@ -252,6 +310,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Allow", "POST, DELETE")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) auditParseError(ctx context.Context, surface string) {
+	ctx, span, err := audit.Begin(ctx, s.store, s.log, model.AuditEvent{Surface: surface, Operation: "parse_error"})
+	if err == nil {
+		span.Finish(ctx, "error", "parse_error")
 	}
 }
 

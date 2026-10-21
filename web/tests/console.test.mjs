@@ -109,6 +109,38 @@ test('source JSON text preserves exact bytes and large integer precision', async
   assert.equal(await sourceText('/api/v1/alerts/id/revisions/1/raw'), responseText);
 });
 
+test('audit query pins time bounds and details distinguish caller identity from result evidence', () => {
+  const { auditQuery, AuditEventDetails } = load('src/pages/Audit.tsx');
+  const end = '2026-10-21T12:00:00.000Z';
+  const params = new URLSearchParams(auditQuery({ username: 'operator', api_key_id: 'key-id', tool: 'get_alert', request_id: 'request-id', surface: 'mcp_http', outcome: 'error', range: '24h' }, end));
+  assert.equal(params.get('start'), '2026-10-20T12:00:00.000Z'); assert.equal(params.get('end'), end); assert.equal(params.get('api_key_id'), 'key-id');
+  assert.equal(lib.parseHashPage('#/audit'), 'audit');
+  const event = { sequence: 2, parent_sequence: 1, request_id: 'request-id', started_at: end, surface: 'mcp_http', operation: 'tools/call', tool: 'get_alert', auth_type: 'api_key', api_key_id: 'key-id', user_id: 'user-id', outcome: 'error', duration_ms: 5, parameters: { alert_id: 'finding-id' }, effective_query: { snapshot_sequence: 56 }, summary: { revision: 3 } };
+  i18n.setLocale('en-US');
+  let html = renderToStaticMarkup(React.createElement(AuditEventDetails, { event }));
+  for (const text of ['request-id', 'key-id', 'user-id', 'finding-id', 'Completion unconfirmed', 'Resolved query scope', 'snapshot_sequence']) assert.ok(html.includes(text), text);
+  i18n.setLocale('zh-CN'); html = renderToStaticMarkup(React.createElement(AuditEventDetails, { event }));
+  assert.ok(html.includes('尚未确认完成')); assert.ok(html.includes('提交的查询条件'));
+});
+
+test('network references preserve scope and summaries distinguish unknown from source false and empty', () => {
+  const { resourceLookupPath, NetworkSummary, ResourceLinks } = load('src/components/ResourceLinks.tsx');
+  const reference = { provider: 'tencent', account_id: 'connection & demo', account_uid: '100000000001', region: 'ap-guangzhou', resource_id: 'subnet-synthetic', resource_type: 'subnet', relation: 'in_subnet', source_component: 'instance', source_path: '/VirtualPrivateCloud/SubnetId' };
+  const params = new URLSearchParams(resourceLookupPath(reference).split('?')[1]);
+  for (const key of ['provider', 'account_id', 'account_uid', 'region', 'resource_id', 'resource_type']) assert.equal(params.get(key), reference[key]);
+  const asset = { ...reference, id: 'a', revision: 1, name: 'source-subnet', vpc_id: 'vpc-synthetic', zone: 'source-zone', tags: [], network: { cidr_block: '10.0.0.0/24', is_default: false }, last_observed_at: new Date().toISOString(), synthetic: true, components: {}, provenance: {} };
+  i18n.setLocale('en-US');
+  let html = renderToStaticMarkup(React.createElement(NetworkSummary, { asset }));
+  for (const text of ['source-subnet', 'source-zone', '10.0.0.0/24', 'vpc-synthetic', 'None (source reported)', 'Synthetic asset data', '>No<']) assert.ok(html.includes(text), text);
+  html = renderToStaticMarkup(React.createElement(NetworkSummary, { asset: { ...asset, tags: null, network: {} } }));
+  assert.ok(html.includes('Unknown')); assert.ok(!html.includes('None (source reported)')); assert.ok(!html.includes('>No<'));
+  html = renderToStaticMarkup(React.createElement(ResourceLinks, { references: [reference], isAdmin: false }));
+  assert.ok(html.includes('subnet-synthetic')); assert.ok(!html.includes('Refresh this network resource'));
+  i18n.setLocale('zh-CN');
+  html = renderToStaticMarkup(React.createElement(NetworkSummary, { asset }));
+  assert.ok(html.includes('可用区')); assert.ok(html.includes('>否<'));
+});
+
 function sourceFiles(folder) {
   return readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()

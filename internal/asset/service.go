@@ -15,7 +15,7 @@ import (
 )
 
 var ErrInvalidRequest = errors.New("invalid asset request")
-var ErrNotVisible = errors.New("instance not visible in this scope")
+var ErrNotVisible = errors.New("resource not visible in this scope")
 
 const CacheTTL = 5 * time.Minute
 
@@ -37,6 +37,7 @@ type RefreshResult struct {
 	Attempt      *model.AssetRefresh `json:"attempt,omitempty"`
 	Asset        *model.Asset        `json:"asset,omitempty"`
 	CacheSeconds int                 `json:"cache_seconds"`
+	Related      []RelatedRefresh    `json:"related,omitempty"`
 }
 
 func errorCode(err error) string {
@@ -53,13 +54,13 @@ func errorCode(err error) string {
 	return "source_request_failed"
 }
 
-func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshResult, error) {
+func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*RefreshResult, error) {
 	a, err := s.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	if a.Provider != "tencent" || !a.Enabled || a.AccountUID == "" || a.Region == "" || !instanceID.MatchString(id) {
-		return nil, fmt.Errorf("%w: enabled Tencent connection, explicit account UID, region and CVM instance ID required", ErrInvalidRequest)
+	if a.Provider != "tencent" || !a.Enabled || a.AccountUID == "" || a.Region == "" || !ValidResource(kind, id) {
+		return nil, fmt.Errorf("%w: enabled Tencent connection, explicit account UID, region and valid resource type/ID required", ErrInvalidRequest)
 	}
 	attempt := model.AssetRefresh{AccountID: a.ID, Region: a.Region, ResourceID: id, AttemptedAt: s.now().UTC(), Status: "refreshing"}
 	claimed, err := s.Store.BeginAssetRefresh(ctx, attempt, CacheTTL)
@@ -77,8 +78,9 @@ func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshRe
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		var value *model.Asset
+		var call Call
 		if s.Synthetic {
-			value, err = SyntheticTencent(ctx, *a, id, s.limiter)
+			call = SyntheticCall()
 		} else {
 			var cred connector.Credential
 			cred, err = credential.Load(ctx, s.Store, s.Cipher, a.ID)
@@ -86,7 +88,17 @@ func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshRe
 				err = errors.New("missing credential")
 			}
 			if err == nil {
-				value, err = ReadTencent(ctx, *a, id, s.Factory(cred, a.Region), s.limiter)
+				call = s.Factory(cred, a.Region)
+			}
+		}
+		if call != nil {
+			if kind == "cvm" {
+				value, err = ReadTencent(ctx, *a, id, call, s.limiter)
+			} else {
+				value, err = readNetwork(ctx, *a, kind, id, call, s.limiter)
+			}
+			if value != nil {
+				value.Synthetic = s.Synthetic
 			}
 		}
 		attempt.Status = "available"
@@ -94,11 +106,21 @@ func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshRe
 			attempt.Status = errorCode(err)
 		} else {
 			for key, c := range value.Components {
-				if strings.HasPrefix(key, "security_group:") && c.Status != "available" {
+				if (strings.HasPrefix(key, "security_group:") || key == "policies") && c.Status != "available" {
 					attempt.Status = "partial"
 				}
 			}
-			if err = s.Store.SaveAsset(ctx, value); err != nil {
+			if kind == "cvm" {
+				var partial bool
+				result.Related, partial, err = s.enrichNetworks(ctx, *a, value, call)
+				if partial {
+					attempt.Status = "partial"
+				}
+				if err != nil {
+					attempt.Status = "storage_failed"
+				}
+			}
+			if err = s.saveObservation(ctx, value); err != nil {
 				attempt.Status = "storage_failed"
 			}
 		}
@@ -111,7 +133,9 @@ func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshRe
 		result.Status = attempt.Status
 		result.Attempt = &attempt
 	}
-	items, err := s.Store.ListAssets(context.WithoutCancel(ctx), model.AssetFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: id, Limit: 1})
+	readCtx, readCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer readCancel()
+	items, err := s.Store.ListAssets(readCtx, model.AssetFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: id, ResourceType: kind, Limit: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -119,4 +143,11 @@ func (s *Service) Refresh(ctx context.Context, accountID, id string) (*RefreshRe
 		result.Asset = &items[0]
 	}
 	return result, nil
+}
+
+// A failed optional network lookup must not discard an already-read instance.
+func (s *Service) saveObservation(ctx context.Context, value *model.Asset) error {
+	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	return s.Store.SaveAsset(persist, value)
 }

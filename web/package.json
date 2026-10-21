@@ -1,10 +1,13 @@
 {
   "name": "guiliu-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0-dev",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "version:check": "node ../scripts/version.mjs check",
+    "prebuild": "npm run version:check",
+    "pretest": "npm run version:check",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",

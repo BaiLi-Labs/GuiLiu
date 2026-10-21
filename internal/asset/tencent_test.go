@@ -121,7 +121,7 @@ func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 		if cred.AccessKeySecret != "synthetic-secret" || region != a.Region {
 			t.Fatal("credential or region missing")
 		}
-		return func(_ context.Context, service, _ string, _ map[string]any) (json.RawMessage, error) {
+		return func(ctx context.Context, service, action string, params map[string]any) (json.RawMessage, error) {
 			calls++
 			if fail {
 				return nil, errors.New("AuthFailure: synthetic-secret")
@@ -133,33 +133,33 @@ func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 				}
 				return json.RawMessage(`{"InstanceSet":[` + raw + `]}`), nil
 			}
-			return json.RawMessage(SyntheticPolicy), nil
+			return SyntheticCall()(ctx, service, action, params)
 		}
 	}
-	first, err := s.Refresh(ctx, a.ID, "ins-mock0001")
+	first, err := s.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
 	if err != nil || first.Status != "available" || first.Asset == nil || first.Asset.Revision != 1 {
 		t.Fatalf("first: %+v %v", first, err)
 	}
-	if _, err = s.Refresh(ctx, a.ID, "ins-mock0001"); err != nil || calls != 2 {
+	if _, err = s.Refresh(ctx, a.ID, "cvm", "ins-mock0001"); err != nil || calls != 5 {
 		t.Fatalf("cache: calls=%d %v", calls, err)
 	}
 	base := time.Now()
 	s.now = func() time.Time { return base.Add(6 * time.Minute) }
 	fail = true
-	failed, err := s.Refresh(ctx, a.ID, "ins-mock0001")
+	failed, err := s.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
 	if err != nil || failed.Status != "permission_denied" || failed.Asset.Revision != 1 {
 		t.Fatalf("failure should retain observation: %+v %v", failed, err)
 	}
 	fail = false
 	changed = true
 	s.now = func() time.Time { return base.Add(12 * time.Minute) }
-	updated, err := s.Refresh(ctx, a.ID, "ins-mock0001")
+	updated, err := s.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
 	if err != nil || updated.Asset.Revision != 2 || updated.Asset.Name != "renamed" {
 		t.Fatalf("revision: %+v %v", updated, err)
 	}
 	// A semantically identical observation does not create a third revision.
 	s.now = func() time.Time { return base.Add(18 * time.Minute) }
-	unchanged, err := s.Refresh(ctx, a.ID, "ins-mock0001")
+	unchanged, err := s.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
 	if err != nil || unchanged.Asset.Revision != 2 {
 		t.Fatalf("repeated observation: %+v %v", unchanged, err)
 	}
@@ -183,7 +183,7 @@ func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 		t.Fatal("durable cache was bypassed after restart")
 		return nil
 	}
-	cached, err := otherProcess.Refresh(ctx, a.ID, "ins-mock0001")
+	cached, err := otherProcess.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
 	if err != nil || cached.Status != "cached" || cached.Asset.Revision != 2 {
 		t.Fatalf("restart cache: %+v %v", cached, err)
 	}

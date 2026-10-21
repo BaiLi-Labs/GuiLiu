@@ -111,7 +111,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	mcpServer := mcp.New(st, registry, log, 3*cfg.Sync.Interval.Get())
 	apiServer := api.New(cfg, st, engine, registry, cipher, mcpServer, authService, log)
 
-	return &App{
+	a := &App{
 		Config:   cfg,
 		Log:      log,
 		Store:    st,
@@ -121,7 +121,9 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Auth:     authService,
 		MCP:      mcpServer,
 		API:      apiServer,
-	}, nil
+	}
+	a.pruneAudit(ctx)
+	return a, nil
 }
 
 func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log *slog.Logger) error {
@@ -140,11 +142,7 @@ func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log 
 		}
 		seeded++
 		if acct.Provider == "tencent" && acct.AccountUID != "" && acct.Region != "" {
-			value, err := asset.SyntheticTencent(ctx, acct, "ins-mock0001", connector.NewLimiter(100000))
-			if err != nil {
-				return err
-			}
-			if err := st.SaveAsset(ctx, value); err != nil {
+			if err := asset.SeedSynthetic(ctx, st, acct); err != nil {
 				return err
 			}
 		}
@@ -194,6 +192,22 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	a.Engine.Run(ctx)
+	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-maintenanceCtx.Done():
+				return
+			case <-ticker.C:
+				a.pruneAudit(maintenanceCtx)
+			}
+		}
+	}()
+	defer func() { stopMaintenance(); <-maintenanceDone }()
 
 	select {
 	case err := <-errCh:
@@ -208,6 +222,21 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 func (a *App) Close() error { return a.Store.Close() }
+
+func (a *App) pruneAudit(ctx context.Context) {
+	days := a.Config.Audit.RetentionDays
+	if days == 0 {
+		days = 90
+	}
+	cleanup, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	n, err := a.Store.PruneAuditEvents(cleanup, time.Now().UTC().Add(-time.Duration(days)*24*time.Hour))
+	if err != nil {
+		a.Log.Error("audit retention cleanup failed")
+	} else if n > 0 {
+		a.Log.Info("expired audit events removed", "count", n)
+	}
+}
 
 func bootstrapAccounts(ctx context.Context, cfg *config.Config, st *store.SQLite, cipher *secret.Cipher, registry *connector.Registry, log *slog.Logger) error {
 	for _, ac := range cfg.Accounts {

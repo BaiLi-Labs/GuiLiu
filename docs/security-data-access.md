@@ -117,7 +117,7 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 
 ## 资产上下文首版
 
-当前新增来源为腾讯云 CVM `DescribeInstances` 与 VPC `DescribeSecurityGroupPolicies`（均为 `2017-03-12`）。仅通过合成响应、接口契约和本地演示验证，尚未通过真实云账号验证。接口依据：[实例查询](https://cloud.tencent.com/document/product/213/15728)、[安全组策略查询](https://cloud.tencent.com/document/api/215/15804)。
+当前新增来源为腾讯云 CVM `DescribeInstances` 与 VPC `DescribeSecurityGroupPolicies`、`DescribeSecurityGroups`、`DescribeVpcs`、`DescribeSubnets`（均为 `2017-03-12`）。通过官方 Go SDK 通用客户端签名及请求，读取原始 JSON，避免 SDK 类型裁剪未知字段。仅通过合成响应、接口契约和本地演示验证，尚未通过真实云账号验证。接口依据：[实例查询](https://cloud.tencent.com/document/product/213/15728)、[安全组策略查询](https://cloud.tencent.com/document/api/215/15804)、[安全组详情](https://cloud.tencent.com/document/api/215/15808)、[VPC 详情](https://cloud.tencent.com/document/api/215/15778)、[子网详情](https://cloud.tencent.com/document/api/215/15784)。
 
 本轮审查与实现的区别：
 
@@ -125,29 +125,34 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 | --- | --- |
 | 已具备 | Finding 原始字节、字段溯源、同步与失败补偿、修订、固定快照、Change Feed、统一查询；保留现有机制 |
 | 本轮修正 | REST / MCP 共用 Finding 修订选择，证据工具可读精确修订；冲突或非法版本参数明确报错 |
-| 本轮新增 | 独立 CVM 资产记录与修订、控制面字段、组件证据、显式有预算刷新、精确资源关联、三种入口查询路径 |
+| 本轮新增 | 独立 CVM/安全组/VPC/子网记录与修订、控制面字段、组件证据、显式有预算刷新、精确资源关联、三种入口查询路径 |
 | 后续目标 | 软件/进程/监听端口/EDR、完整资产发现、资产 Change Feed、审计与 SIEM、通用联邦查询、细粒度授权 |
 
 资产包含实例 ID、真实云账号 UID、地域、名称、OS、规格、厂商状态、可用区、公私网 IP、VPC、子网、安全组 ID、标签与字段溯源。账号和地域来自明确的连接配置，不宣称为实例 API 返回字段。尚未提供的字段保持未知；软件、监听端口与可达性组件明确为 `not_collected`。
+
+安全组、VPC、子网作为独立资产保存，不把完整网络资源复制进每台主机。`references` 带 provider、原生账号 UID、region、resource_type、resource_id，以及来源组件、JSON 路径和 `lookup_url`；仅来源明确的 ID 建立引用。安全组提供名称、说明、标签和独立的策略组件；VPC/子网提供名称、CIDR、来源明确给出的默认标识和标签，子网保留可用区及 VPC 引用。原生创建时间按原值保留。路由表、网络 ACL 等未建模字段仍可通过原始详情读取，不自动展开其配置，不推导有效开放端口。
 
 资产独立保存，不复制到 Finding。对实质变化创建资产修订，相同内容只推进 `last_observed_at`；组件的 `observed_at` 和精确原始字节保留在原修订中。刷新失败保留既有资产，并单独报告最近刷新状态。资产变化不进入 Finding Change Feed，也不改变 Finding 修订。资产旧版本可按 `1..revision` 查询；首版没有资产快照或资产变更流。
 
 | REST | MCP | 语义 |
 | --- | --- | --- |
 | `GET /assets` | `list_assets` | 查询本地已保存资产，按 ID 游标分页 |
+| `GET /assets/lookup` | `get_asset_by_reference` | 按完整作用域的原生资源引用查询当前本地观测与最近刷新状态 |
 | `GET /assets/{id}?revision=N` | `get_asset` | 读取当前或精确资产修订，默认不附完整组件载荷 |
 | `GET /alerts/{id}/asset-context?revision=N` | `get_alert_asset_context` | 读取指定 Finding 明确主机引用的当前本地上下文 |
 | `GET /assets/{id}/findings` | `list_asset_findings` | 查询同一完整资源身份的已保存 Finding，支持 Finding 快照分页 |
 | `GET /assets/{id}/revisions/{revision}/components/{component}/raw` | `get_asset_component` | 读取精确组件证据；MCP 返回 `raw_text` 与 SHA-256，保留大整数和原字节表示 |
 
-所有 REST 路径均以 `/api/v1` 开头并要求认证。`/assets` 支持 `provider/account_id/account_uid/region/resource_id/after_id/limit`，首版不提供名称模糊匹配、IP 过滤或标签索引；未支持的参数报错。列表 `limit` 范围 1–100，后续将 `next_cursor` 作为 `after_id`。列表是当前本地观测，不承诺固定资产快照或完整云资产覆盖。
+所有 REST 路径均以 `/api/v1` 开头并要求认证。`/assets` 支持 `provider/account_id/account_uid/region/resource_type/resource_id/after_id/limit`，类型为 `cvm/security_group/vpc/subnet`；首版不提供名称模糊匹配、IP 过滤或标签索引；未支持的参数报错。列表 `limit` 范围 1–100，后续将 `next_cursor` 作为 `after_id`。列表是当前本地观测，不承诺固定资产快照或完整云资产覆盖。
+
+`/assets/lookup` 与 `get_asset_by_reference` 要求 `provider/account_uid/region/resource_type/resource_id`，可直接使用引用内的同名字段；可选 `account_id` 仅用于查最近刷新状态，必须与资源作用域一致。响应区分 `not_collected/available/stale`，`refresh.status` 单独说明失败或进行中状态，不把刷新失败解释为资源不存在。资产正文省略完整来源载荷，组件证据按精确修订读取。
 
 Finding 上下文可用 `revision` 或 `snapshot_sequence` 选择引用所在版本，两者互斥；资产部分始终是当前观测，明确不代表告警发生时状态。同资源告警分页重复返回的 `snapshot_sequence`，并用 `next_cursor` 续读。匹配条件是腾讯云、原生账号 UID、地域、原生主机资源 ID 和主机类型；IP、名称、Hash 和标签均不建立身份关系。首版上下文使用主资源引用，相关告警检索同时支持明确的附加主机资源引用。作用域缺失、来源不支持、未采集和过期均明确返回。
 
-默认 GET 与全部 MCP 工具仅查本地数据库，不触发云端读取。`POST /accounts/{id}/assets/refresh` 接受 `{"resource_id":"ins-..."}`，仅管理员可调用；要求启用的腾讯云连接、已配置真实账号 UID 与明确地域。使用已加密凭据，需额外授予 `cvm:DescribeInstances` 和 `vpc:DescribeSecurityGroupPolicies` 只读权限。连接账号 UID 必须与这些凭据所属云账号一致；首版依据显式配置表达该归属。
+默认 GET 与全部 MCP 工具仅查本地数据库，不触发云端读取。`POST /accounts/{id}/assets/refresh` 接受 `{"resource_type":"cvm","resource_id":"ins-..."}`，省略类型默认为 `cvm`；也可刷新 `security_group/vpc/subnet`。仅管理员可调用，要求启用的腾讯云连接、已配置真实账号 UID 与明确地域。使用已加密凭据，按需授予 `cvm:DescribeInstances`、`vpc:DescribeSecurityGroupPolicies`、`vpc:DescribeSecurityGroups`、`vpc:DescribeVpcs`、`vpc:DescribeSubnets` 只读权限。连接账号 UID 必须与这些凭据所属云账号一致；首版依据显式配置表达该归属。
 
-刷新预算为一个实例查询、最多五个安全组策略查询、整个云读取阶段 15 秒、单次响应 2 MiB、服务级 2 QPS；不展开安全组模板，不自动重试云请求。同一连接/地域/实例的尝试结果持久保留 5 分钟并复用，包括失败和进行中状态，重启不会清除这个冷却期。响应使用 `status` 与 `attempt.status` 表达成功、部分失败、未查到或不可见、权限不足及超时；失败不等于资产删除。安全组策略是配置证据，不代表实际监听或公网可达。
+主机刷新最多 9 次云 API 请求：一个实例查询、最多五个安全组策略查询，以及安全组详情批量查询、VPC、子网详情各一次。安全组详情复用已取得的策略组件；共享网络资源独立缓存，命中缓存后不扩大安全组范围。显式刷新单个安全组最多 2 次，VPC 或子网各 1 次。整个云读取阶段 15 秒、单次响应 2 MiB、服务级 2 QPS；不递归遍历网络，不展开安全组模板，不自动重试云请求。同一连接/地域/资源的尝试结果持久保留 5 分钟并复用，包括失败和进行中状态，重启不会清除这个冷却期。响应使用 `status` 与 `attempt.status` 表达成功、部分失败、未查到或不可见、权限不足及超时，`related` 说明各网络引用采集结果；失败保留既有观测，已取得的主机不会因可选网络请求超时而丢弃。安全组策略是配置证据，不代表实际监听或公网可达。
 
-Web 告警详情展示上述本地上下文，提供显式刷新、相关告警查询与按需证据展开。Mock 启动时植入 `ins-mock0001` 的合成资产，可从腾讯云的“SQL注入攻击”演示告警查看完整路径；数据始终带 `synthetic=true`。真实来源不会回退到这些合成数据。
+Web 告警详情展示上述本地上下文，展开网络引用可查询详情、策略、证据和来源路径，并由管理员显式刷新单个网络资源；主机支持相关告警查询。Mock 启动时植入 `ins-mock0001` 及其安全组、VPC、子网共四条合成资产，可从腾讯云的“SQL注入攻击”演示告警查看完整路径；数据始终带 `synthetic=true`。真实来源不会回退到这些合成数据。
 
 当前实例仍为共享数据集，API Key 继承创建者角色并能读全部账号；未新增多租户或账号级授权。保留共同字段查询、已实现的专有查询与完整原始载荷读取，首版未建设任意原生 JSON 字段的通用过滤器。

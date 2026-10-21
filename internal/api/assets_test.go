@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -51,6 +52,9 @@ func TestAssetInvestigationRESTAndMCPUseIdenticalFacts(t *testing.T) {
 	if err := st.SaveAsset(ctx, value); err != nil {
 		t.Fatal(err)
 	}
+	if err := asset.SeedSynthetic(ctx, st, a); err != nil {
+		t.Fatal(err)
+	}
 	if after, _ := st.SnapshotSequence(ctx); after != sequence {
 		t.Fatal("asset write changed Finding sequence")
 	}
@@ -90,7 +94,72 @@ func TestAssetInvestigationRESTAndMCPUseIdenticalFacts(t *testing.T) {
 		t.Fatal(contextResult)
 	}
 	compare("/assets?limit=1", "list_assets", map[string]any{"limit": 1})
-	compare("/assets/"+value.ID+"?revision=1", "get_asset", map[string]any{"asset_id": value.ID, "revision": 1})
+	hostView := compare("/assets/"+value.ID+"?revision=1", "get_asset", map[string]any{"asset_id": value.ID, "revision": 1})
+	refs := hostView["references"].([]any)
+	if len(refs) != 3 {
+		t.Fatal("missing scoped resource references", refs)
+	}
+	for _, rawRef := range refs {
+		ref := rawRef.(map[string]any)
+		args := map[string]any{}
+		for _, key := range []string{"provider", "account_id", "account_uid", "region", "resource_type", "resource_id"} {
+			args[key] = ref[key]
+		}
+		lookupURL := ref["lookup_url"].(string)
+		lookup := compare(strings.TrimPrefix(lookupURL, "/api/v1"), "get_asset_by_reference", args)
+		if lookup["status"] != "available" || lookup["refresh"].(map[string]any)["status"] != "available" {
+			t.Fatal("network unavailable", lookup)
+		}
+		resource := lookup["asset"].(map[string]any)
+		if resource["resource_type"] != ref["resource_type"] || resource["account_uid"] != a.AccountUID || resource["synthetic"] != true {
+			t.Fatal("network identity mismatch", resource)
+		}
+		compare("/assets?resource_type="+ref["resource_type"].(string), "list_assets", map[string]any{"resource_type": ref["resource_type"]})
+		for key, rawComponent := range resource["components"].(map[string]any) {
+			c := rawComponent.(map[string]any)
+			response, body := do(t, client, "GET", ts.URL+c["raw_url"].(string), "", "")
+			if response.StatusCode != 200 || fmt.Sprintf("%x", sha256.Sum256(body)) != c["raw_hash"] {
+				t.Fatal("network evidence corrupted", key)
+			}
+			rpcRequest, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "get_asset_component", "arguments": map[string]any{"asset_id": resource["id"], "revision": resource["revision"], "component": key}}})
+			_, rpcBody := do(t, client, "POST", ts.URL+"/mcp", "", string(rpcRequest))
+			var rpc struct {
+				Result struct {
+					Content []struct {
+						Text string `json:"text"`
+					} `json:"content"`
+					IsError bool `json:"isError"`
+				} `json:"result"`
+			}
+			if json.Unmarshal(rpcBody, &rpc) != nil || rpc.Result.IsError || len(rpc.Result.Content) != 1 {
+				t.Fatal("MCP network evidence failed", string(rpcBody))
+			}
+			var evidence map[string]any
+			if json.Unmarshal([]byte(rpc.Result.Content[0].Text), &evidence) != nil || evidence["raw_text"] != string(body) || evidence["raw_hash"] != c["raw_hash"] {
+				t.Fatal("MCP changed exact evidence")
+			}
+		}
+		if ref["resource_type"] == "subnet" {
+			nested := resource["references"].([]any)[0].(map[string]any)
+			if nested["resource_id"] != "vpc-synthetic" || nested["source_path"] != "/VpcId" {
+				t.Fatal("subnet lost source relationship", nested)
+			}
+		}
+		parsed, _ := url.Parse(lookupURL)
+		params := parsed.Query()
+		params.Set("account_uid", "other-account")
+		resp, _ := do(t, client, "GET", ts.URL+parsed.Path+"?"+params.Encode(), "", "")
+		if resp.StatusCode != 400 {
+			t.Fatal("mismatched connection scope accepted")
+		}
+		params.Del("account_id")
+		args["account_uid"] = "other-account"
+		delete(args, "account_id")
+		missing := compare(strings.TrimPrefix(parsed.Path, "/api/v1")+"?"+params.Encode(), "get_asset_by_reference", args)
+		if missing["status"] != "not_collected" || missing["asset"] != nil || missing["refresh"] != nil {
+			t.Fatal("resource crossed account boundary", missing)
+		}
+	}
 	related := compare("/assets/"+value.ID+"/findings?limit=1", "list_asset_findings", map[string]any{"asset_id": value.ID, "limit": 1})
 	if related["total"] != float64(2) || related["has_more"] != true {
 		t.Fatal("identity filter leaked or omitted records", related)
@@ -130,7 +199,7 @@ func TestAssetInvestigationRESTAndMCPUseIdenticalFacts(t *testing.T) {
 func TestAssetRoutesRequireAuthenticationAndRefreshRequiresAdmin(t *testing.T) {
 	ts, _, authSvc := setup(t, false)
 	client := newClient(t, ts)
-	for _, path := range []string{"/api/v1/assets", "/api/v1/assets/x", "/api/v1/alerts/x/asset-context", "/api/v1/assets/x/findings", "/api/v1/assets/x/revisions/1/components/instance/raw"} {
+	for _, path := range []string{"/api/v1/assets", "/api/v1/assets/lookup", "/api/v1/assets/x", "/api/v1/alerts/x/asset-context", "/api/v1/assets/x/findings", "/api/v1/assets/x/revisions/1/components/instance/raw"} {
 		response, _ := do(t, client, "GET", ts.URL+path, "", "")
 		if response.StatusCode != 401 {
 			t.Fatal("unprotected route", path)
@@ -149,6 +218,10 @@ func TestAssetRoutesRequireAuthenticationAndRefreshRequiresAdmin(t *testing.T) {
 	response, body = do(t, client, "POST", ts.URL+"/api/v1/accounts/x/assets/refresh", login.Token, `{"resource_id":"ins-1"}`)
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatal("viewer could refresh cloud data", response.StatusCode, string(body))
+	}
+	response, body = do(t, client, "POST", ts.URL+"/api/v1/accounts/x/assets/refresh", login.Token, `{"resource_type":"security_group","resource_id":"sg-synthetic"}`)
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatal("viewer could refresh network data", response.StatusCode, string(body))
 	}
 	response, body = do(t, client, "POST", ts.URL+"/mcp", login.Token, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_assets","arguments":{}}}`)
 	if response.StatusCode != 200 || !strings.Contains(string(body), `"isError":false`) {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BaiLi-Labs/GuiLiu/internal/audit"
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
@@ -40,6 +41,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("login failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		}
+		return
+	}
+	if audit.SetPrincipal(r.Context(), principal) != nil {
+		writeError(w, 503, "audit_unavailable", "access audit is unavailable")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{

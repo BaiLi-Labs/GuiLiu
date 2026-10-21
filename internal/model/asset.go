@@ -26,6 +26,8 @@ type Asset struct {
 	SubnetID         string                    `json:"subnet_id,omitempty"`
 	SecurityGroupIDs []string                  `json:"security_group_ids"`
 	Tags             []AssetTag                `json:"tags"`
+	Network          *AssetNetwork             `json:"network,omitempty"`
+	References       []AssetReference          `json:"references,omitempty"`
 	Components       map[string]AssetComponent `json:"components"`
 	Provenance       map[string]FieldOrigin    `json:"provenance"`
 	MapperVersion    string                    `json:"mapper_version"`
@@ -33,6 +35,29 @@ type Asset struct {
 	ObservedAt       time.Time                 `json:"observed_at"`
 	LastObservedAt   time.Time                 `json:"last_observed_at"`
 	Synthetic        bool                      `json:"synthetic"`
+}
+
+// AssetReference is an explicit source relationship with its complete cloud
+// identity. It is not an IP/name match or an inferred connectivity edge.
+type AssetReference struct {
+	Provider        string `json:"provider"`
+	AccountID       string `json:"account_id"`
+	AccountUID      string `json:"account_uid"`
+	Region          string `json:"region"`
+	ResourceType    string `json:"resource_type"`
+	ResourceID      string `json:"resource_id"`
+	Relation        string `json:"relation"`
+	SourceComponent string `json:"source_component"`
+	SourcePath      string `json:"source_path"`
+	LookupURL       string `json:"lookup_url,omitempty"`
+}
+
+type AssetNetwork struct {
+	Description       string `json:"description,omitempty"`
+	CIDRBlock         string `json:"cidr_block,omitempty"`
+	IPv6CIDRBlock     string `json:"ipv6_cidr_block,omitempty"`
+	IsDefault         *bool  `json:"is_default,omitempty"`
+	SourceCreatedTime string `json:"source_created_time,omitempty"`
 }
 
 type AssetTag struct {
@@ -52,8 +77,8 @@ type AssetComponent struct {
 }
 
 type AssetFilter struct {
-	Provider, AccountID, AccountUID, Region, ResourceID, AfterID string
-	Limit                                                        int
+	Provider, AccountID, AccountUID, Region, ResourceID, ResourceType, AfterID string
+	Limit                                                                      int
 }
 
 // AssetRefresh records operational state separately from source observations.

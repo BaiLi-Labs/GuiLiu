@@ -38,7 +38,7 @@ func allowedAssetQuery(r *http.Request, keys ...string) error {
 	return nil
 }
 func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
-	err := allowedAssetQuery(r, "provider", "account_id", "account_uid", "region", "resource_id", "after_id", "limit")
+	err := allowedAssetQuery(r, "provider", "account_id", "account_uid", "region", "resource_id", "resource_type", "after_id", "limit")
 	if err != nil {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
@@ -49,9 +49,27 @@ func (s *Server) handleListAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	result, err := query.AssetList(r.Context(), s.store, model.AssetFilter{Provider: q.Get("provider"), AccountID: q.Get("account_id"), AccountUID: q.Get("account_uid"), Region: q.Get("region"), ResourceID: q.Get("resource_id"), AfterID: q.Get("after_id"), Limit: limit})
+	result, err := query.AssetList(r.Context(), s.store, model.AssetFilter{Provider: q.Get("provider"), AccountID: q.Get("account_id"), AccountUID: q.Get("account_uid"), Region: q.Get("region"), ResourceID: q.Get("resource_id"), ResourceType: q.Get("resource_type"), AfterID: q.Get("after_id"), Limit: limit})
 	if err != nil {
 		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+
+func (s *Server) handleAssetLookup(w http.ResponseWriter, r *http.Request) {
+	if err := allowedAssetQuery(r, "provider", "account_id", "account_uid", "region", "resource_type", "resource_id"); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	q := r.URL.Query()
+	result, err := query.LookupAsset(r.Context(), s.store, model.AssetFilter{Provider: q.Get("provider"), AccountID: q.Get("account_id"), AccountUID: q.Get("account_uid"), Region: q.Get("region"), ResourceType: q.Get("resource_type"), ResourceID: q.Get("resource_id")})
+	if err != nil {
+		if errors.Is(err, query.ErrInvalidAssetReference) {
+			writeError(w, 400, "invalid_request", err.Error())
+		} else {
+			s.writeStoreError(w, err)
+		}
 		return
 	}
 	writeJSON(w, 200, result)
@@ -139,7 +157,7 @@ func (s *Server) handleAssetFindings(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := query.AssetFindings(r.Context(), s.store, r.PathValue("id"), r.URL.Query().Get("after_id"), limit, seq)
 	if err != nil {
-		if errors.Is(err, query.ErrInvalidFindingSelection) {
+		if errors.Is(err, query.ErrInvalidFindingSelection) || errors.Is(err, query.ErrInvalidAssetReference) {
 			writeError(w, 400, "invalid_request", err.Error())
 		} else {
 			s.writeStoreError(w, err)
@@ -170,13 +188,17 @@ func (s *Server) handleAssetRaw(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) handleAssetRefresh(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ResourceID string `json:"resource_id"`
+		ResourceID   string `json:"resource_id"`
+		ResourceType string `json:"resource_type"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, 400, "invalid_request", "resource_id is required")
 		return
 	}
-	result, err := s.assets.Refresh(r.Context(), r.PathValue("id"), body.ResourceID)
+	if body.ResourceType == "" {
+		body.ResourceType = "cvm"
+	}
+	result, err := s.assets.Refresh(r.Context(), r.PathValue("id"), body.ResourceType, body.ResourceID)
 	if err != nil {
 		if errors.Is(err, asset.ErrInvalidRequest) {
 			writeError(w, 400, "invalid_request", err.Error())

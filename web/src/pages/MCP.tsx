@@ -8,6 +8,7 @@ import { formatDate } from '../lib';
 import type { APIKey } from '../types';
 
 const TOOLS = [
+ ['get_asset_by_reference', '按来源账号、地域、类型和原生 ID 查询关联网络资源'],
  ['list_assets', '查询本地已保存资产，不访问云端'],
  ['get_asset', '读取资产基础信息、组件状态与精确修订'],
  ['get_alert_asset_context', '按完整资源身份取得告警的当前资产上下文'],

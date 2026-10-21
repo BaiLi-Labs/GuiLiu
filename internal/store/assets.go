@@ -131,6 +131,10 @@ func (s *SQLite) ListAssets(ctx context.Context, f model.AssetFilter) ([]model.A
 		}
 	}
 	limit := f.Limit
+	if f.ResourceType != "" {
+		clauses = append(clauses, "json_extract(record,'$.resource_type')=?")
+		args = append(args, f.ResourceType)
+	}
 	if limit <= 0 || limit > 101 {
 		limit = 101
 	}

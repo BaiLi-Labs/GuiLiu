@@ -43,7 +43,70 @@ func AssetView(a model.Asset) model.Asset {
 		components[key] = c
 	}
 	a.Components = components
+	a.References = append([]model.AssetReference(nil), a.References...)
+	for i := range a.References {
+		ref := &a.References[i]
+		params := url.Values{"provider": {ref.Provider}, "account_id": {ref.AccountID}, "account_uid": {ref.AccountUID}, "region": {ref.Region}, "resource_type": {ref.ResourceType}, "resource_id": {ref.ResourceID}}
+		ref.LookupURL = "/api/v1/assets/lookup?" + params.Encode()
+	}
 	return a
+}
+
+var ErrInvalidAssetReference = errors.New("invalid asset reference")
+
+type AssetLookup struct {
+	Status      string              `json:"status"`
+	Asset       *model.Asset        `json:"asset,omitempty"`
+	Refresh     *model.AssetRefresh `json:"refresh,omitempty"`
+	Limitations []string            `json:"limitations"`
+}
+
+func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*AssetLookup, error) {
+	if f.Provider != "tencent" || f.AccountUID == "" || f.Region == "" || f.ResourceID == "" {
+		return nil, fmt.Errorf("%w: provider, account_uid, region, resource_type and resource_id are required", ErrInvalidAssetReference)
+	}
+	switch f.ResourceType {
+	case "cvm", "security_group", "vpc", "subnet":
+	default:
+		return nil, fmt.Errorf("%w: unsupported resource_type", ErrInvalidAssetReference)
+	}
+	out := &AssetLookup{Status: "not_collected", Limitations: []string{"local_observations_only", "not_event_time_state", "no_network_reachability_inference"}}
+	if f.AccountID != "" {
+		connection, err := st.GetAccount(ctx, f.AccountID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		if connection != nil {
+			if connection.Provider != f.Provider || connection.AccountUID != f.AccountUID || connection.Region != f.Region {
+				return nil, fmt.Errorf("%w: connection does not match resource scope", ErrInvalidAssetReference)
+			}
+			attempt, err := st.GetAssetRefresh(ctx, f.AccountID, f.Region, f.ResourceID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+			out.Refresh = attempt
+		}
+	}
+	f.AccountID = ""
+	f.Limit = 2
+	f.AfterID = ""
+	items, err := st.ListAssets(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return out, nil
+	}
+	if len(items) != 1 {
+		return nil, fmt.Errorf("%w: ambiguous resource identity", ErrInvalidAssetReference)
+	}
+	value := AssetView(items[0])
+	out.Asset = &value
+	out.Status = "available"
+	if time.Since(value.LastObservedAt) > 5*time.Minute {
+		out.Status = "stale"
+	}
+	return out, nil
 }
 
 type AssetContext struct {
@@ -136,7 +199,7 @@ func AssetFindings(ctx context.Context, st store.Store, id, after string, limit 
 		return nil, err
 	}
 	if a.Provider != "tencent" || a.ResourceType != "cvm" || a.AccountUID == "" || a.Region == "" {
-		return nil, fmt.Errorf("unsupported or incomplete asset identity")
+		return nil, fmt.Errorf("%w: related Findings require a complete CVM identity", ErrInvalidAssetReference)
 	}
 	f := model.AlertFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ExactResourceID: a.ResourceID, ResourceType: "host", Sort: "id", AfterID: after, Limit: limit + 1, SnapshotSequence: seq}
 	if err := PinSnapshot(ctx, st, &f); err != nil {
