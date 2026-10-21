@@ -73,12 +73,12 @@
     {
       "name": "mock-azure",
       "provider": "azure",
-      "account_uid": "00000000-0000-0000-0000-000000000001",
-      "region": "centralus",
+      "account_uid": "11111111-1111-1111-1111-111111111111",
+      "region": "eastasia",
       "access_key_id": "mock-ak",
       "access_key_secret": "mock-sk",
       "options": {
-        "subscription_id": "00000000-0000-0000-0000-000000000001",
+        "subscription_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "mock-tenant",
         "page_size": "100"
       }
