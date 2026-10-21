@@ -9,7 +9,7 @@
 
 当前处于 `0.x` 开发阶段，尚未发布 `1.0`。查看[当前版本](internal/version/VERSION)、[更新日志](CHANGELOG.md)与[版本管理约定](docs/versioning.md)。
 
-归流接入分散在各云安全产品中的告警，统一字段、保留厂商原始数据，并通过控制台、REST API 和只读 MCP 提供一致的数据访问。安全团队和企业自己的 Agent 使用同一份数据。
+归流接入分散在各云安全产品中的告警，统一字段、保留厂商原始数据，并通过控制台、REST API、只读 MCP 和只读查询 CLI 提供一致的数据访问。安全团队和企业自己的 Agent 使用同一份数据。
 
 由 [BaiLi Labs](https://github.com/BaiLi-Labs) 开发，支持自托管。控制台随 Go 服务打包为单个二进制。
 
@@ -24,15 +24,15 @@
 - **可靠接入**：增量窗口、限流重试、页级断点续传。映射失败的原始载荷独立保存并自动重试，不阻塞后续采集。
 - **统一查询**：账号、来源等级与状态、资产、IP、Hash、用户和证据使用同一套事实契约；OCSF 按来源语义投影，不推造缺失字段。
 - **保留原始数据**：统一字段之外，可查看厂商原始 JSON 和映射版本；查询时分组保留全部原始告警。
-- **人和 Agent 共用**：控制台、REST API、20 个只读 MCP 工具访问同一份数据，可接入企业现有 Agent。
+- **人和 Agent 共用**：控制台、REST API、20 个只读 MCP 工具和只读查询 CLI 访问同一份数据，可接入企业现有 Agent。
 
-一次典型使用流程：接入云账号，筛选或分组告警，检查原始数据，再让已有 Agent 通过 MCP 查询相同记录。研判与响应由团队选择的工具完成。
+一次典型使用流程：接入云账号，筛选或分组告警，检查原始数据，再让已有 Agent 通过 MCP 或查询 CLI 访问相同记录。研判与响应由团队选择的工具完成。
 
 详见[安全数据访问契约](docs/security-data-access.md)：持久 Change Feed、固定查询快照、字段溯源、完整修订分页与机器可读覆盖范围。开发阶段 schema 5 不迁移旧数据库，请使用新数据库文件；服务不会自动清空旧数据。
 
-资产首版提供腾讯云 CVM 的实例、操作系统、IP 和标签，并通过完整作用域引用关联独立的安全组、VPC 与子网，可继续查询名称、CIDR、标签、策略原始证据和修订。普通查询只读本地观测，管理员可显式刷新指定实例或单个网络资源。该新增能力目前仅通过合成响应验证，待真实账号验证；不提供软件、监听端口或可达性观测。详见[资产访问契约](docs/security-data-access.md#资产上下文首版)。
+资产首版已覆盖六家云的控制面主机：腾讯云 CVM、阿里云 ECS、华为云 ECS、AWS EC2、GCP Compute 与 Azure VM，提供实例、操作系统、IP、VPC/子网/安全组和标签，并通过完整作用域引用关联独立的安全组、VPC 与子网，可继续查询名称、CIDR、标签、策略原始证据和修订。普通查询只读本地观测，管理员可显式刷新指定实例或单个网络资源。按来源能力保留差异：GCP 不把防火墙归为实例安全组，华为云不伪造子网，Azure 只跟随 VM 显式引用的网卡。六家目前都只通过合成响应与接口契约验证，待真实账号逐个验证；不提供软件、监听端口或可达性观测。详见[资产访问契约](docs/security-data-access.md#资产上下文首版)。
 
-Web、REST 与 MCP 的查询和操作写入独立的持久审计，记录用户/API Key 身份、查询范围、结果引用及耗时，管理员可在“操作审计”页追溯同一请求。审计不保存凭据或原始证据正文，默认保留 90 天。详见[操作审计说明](docs/access-audit.md)。
+Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，记录用户/API Key 身份、查询范围、结果引用及耗时，管理员可在“操作审计”页追溯同一请求。审计不保存凭据或原始证据正文，默认保留 90 天。详见[操作审计说明](docs/access-audit.md)。
 
 产品长期边界与当前交付范围见[产品方向与设计约束](docs/product-direction.md)。
 
@@ -116,6 +116,28 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 MCP 工具只读，单次最多返回 200 条，查询时间范围最多 90 天；告警列表默认查询最近 7 天，结果附带账号采集状态。API Key 继承创建者的角色权限，可访问本实例全部云账号。REST 接口及 stdio 配置见 [API 与 MCP 文档](docs/development.md)。
 
+### CLI 与 Skill
+
+同一个二进制内置只读查询 CLI，通过 REST API 访问，适合只有 shell 的 Agent、
+CI、批量导出和翻页场景。它不需要 MCP 客户端，也不直接读取数据库：
+
+```bash
+export GUILIU_URL="http://127.0.0.1:8080"
+export GUILIU_API_KEY="glk_..."
+
+guiliu query describe
+guiliu query alerts --since 24h --severity high,critical --limit 20 --json
+guiliu query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
+guiliu query changes --cursor 12345 --limit 100 --json
+guiliu query coverage --since 7d --json
+```
+
+默认输出表格；`--json` 是单页 REST 原始响应；`--ndjson` 每行一条记录，配合
+`--all` 做批量。分页元数据与 coverage 提示写到 stderr。`guiliu query describe`
+是命令、参数与限制的机器可读来源。配套 Agent Skill 见
+[`skills/guiliu-query/SKILL.md`](skills/guiliu-query/SKILL.md)。CLI 请求带
+`X-Guiliu-Client: cli`，访问审计记为 `surface=cli`。
+
 ## 安全与部署边界
 
 - 默认必须认证，支持本地用户与 `admin` / `viewer` 两种角色。
@@ -129,7 +151,7 @@ MCP 工具只读，单次最多返回 200 条，查询时间范围最多 90 天�
 
 ## 架构
 
-连接器负责读取和归一化厂商告警；同步引擎管理断点、重试与游标；统一存储为控制台、REST API 与 MCP 提供查询。
+连接器负责读取和归一化厂商告警；同步引擎管理断点、重试与游标；统一存储为控制台、REST API、MCP 与查询 CLI 提供查询。
 
 Go · React · TypeScript · Tailwind CSS · SQLite · OCSF 1.6
 

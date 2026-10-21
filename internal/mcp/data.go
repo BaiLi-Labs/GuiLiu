@@ -3,13 +3,15 @@ package mcp
 import (
 	"context"
 	"fmt"
+
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
 func (s *Server) registerDataTools() {
-	s.register(Tool{Name: "list_alert_changes", Description: "Read the persistent change log in sequence order. Save next_cursor only after processing. Reuse the same provider/account scope when resuming. Fetch an exact revision with get_alert. projection_updated=false means a late older observation was retained in history without replacing the current projection. Repeated ingestion does not create changes.", InputSchema: obj(map[string]any{"cursor": strProp("Last consumed sequence; empty starts at the beginning"), "limit": intProp("Maximum changes", 100, 1, 1000), "provider": strProp("Optional provider scope"), "account_id": strProp("Optional account scope")}), Handler: func(ctx context.Context, args map[string]any) (any, error) {
-		return s.store.ListAlertChanges(ctx, argString(args, "cursor"), argInt(args, "limit", 100, 1, 1000), argString(args, "provider"), argString(args, "account_id"))
+	s.register(Tool{Name: "list_alert_changes", Description: "Read the persistent change log in sequence order. Save next_cursor only after processing. Reuse the same provider/account scope when resuming. Fetch an exact revision with get_alert. projection_updated=false means a late older observation was retained in history without replacing the current projection. Repeated ingestion does not create changes.", InputSchema: obj(map[string]any{"cursor": strProp("Last consumed sequence; empty starts at the beginning"), "limit": intProp("Maximum changes", query.ChangeDefaultLimit, 1, query.ChangeMaxLimit), "provider": strProp("Optional provider scope"), "account_id": strProp("Optional account scope")}), Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		return s.store.ListAlertChanges(ctx, argString(args, "cursor"), argInt(args, "limit", query.ChangeDefaultLimit, 1, query.ChangeMaxLimit), argString(args, "provider"), argString(args, "account_id"))
 	}})
 	s.register(Tool{Name: "get_data_coverage", Description: "Check source API scope, earliest collected window, watermark, failures and limitations for an explicit query range. complete describes only the declared API/permission scope.", InputSchema: obj(mergeProps(timeProps(), map[string]any{"provider": strProp("Provider scope"), "account_id": strProp("Account scope")})), Handler: func(ctx context.Context, args map[string]any) (any, error) {
 		f, err := s.filterFromArgs(args, 0)

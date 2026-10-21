@@ -11,7 +11,7 @@ export interface AssetReference {
   source_component: string; source_path: string; lookup_url?: string;
 }
 interface Lookup { status: string; asset?: Asset; refresh?: { status: string; attempted_at: string } }
-const resourceLabels: Record<string, string> = { vpc: 'VPC', subnet: '子网', security_group: '安全组', cvm: '云主机' };
+const resourceLabels: Record<string, string> = { vpc: 'VPC', subnet: '子网', security_group: '安全组', cvm: '云主机', ecs: '云主机', ec2: '云主机', gce: '云主机', vm: '云主机' };
 const statusLabels: Record<string, string> = { available: '已有本地观测', stale: '本地观测已过期', not_collected: '尚未采集', partial: '部分组件未取得', permission_denied: '来源权限不足', timeout: '来源请求超时', source_request_failed: '来源请求失败', not_found_or_not_visible: '该范围内未查到或无权查看', storage_failed: '保存资产失败', cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新' };
 
 export function resourceLookupPath(ref: AssetReference): string {

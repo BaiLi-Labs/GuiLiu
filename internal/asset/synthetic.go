@@ -57,14 +57,20 @@ func SyntheticTencent(ctx context.Context, a model.Account, id string, limiter *
 	return value, err
 }
 
+// SeedSynthetic stores one fabricated host observation for the connection's
+// provider. Providers without a synthetic fixture are skipped.
 func SeedSynthetic(ctx context.Context, st store.Store, a model.Account) error {
+	p, ok := ProviderFor(a.Provider)
+	if !ok || p.SyntheticHostID == "" || p.Synthetic == nil {
+		return nil
+	}
 	s := New(st, nil, true)
 	s.limiter = connector.NewLimiter(100000)
-	result, err := s.Refresh(ctx, a.ID, "cvm", "ins-mock0001")
+	result, err := s.Refresh(ctx, a.ID, p.HostType, p.SyntheticHostID)
 	if err != nil {
 		return err
 	}
-	if result.Status != "available" {
+	if result.Status != "available" && result.Status != "cached" {
 		return fmt.Errorf("synthetic asset seed incomplete: %s", result.Status)
 	}
 	return nil

@@ -9,7 +9,7 @@
 
 The project remains in `0.x` development; `1.0` has not been released. See the [current version](internal/version/VERSION), [changelog](CHANGELOG.md) and [versioning policy](docs/versioning.md).
 
-GuiLiu collects alerts from cloud security services, normalizes them into a shared fact contract with source-appropriate OCSF projections, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, or read-only MCP tools.
+GuiLiu collects alerts from cloud security services, normalizes them into a shared fact contract with source-appropriate OCSF projections, and preserves the original vendor payload. Security teams and their own agents query the same data through a web console, REST API, read-only MCP tools, or a read-only query CLI.
 
 Built by [BaiLi Labs](https://github.com/BaiLi-Labs). Self-hosted, with a single Go binary and an embedded web console.
 
@@ -24,13 +24,13 @@ GuiLiu provides a common data layer:
 - **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed mappings retain their raw payload separately and are retried without blocking newer alerts.
 - **Consistent queries.** A shared fact contract for source severity/status, accounts, assets, IPs, hashes, users and evidence. OCSF classification follows source semantics; missing facts remain unknown.
 - **Original data.** Vendor JSON and mapping versions remain available alongside normalized fields. Query-time grouping preserves the underlying alerts.
-- **Human and agent access.** One dataset across the console, REST API, and 20 read-only MCP tools. Bring your own agent.
+- **Human and agent access.** One dataset across the console, REST API, 20 read-only MCP tools, and a read-only query CLI for shell agents and automation. Bring your own agent.
 
-A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP. Analysis and response stay with the tools you choose.
+A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP or the query CLI. Analysis and response stay with the tools you choose.
 
 See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 5 requires a new database; existing databases are rejected without being erased.
 
-The first asset adapter provides Tencent CVM metadata, OS, IPs, and tags, with scoped references to independent security groups, VPCs and subnets. Follow those references to query names, CIDRs, tags, source policy evidence and revisions. Reads use saved local observations; administrators can explicitly refresh an instance or one network resource. This new capability has synthetic-response validation only and awaits real-account verification. Software, listening ports, and reachability observations are not collected. See the [asset contract](docs/security-data-access.md#资产上下文首版).
+The first asset adapters cover six clouds: Tencent CVM, Alibaba ECS, Huawei ECS, AWS EC2, GCP Compute and Azure VM. They provide instance metadata, OS, IPs, VPC/subnet/security-group references and tags, with scoped references to independent security groups, VPCs and subnets. Follow those references to query names, CIDRs, tags, source policy evidence and revisions. Reads use saved local observations; administrators can explicitly refresh an instance or one network resource. Source capabilities are kept apart: GCP does not treat firewalls as instance security groups, Huawei does not invent a subnet ID, and Azure follows only the NICs explicitly referenced by the VM. All six have synthetic-response and contract validation only and await per-account verification. Software, listening ports, and reachability observations are not collected. See the [asset contract](docs/security-data-access.md#资产上下文首版).
 
 Web, REST and MCP access is recorded in a persistent audit with user/API key identity, query scope, result references and timing. Administrators can trace related calls in **Access audit**. Credentials and raw evidence bodies are excluded; retention defaults to 90 days. See the [audit contract](docs/access-audit.md).
 
@@ -114,6 +114,31 @@ For example, ask your agent to find high-severity alerts from the last 24 hours,
 
 MCP tools are read-only, with limits of 200 records per call and a 90-day query window. Alert lists default to the last seven days and include account ingestion status. API keys inherit their owner's role and access all cloud accounts in the instance. REST endpoint details and stdio setup are in the [API and MCP guide](docs/development.md).
 
+### CLI and skill
+
+The same binary includes a read-only query client over the REST API for shell
+agents, CI, batch exports and pagination. It does not need an MCP client and
+does not read the database directly:
+
+```bash
+export GUILIU_URL="http://127.0.0.1:8080"
+export GUILIU_API_KEY="glk_..."
+
+guiliu query describe
+guiliu query alerts --since 24h --severity high,critical --limit 20 --json
+guiliu query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
+guiliu query changes --cursor 12345 --limit 100 --json
+guiliu query coverage --since 7d --json
+```
+
+Output is a human table by default, `--json` is the exact REST body for one
+page, and `--ndjson` emits one record per line for `--all` batches. Metadata
+and coverage warnings go to stderr. `guiliu query describe` is the
+machine-readable source of truth for commands, flags and limits. The companion
+agent skill lives in [`skills/guiliu-query/SKILL.md`](skills/guiliu-query/SKILL.md).
+CLI calls carry `X-Guiliu-Client: cli`, so the access audit records
+`surface=cli`.
+
 ## Security and deployment boundaries
 
 - Local users with `admin` and `viewer` roles; authenticated access is required by default.
@@ -127,7 +152,7 @@ See the [current limitations and validation record](docs/development.md) before 
 
 ## Architecture
 
-Connectors fetch and normalize vendor alerts. The ingestion engine manages checkpoints and retries. A shared store serves REST, MCP, and the console.
+Connectors fetch and normalize vendor alerts. The ingestion engine manages checkpoints and retries. A shared store serves REST, MCP, the query CLI, and the console.
 
 Go · React · TypeScript · Tailwind CSS · SQLite · OCSF 1.6
 

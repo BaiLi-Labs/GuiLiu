@@ -70,7 +70,7 @@ export function Audit() {
     <form onSubmit={search} className="flex flex-wrap gap-2">
       {(['username', 'api_key_id', 'tool', 'request_id'] as const).map((key, i) => <input key={key} className="field" aria-label={t(['用户名', 'API Key ID', 'MCP 工具', '请求 ID'][i])} placeholder={t(['用户名', 'API Key ID', 'MCP 工具', '请求 ID'][i])} value={filters[key]} onChange={e => setFilters(old => ({ ...old, [key]: e.target.value }))} />)}
       <select className="field" aria-label={t('访问入口')} value={filters.surface} onChange={e => setFilters(old => ({ ...old, surface: e.target.value }))}>
-        <option value="">{t('全部入口')}</option><option value="rest">REST / Web</option><option value="mcp_http">MCP HTTP</option><option value="mcp_stdio">MCP stdio</option>
+        <option value="">{t('全部入口')}</option><option value="rest">REST / Web</option><option value="cli">CLI</option><option value="mcp_http">MCP HTTP</option><option value="mcp_stdio">MCP stdio</option>
       </select>
       <select className="field" aria-label={t('操作结果')} value={filters.outcome} onChange={e => setFilters(old => ({ ...old, outcome: e.target.value }))}>
         <option value="">{t('全部结果')}</option>{Object.entries(outcomes).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}

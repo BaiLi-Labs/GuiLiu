@@ -19,8 +19,6 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
-const maxRange = 90 * 24 * time.Hour
-
 func (s *Server) registerTools() {
 	s.registerDataTools()
 	s.registerAssetTools()
@@ -43,7 +41,7 @@ func (s *Server) registerTools() {
 			"resource":   strProp("Asset id (exact) or asset name (substring)"),
 			"sort":       strProp("event_time (default), severity, last_seen, first_seen"),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit":  intProp("Maximum alerts to return", 20, 1, 200),
+			"limit":  intProp("Maximum alerts to return", 20, 1, query.AgentMaxPageSize),
 			"offset": intProp("Pagination offset", 0, 0, 10000),
 		}))),
 		Handler: s.toolListAlerts,
@@ -61,7 +59,7 @@ func (s *Server) registerTools() {
 			"ip":         strProp("Exact match on source or destination IP"),
 			"resource":   strProp("Asset id (exact) or asset name (substring)"),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit":  intProp("Maximum groups to return", 20, 1, 200),
+			"limit":  intProp("Maximum groups to return", 20, 1, query.AgentMaxPageSize),
 			"offset": intProp("Pagination offset", 0, 0, 10000),
 		}))),
 		Handler: s.toolListAlertGroups,
@@ -80,7 +78,7 @@ func (s *Server) registerTools() {
 			"ip":         strProp("Exact match on source or destination IP"),
 			"resource":   strProp("Asset id (exact) or asset name (substring)"),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit":  intProp("Maximum member alerts to return", 50, 1, 200),
+			"limit":  intProp("Maximum member alerts to return", 50, 1, query.AgentMaxPageSize),
 			"offset": intProp("Pagination offset", 0, 0, 10000),
 		})), "group_by", "group_key"),
 		Handler: s.toolGetAlertGroup,
@@ -103,7 +101,7 @@ func (s *Server) registerTools() {
 		InputSchema: obj(mergeProps(map[string]any{
 			"ip": strProp("IPv4 or IPv6 address"),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit": intProp("Maximum alerts to return", 50, 1, 200),
+			"limit": intProp("Maximum alerts to return", 50, 1, query.AgentMaxPageSize),
 		})), "ip"),
 		Handler: s.toolSearchByIP,
 	})
@@ -113,7 +111,7 @@ func (s *Server) registerTools() {
 		InputSchema: obj(mergeProps(map[string]any{
 			"asset": strProp("Asset id (exact) or asset name (substring)"),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit": intProp("Maximum alerts to return", 50, 1, 200),
+			"limit": intProp("Maximum alerts to return", 50, 1, query.AgentMaxPageSize),
 		})), "asset"),
 		Handler: s.toolSearchByAsset,
 	})
@@ -423,7 +421,7 @@ func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration
 		IP:        argString(args, "ip"),
 		Resource:  argString(args, "resource"),
 		Sort:      argString(args, "sort"),
-		Limit:     argInt(args, "limit", 20, 1, 200),
+		Limit:     argInt(args, "limit", 20, 1, query.AgentMaxPageSize),
 		Offset:    argInt(args, "offset", 0, 0, int(^uint(0)>>1)),
 		RuleID:    argString(args, "rule_id"), FindingKind: argString(args, "finding_kind"), VendorStatus: argString(args, "vendor_status"), ObservableValue: argString(args, "observable_value"), AfterID: argString(args, "after_id"),
 	}
@@ -482,62 +480,7 @@ func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration
 }
 
 func parseRange(args map[string]any, defaultWindow time.Duration) (*time.Time, *time.Time, error) {
-	if defaultWindow <= 0 {
-		defaultWindow = 7 * 24 * time.Hour
-	}
-	now := time.Now().UTC()
-	var start, end *time.Time
-
-	if v := argString(args, "start"); v != "" {
-		t, ok := timeutil.Parse(v)
-		if !ok {
-			return nil, nil, fmt.Errorf("invalid start %q", v)
-		}
-		start = &t
-	}
-	if v := argString(args, "end"); v != "" {
-		t, ok := timeutil.Parse(v)
-		if !ok {
-			return nil, nil, fmt.Errorf("invalid end %q", v)
-		}
-		end = &t
-	}
-	if v := argString(args, "since"); v != "" {
-		if start != nil {
-			return nil, nil, errors.New("use start or since, not both")
-		}
-		d, ok := timeutil.ParseDuration(v)
-		if !ok {
-			return nil, nil, fmt.Errorf("invalid since %q", v)
-		}
-		t := now.Add(-d)
-		start = &t
-		if end == nil {
-			e := now
-			end = &e
-		}
-	}
-	if start != nil && end == nil {
-		e := now
-		end = &e
-	}
-	if end == nil {
-		e := now
-		end = &e
-	}
-	if start == nil {
-		s := end.Add(-defaultWindow)
-		start = &s
-	}
-	if start != nil && end != nil {
-		if end.Before(*start) {
-			return nil, nil, errors.New("end must be after start")
-		}
-		if end.Sub(*start) > maxRange {
-			return nil, nil, fmt.Errorf("time range exceeds %s; narrow the query", maxRange)
-		}
-	}
-	return start, end, nil
+	return query.ResolveWindow(argString(args, "start"), argString(args, "end"), argString(args, "since"), defaultWindow, time.Now().UTC())
 }
 
 func derefTime(t *time.Time) time.Time {

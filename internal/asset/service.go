@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -23,13 +24,25 @@ type Service struct {
 	Store     store.Store
 	Cipher    *secret.Cipher
 	Synthetic bool
-	Factory   func(connector.Credential, string) Call
-	limiter   *connector.Limiter
-	now       func() time.Time
+	// Factory builds the Tencent raw caller. It defaults to TencentCall and
+	// exists so tests can inject API-shaped responses; other providers always
+	// use their registered Provider.New.
+	Factory func(connector.Credential, string) Call
+	limiter *connector.Limiter
+	now     func() time.Time
+
+	limiterMu sync.Mutex
+	limiters  map[string]*connector.Limiter
 }
 
 func New(st store.Store, cipher *secret.Cipher, synthetic bool) *Service {
-	return &Service{Store: st, Cipher: cipher, Synthetic: synthetic, Factory: TencentCall, limiter: connector.NewLimiter(2), now: time.Now}
+	return &Service{
+		Store: st, Cipher: cipher, Synthetic: synthetic,
+		Factory:  TencentCall,
+		limiter:  connector.NewLimiter(2),
+		now:      time.Now,
+		limiters: map[string]*connector.Limiter{},
+	}
 }
 
 type RefreshResult struct {
@@ -40,18 +53,66 @@ type RefreshResult struct {
 	Related      []RelatedRefresh    `json:"related,omitempty"`
 }
 
-func errorCode(err error) string {
+// errorCode maps a source failure to a stable, non-secret reason. Provider
+// classification is used only to distinguish authorization problems.
+func errorCode(err error, provider string) string {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return "timeout"
 	}
-	if connector.AuthError(connector.Classify("tencent", err)) {
+	if provider != "" && connector.AuthError(connector.Classify(provider, err)) {
 		return "permission_denied"
 	}
 	if errors.Is(err, ErrNotVisible) {
 		return "not_found_or_not_visible"
 	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "notfound") || strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") {
+		return "not_found_or_not_visible"
+	}
 	// Never expose SDK error messages, request signatures, or response payloads.
 	return "source_request_failed"
+}
+
+func (s *Service) limiterFor(p Provider) *connector.Limiter {
+	if p.ID == "tencent" {
+		return s.limiter
+	}
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+	if s.limiters == nil {
+		s.limiters = map[string]*connector.Limiter{}
+	}
+	if l, ok := s.limiters[p.ID]; ok {
+		return l
+	}
+	qps := p.QPS
+	if qps <= 0 {
+		qps = 2
+	}
+	l := connector.NewLimiter(qps)
+	s.limiters[p.ID] = l
+	return l
+}
+
+// client resolves the provider client for this connection. Credentials are
+// decrypted only here; source payloads never include them.
+func (s *Service) client(ctx context.Context, a model.Account, p Provider) (Client, error) {
+	limiter := s.limiterFor(p)
+	if s.Synthetic {
+		// Offline fixtures must not be throttled by a live-source budget.
+		return p.Synthetic(connector.NewLimiter(100000)), nil
+	}
+	cred, err := credential.Load(ctx, s.Store, s.Cipher, a.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.ValidateCredential(cred); err != nil {
+		return nil, err
+	}
+	if p.ID == "tencent" && s.Factory != nil {
+		return &tencentClient{call: s.Factory(cred, a.Region), limiter: limiter}, nil
+	}
+	return p.New(cred, a, limiter)
 }
 
 func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*RefreshResult, error) {
@@ -59,8 +120,21 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 	if err != nil {
 		return nil, err
 	}
-	if a.Provider != "tencent" || !a.Enabled || a.AccountUID == "" || a.Region == "" || !ValidResource(kind, id) {
-		return nil, fmt.Errorf("%w: enabled Tencent connection, explicit account UID, region and valid resource type/ID required", ErrInvalidRequest)
+	p, ok := ProviderFor(a.Provider)
+	if !ok {
+		return nil, fmt.Errorf("%w: unsupported provider %q", ErrInvalidRequest, a.Provider)
+	}
+	if kind == "" {
+		kind = p.HostType
+	}
+	regionMissing := p.RequiresRegion && a.Region == ""
+	if !a.Enabled || a.AccountUID == "" || regionMissing || !p.Valid(kind, id) {
+		return nil, fmt.Errorf("%w: enabled %s connection, explicit account UID, required region scope and valid resource type/ID required", ErrInvalidRequest, p.Name)
+	}
+	if p.ValidateAccount != nil {
+		if err := p.ValidateAccount(*a); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		}
 	}
 	attempt := model.AssetRefresh{AccountID: a.ID, Region: a.Region, ResourceID: id, AttemptedAt: s.now().UTC(), Status: "refreshing"}
 	claimed, err := s.Store.BeginAssetRefresh(ctx, attempt, CacheTTL)
@@ -78,41 +152,49 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		var value *model.Asset
-		var call Call
-		if s.Synthetic {
-			call = SyntheticCall()
-		} else {
-			var cred connector.Credential
-			cred, err = credential.Load(ctx, s.Store, s.Cipher, a.ID)
-			if err == nil && (cred.AccessKeyID == "" || cred.AccessKeySecret == "") {
-				err = errors.New("missing credential")
-			}
-			if err == nil {
-				call = s.Factory(cred, a.Region)
-			}
-		}
-		if call != nil {
-			if kind == "cvm" {
-				value, err = ReadTencent(ctx, *a, id, call, s.limiter)
+		var client Client
+		if client, err = s.client(ctx, *a, p); err == nil && client != nil {
+			if kind == p.HostType {
+				value, err = client.ReadInstance(ctx, *a, id)
 			} else {
-				value, err = readNetwork(ctx, *a, kind, id, call, s.limiter)
+				var items map[string]*model.Asset
+				items, err = client.ReadNetwork(ctx, *a, kind, []string{id})
+				if err == nil {
+					value = items[id]
+					if value == nil {
+						err = ErrNotVisible
+					}
+				}
+				if err == nil && kind == "security_group" && !p.PoliciesInDetails {
+					component, policyErr := client.ReadPolicies(ctx, *a, id)
+					if policyErr != nil {
+						component = model.AssetComponent{Status: "failed", Reason: errorCode(policyErr, p.ID), SourceAPI: p.PolicyAPI, APIVersion: p.APIVersion}
+					}
+					value.Components["policies"] = component
+				}
 			}
 			if value != nil {
 				value.Synthetic = s.Synthetic
 			}
 		}
+		if err == nil && client == nil {
+			err = errors.New("asset client unavailable")
+		}
+		if err == nil && value == nil {
+			err = ErrNotVisible
+		}
 		attempt.Status = "available"
 		if err != nil {
-			attempt.Status = errorCode(err)
+			attempt.Status = errorCode(err, p.ID)
 		} else {
 			for key, c := range value.Components {
 				if (strings.HasPrefix(key, "security_group:") || key == "policies") && c.Status != "available" {
 					attempt.Status = "partial"
 				}
 			}
-			if kind == "cvm" {
+			if kind == p.HostType {
 				var partial bool
-				result.Related, partial, err = s.enrichNetworks(ctx, *a, value, call)
+				result.Related, partial, err = s.enrichNetworks(ctx, *a, p, value, client)
 				if partial {
 					attempt.Status = "partial"
 				}

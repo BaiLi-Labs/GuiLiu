@@ -34,7 +34,7 @@ func ValidResource(kind, id string) bool {
 	return false
 }
 func reference(a model.Account, kind, id, relation, component, path string) model.AssetReference {
-	return model.AssetReference{Provider: "tencent", AccountID: a.ID, AccountUID: a.AccountUID, Region: a.Region, ResourceType: kind, ResourceID: id, Relation: relation, SourceComponent: component, SourcePath: path}
+	return model.AssetReference{Provider: a.Provider, AccountID: a.ID, AccountUID: a.AccountUID, Region: a.Region, ResourceType: kind, ResourceID: id, Relation: relation, SourceComponent: component, SourcePath: path}
 }
 func networkAPI(kind string) (action, list, idField string) {
 	switch kind {
@@ -110,7 +110,7 @@ func normalizeNetwork(a model.Account, kind, id, action string, raw json.RawMess
 		return nil, fmt.Errorf("invalid network fields")
 	}
 	at := time.Now().UTC()
-	out := &model.Asset{AccountID: a.ID, Provider: "tencent", AccountUID: a.AccountUID, Region: a.Region, ResourceID: id, ResourceType: kind, ObservedAt: at, MapperVersion: "tencent-vpc/v1", Components: map[string]model.AssetComponent{"details": component(raw, "VPC "+action, at)}, Provenance: map[string]model.FieldOrigin{}, Network: &model.AssetNetwork{Description: value.SecurityGroupDesc, CIDRBlock: value.CidrBlock, IPv6CIDRBlock: value.Ipv6CidrBlock, IsDefault: value.IsDefault, SourceCreatedTime: value.CreatedTime}}
+	out := &model.Asset{AccountID: a.ID, Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: id, ResourceType: kind, ObservedAt: at, MapperVersion: "tencent-vpc/v1", Components: map[string]model.AssetComponent{"details": component(raw, "VPC "+action, tencentAPIVersion, at)}, Provenance: map[string]model.FieldOrigin{}, Network: &model.AssetNetwork{Description: value.SecurityGroupDesc, CIDRBlock: value.CidrBlock, IPv6CIDRBlock: value.Ipv6CidrBlock, IsDefault: value.IsDefault, SourceCreatedTime: value.CreatedTime}}
 	paths := map[string]string{"network.cidr_block": "/CidrBlock", "network.ipv6_cidr_block": "/Ipv6CidrBlock", "network.is_default": "/IsDefault", "network.source_created_time": "/CreatedTime", "tags": "/TagSet"}
 	switch kind {
 	case "vpc":
@@ -165,19 +165,28 @@ func readNetwork(ctx context.Context, a model.Account, kind, id string, call Cal
 		return nil, ErrNotVisible
 	}
 	if kind == "security_group" {
-		c := model.AssetComponent{Status: "failed", Reason: "timeout", SourceAPI: "VPC DescribeSecurityGroupPolicies", APIVersion: "2017-03-12"}
+		c := model.AssetComponent{Status: "failed", Reason: "timeout", SourceAPI: "VPC DescribeSecurityGroupPolicies", APIVersion: tencentAPIVersion}
 		if err := limiter.Wait(ctx); err == nil && ctx.Err() == nil {
-			raw, err := call(ctx, "vpc", "DescribeSecurityGroupPolicies", map[string]any{"SecurityGroupId": id})
-			var response struct{ SecurityGroupPolicySet json.RawMessage }
-			if err != nil {
-				c.Reason = errorCode(err)
-			} else if json.Unmarshal(raw, &response) != nil || len(response.SecurityGroupPolicySet) == 0 || string(response.SecurityGroupPolicySet) == "null" {
-				c.Reason = "invalid_source_response"
-			} else {
-				c = component(response.SecurityGroupPolicySet, c.SourceAPI, time.Now().UTC())
-			}
+			raw, callErr := call(ctx, "vpc", "DescribeSecurityGroupPolicies", map[string]any{"SecurityGroupId": id})
+			c = policyComponent(raw, callErr, c.SourceAPI, c.APIVersion, a.Provider)
 		}
 		out.Components["policies"] = c
 	}
 	return out, nil
+}
+
+// policyComponent turns one security-group policy response into a component.
+// A source failure keeps only its classified reason; payloads never leak.
+func policyComponent(raw json.RawMessage, err error, api, apiVersion, provider string) model.AssetComponent {
+	c := model.AssetComponent{Status: "failed", SourceAPI: api, APIVersion: apiVersion}
+	if err != nil {
+		c.Reason = errorCode(err, provider)
+		return c
+	}
+	var response struct{ SecurityGroupPolicySet json.RawMessage }
+	if json.Unmarshal(raw, &response) != nil || len(response.SecurityGroupPolicySet) == 0 || string(response.SecurityGroupPolicySet) == "null" {
+		c.Reason = "invalid_source_response"
+		return c
+	}
+	return component(response.SecurityGroupPolicySet, api, apiVersion, time.Now().UTC())
 }

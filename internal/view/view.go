@@ -1,5 +1,5 @@
-// Package view defines the public JSON shape shared by the REST API, MCP tools
-// and the Web console. Keeping it separate from storage avoids leaking internal
+// Package view defines the public JSON shape shared by the REST API, MCP tools,
+// the query CLI and the Web console. Keeping it separate from storage avoids leaking internal
 // fields (encrypted credentials, dedupe keys) to consumers.
 package view
 

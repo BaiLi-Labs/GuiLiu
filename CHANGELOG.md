@@ -4,7 +4,29 @@
 
 ## [Unreleased]
 
-尚无下一轮变更。后续新增工作先记在此，形成完整开发批次后归档到具体版本。
+## [0.3.0-dev] - 2026-10-21（开发中，未发布）
+
+### 新增
+
+- 只读查询 CLI `guiliu query`：REST 薄客户端，提供 `alerts`、`alert`、`groups`、`changes`、`stats`、`coverage`、`revisions`、`context`、`assets`、`asset`、`lookup`、`findings`、`component`、`health`、`providers`、`mapping`、`failures` 命令。
+- CLI 输出契约：默认表格，`--json` 透传单页 REST 响应，`--ndjson` 逐条输出并支持 `--all`；分页元数据与 coverage 提示写入 stderr，退出码区分成功、API/网络错误和用法错误。
+- `guiliu query describe` 输出机器可读的命令、参数、默认值与限制，配套 Agent Skill 位于 `skills/guiliu-query/`。
+- 资产控制面适配扩展为六家云：腾讯云 CVM、阿里云 ECS、华为云 ECS、AWS EC2、GCP Compute、Azure VM；统一 `provider` 注册、主机/网络读取与精确 ID 校验，REST/MCP/CLI 与刷新入口按 provider 声明工作。
+- 各家保留原生资源身份：AWS 接受 ARN 与原生实例 ID，GCP 使用完整资源路径，Azure 使用小写 ARM ID；GCP 不把防火墙表达为实例安全组，华为云不补造子网。
+- 资产组件新增 `raw_form`，区分来源精确字节与 SDK 类型化投影；AWS EC2 因 XML 协议使用 `api_projection`，其余来源默认保存原始 JSON。
+
+### 调整与修正
+
+- MCP 与查询 CLI 共用 `internal/query` 的时间窗口解析、7 天/24 小时默认值与 90 天上限，避免两个 Agent 入口产生不同语义。
+- 查询 CLI 携带 `X-Guiliu-Client: cli`，访问审计新增 `surface=cli`；Web 审计筛选加入 CLI 入口。
+- CLI 复用 `internal/view` 与 `internal/query` 的公开 JSON 契约，不直接访问数据库，也不在客户端复制查询或分组逻辑。
+- 资产刷新省略 `resource_type` 时使用该 provider 的主机类型；关联 Finding 支持 AWS ARN 与 GCP 完整资源名等厂商别名。
+
+### 数据与验证边界
+
+- 查询 CLI 通过 mock 内存数据库完成端到端验证：列表、分页、NDJSON、详情、原始载荷、变更流、资产、coverage、health 与审计入口；尚未在真实多账号数据集上验证批量吞吐。
+- 六家云资产适配均只通过 SDK/接口契约、合成响应与本地测试验证，尚未通过真实云账号验证；每家需单独验证，不能用腾讯云告警验证替代。
+- Mock 仅腾讯云与阿里云的演示告警直接指向合成主机；其他云的合成主机可通过资产列表查看。
 
 ## [0.2.0-dev] - 2026-10-21（开发中，未发布）
 

@@ -460,7 +460,7 @@ func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
 		f.End = &now
 	}
-	if f.Limit <= 0 || f.Limit > 200 {
+	if f.Limit <= 0 || f.Limit > query.AgentMaxPageSize {
 		f.Limit = 50
 	}
 	if err := query.PinSnapshot(r.Context(), s.store, &f); err != nil {
@@ -502,8 +502,8 @@ func (s *Server) handleGetAlertRevisions(w http.ResponseWriter, r *http.Request)
 		}
 		limit = n
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > query.AgentMaxPageSize {
+		limit = query.AgentMaxPageSize
 	}
 	before := 0
 	if raw := r.URL.Query().Get("before_revision"); raw != "" {
@@ -658,8 +658,8 @@ func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 		if err != nil || n < 1 {
 			return f, errors.New("limit must be a positive integer")
 		}
-		if n > 200 {
-			n = 200
+		if n > query.AgentMaxPageSize {
+			n = query.AgentMaxPageSize
 		}
 		f.Limit = n
 	}

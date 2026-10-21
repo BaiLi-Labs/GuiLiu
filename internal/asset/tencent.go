@@ -21,6 +21,7 @@ import (
 )
 
 const MapperVersion = "tencent-cvm/v2"
+const tencentAPIVersion = "2017-03-12"
 const MaxSecurityGroups = 5
 
 var instanceID = regexp.MustCompile(`^ins-[a-zA-Z0-9]+$`)
@@ -117,8 +118,8 @@ func sourceHas(raw json.RawMessage, path string) bool {
 	return true
 }
 
-func component(raw json.RawMessage, api string, at time.Time) model.AssetComponent {
-	return model.AssetComponent{Status: "available", SourceAPI: api, APIVersion: "2017-03-12", ObservedAt: &at, Raw: append(json.RawMessage(nil), raw...), RawHash: fmt.Sprintf("%x", sha256.Sum256(raw))}
+func component(raw json.RawMessage, api, apiVersion string, at time.Time) model.AssetComponent {
+	return model.AssetComponent{Status: "available", SourceAPI: api, APIVersion: apiVersion, ObservedAt: &at, RawForm: "exact_bytes", Raw: append(json.RawMessage(nil), raw...), RawHash: fmt.Sprintf("%x", sha256.Sum256(raw))}
 }
 
 // ReadTencent requests exactly one instance and at most five referenced policy
@@ -161,7 +162,7 @@ func ReadTencent(ctx context.Context, a model.Account, id string, call Call, lim
 		return nil, fmt.Errorf("instance identity mismatch")
 	}
 	at := time.Now().UTC()
-	out := &model.Asset{AccountID: a.ID, Provider: "tencent", AccountUID: a.AccountUID, Region: a.Region, ResourceID: i.InstanceId, ResourceType: "cvm", Name: i.InstanceName, OS: i.OsName, State: i.InstanceState, InstanceType: i.InstanceType, Zone: i.Placement.Zone, PublicIPs: i.PublicIpAddresses, PrivateIPs: i.PrivateIpAddresses, VPCID: i.VirtualPrivateCloud.VpcId, SubnetID: i.VirtualPrivateCloud.SubnetId, SecurityGroupIDs: i.SecurityGroupIds, MapperVersion: MapperVersion, ObservedAt: at, Components: map[string]model.AssetComponent{"instance": component(page.InstanceSet[0], "CVM DescribeInstances", at)}, Provenance: map[string]model.FieldOrigin{}}
+	out := &model.Asset{AccountID: a.ID, Provider: "tencent", AccountUID: a.AccountUID, Region: a.Region, ResourceID: i.InstanceId, ResourceType: "cvm", Name: i.InstanceName, OS: i.OsName, State: i.InstanceState, InstanceType: i.InstanceType, Zone: i.Placement.Zone, PublicIPs: i.PublicIpAddresses, PrivateIPs: i.PrivateIpAddresses, VPCID: i.VirtualPrivateCloud.VpcId, SubnetID: i.VirtualPrivateCloud.SubnetId, SecurityGroupIDs: i.SecurityGroupIds, MapperVersion: MapperVersion, ObservedAt: at, Components: map[string]model.AssetComponent{"instance": component(page.InstanceSet[0], "CVM DescribeInstances", tencentAPIVersion, at)}, Provenance: map[string]model.FieldOrigin{}}
 	for _, t := range i.Tags {
 		out.Tags = append(out.Tags, model.AssetTag{Key: t.TagKey, Value: t.TagValue})
 	}
@@ -211,7 +212,7 @@ func ReadTencent(ctx context.Context, a model.Account, id string, call Call, lim
 		policy, err := call(ctx, "vpc", "DescribeSecurityGroupPolicies", map[string]any{"SecurityGroupId": g})
 		if err != nil {
 			c.Status = "failed"
-			c.Reason = errorCode(err)
+			c.Reason = errorCode(err, "tencent")
 			out.Components[key] = c
 			continue
 		}
@@ -222,7 +223,58 @@ func ReadTencent(ctx context.Context, a model.Account, id string, call Call, lim
 			out.Components[key] = c
 			continue
 		}
-		out.Components[key] = component(envelope.SecurityGroupPolicySet, c.SourceAPI, time.Now().UTC())
+		out.Components[key] = component(envelope.SecurityGroupPolicySet, c.SourceAPI, tencentAPIVersion, time.Now().UTC())
 	}
 	return out, nil
+}
+
+// tencentClient adapts the generic signed Call into the asset Client contract.
+type tencentClient struct {
+	call    Call
+	limiter *connector.Limiter
+}
+
+func (c *tencentClient) ReadInstance(ctx context.Context, a model.Account, id string) (*model.Asset, error) {
+	return ReadTencent(ctx, a, id, c.call, c.limiter)
+}
+
+func (c *tencentClient) ReadNetwork(ctx context.Context, a model.Account, kind string, ids []string) (map[string]*model.Asset, error) {
+	return readNetworkBatch(ctx, a, kind, ids, c.call, c.limiter)
+}
+
+func (c *tencentClient) ReadPolicies(ctx context.Context, a model.Account, id string) (model.AssetComponent, error) {
+	raw, err := c.call(ctx, "vpc", "DescribeSecurityGroupPolicies", map[string]any{"SecurityGroupId": id})
+	return policyComponent(raw, err, "VPC DescribeSecurityGroupPolicies", tencentAPIVersion, "tencent"), nil
+}
+
+func init() {
+	registerProvider(Provider{
+		ID:              "tencent",
+		Name:            "Tencent Cloud",
+		HostType:        "cvm",
+		APIVersion:      tencentAPIVersion,
+		HostAPI:         "CVM DescribeInstances",
+		PolicyAPI:       "VPC DescribeSecurityGroupPolicies",
+		ResourceTypes:   []string{"cvm", "security_group", "vpc", "subnet"},
+		MapperVersion:   MapperVersion,
+		DocsURL:         "https://cloud.tencent.com/document/api/213/15728",
+		SyntheticHostID: "ins-mock0001",
+		AlertHostType:   "host",
+		HostID: func(r model.Resource) (string, bool) {
+			if r.Type == "host" && instanceID.MatchString(r.ID) {
+				return r.ID, true
+			}
+			return "", false
+		},
+		Valid:              ValidResource,
+		QPS:                2,
+		RequiresRegion:     true,
+		ValidateCredential: requireAKSK,
+		New: func(cred connector.Credential, a model.Account, limiter *connector.Limiter) (Client, error) {
+			return &tencentClient{call: TencentCall(cred, a.Region), limiter: limiter}, nil
+		},
+		Synthetic: func(limiter *connector.Limiter) Client {
+			return &tencentClient{call: SyntheticCall(), limiter: limiter}
+		},
+	})
 }

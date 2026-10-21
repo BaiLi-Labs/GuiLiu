@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -18,11 +19,11 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	limit := 100
+	limit := query.ChangeDefaultLimit
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, e := strconv.Atoi(raw)
-		if e != nil || n < 1 || n > 1000 {
-			writeError(w, 400, "invalid_request", "limit must be between 1 and 1000")
+		if e != nil || n < 1 || n > query.ChangeMaxLimit {
+			writeError(w, 400, "invalid_request", fmt.Sprintf("limit must be between 1 and %d", query.ChangeMaxLimit))
 			return
 		}
 		limit = n

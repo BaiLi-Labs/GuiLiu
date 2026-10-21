@@ -12,6 +12,16 @@ import (
 	"github.com/google/uuid"
 )
 
+func requestSurface(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/mcp") {
+		return "mcp_http"
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Guiliu-Client")), "cli") {
+		return "cli"
+	}
+	return "rest"
+}
+
 func (s *Server) auditHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/mcp" && !strings.HasPrefix(r.URL.Path, "/mcp/") {
@@ -27,10 +37,7 @@ func (s *Server) auditHTTP(next http.Handler) http.Handler {
 		if net.ParseIP(peer) == nil {
 			peer = ""
 		}
-		surface := "rest"
-		if strings.HasPrefix(r.URL.Path, "/mcp") {
-			surface = "mcp_http"
-		}
+		surface := requestSurface(r)
 		ctx, span, err := audit.Begin(r.Context(), s.store, s.log, model.AuditEvent{RequestID: id, Surface: surface, Method: r.Method, Operation: r.Method + " " + audit.Text(r.URL.Path), Path: audit.Text(r.URL.Path), PeerIP: peer, Parameters: audit.Parameters(r.URL.Query())})
 		if err != nil {
 			writeError(w, 503, "audit_unavailable", "access audit is unavailable; operation was not started")

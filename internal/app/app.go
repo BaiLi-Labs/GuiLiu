@@ -141,7 +141,7 @@ func seedMock(ctx context.Context, st *store.SQLite, engine *ingest.Engine, log 
 			return fmt.Errorf("seed mock data for %s: %w", acct.Name, err)
 		}
 		seeded++
-		if acct.Provider == "tencent" && acct.AccountUID != "" && acct.Region != "" {
+		if p, ok := asset.ProviderFor(acct.Provider); ok && acct.AccountUID != "" && (!p.RequiresRegion || acct.Region != "") {
 			if err := asset.SeedSynthetic(ctx, st, acct); err != nil {
 				return err
 			}

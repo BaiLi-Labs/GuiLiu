@@ -337,6 +337,7 @@ type AlertFilter struct {
 	AccountUID       string
 	Region           string
 	ExactResourceID  string
+	ExactResourceIDs []string
 	ResourceType     string
 	TimeField        string
 	Provider         string

@@ -17,6 +17,7 @@ import (
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/app"
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
+	"github.com/BaiLi-Labs/GuiLiu/internal/cli"
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
@@ -47,6 +48,8 @@ func run(args []string) int {
 		return runReplay(args[1:])
 	case "accounts":
 		return runAccounts(args[1:])
+	case "query":
+		return cli.Run(args[1:], os.Stdout, os.Stderr)
 	case "user":
 		return runUser(args[1:])
 	case "version", "-v", "--version":
@@ -75,6 +78,7 @@ Usage:
   guiliu probe    [-config path] -account id|name [-since 24h] [-limit 5] [-raw] [-mapped]
   guiliu replay   [-config path] -account id|name [-since 7d] [-mapper-version old] [-apply]
   guiliu accounts [-config path]
+  guiliu query    <command> [flags]  Read-only REST client; see guiliu query --help
   guiliu user list    [-config path]
   guiliu user add     [-config path] -username alice [-role admin|viewer]
   guiliu user passwd  [-config path] -username alice

@@ -1,4 +1,5 @@
-// Package query holds the data access semantics shared by REST and MCP.
+// Package query holds the data access semantics shared by REST, MCP and the
+// read-only query CLI.
 package query
 
 import (

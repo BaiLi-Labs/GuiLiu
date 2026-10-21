@@ -15,7 +15,7 @@ type RelatedRefresh struct {
 // enrichNetworks adds at most three metadata requests to the CVM refresh:
 // one SG batch, one VPC, one subnet. Policies are reused from the host request.
 // Shared network metadata is cached independently of each host.
-func (s *Service) enrichNetworks(ctx context.Context, a model.Account, host *model.Asset, call Call) ([]RelatedRefresh, bool, error) {
+func (s *Service) enrichNetworks(ctx context.Context, a model.Account, p Provider, host *model.Asset, client Client) ([]RelatedRefresh, bool, error) {
 	results := []RelatedRefresh{}
 	partial := false
 	for _, kind := range []string{"security_group", "vpc", "subnet"} {
@@ -36,7 +36,7 @@ func (s *Service) enrichNetworks(ctx context.Context, a model.Account, host *mod
 				continue
 			}
 			seen[ref.ResourceID] = true
-			if !ValidResource(kind, ref.ResourceID) {
+			if !p.Valid(kind, ref.ResourceID) {
 				results = append(results, RelatedRefresh{ref, "invalid_source_reference"})
 				partial = true
 				continue
@@ -80,12 +80,12 @@ func (s *Service) enrichNetworks(ctx context.Context, a model.Account, host *mod
 		for _, ref := range pending {
 			ids = append(ids, ref.ResourceID)
 		}
-		items, fetchErr := readNetworkBatch(ctx, a, kind, ids, call, s.limiter)
+		items, fetchErr := client.ReadNetwork(ctx, a, kind, ids)
 		for _, ref := range pending {
 			attempt := attempts[ref.ResourceID]
 			attempt.Status = "available"
 			if fetchErr != nil {
-				attempt.Status = errorCode(fetchErr)
+				attempt.Status = errorCode(fetchErr, p.ID)
 			} else if items[ref.ResourceID] == nil {
 				attempt.Status = "not_found_or_not_visible"
 			} else {

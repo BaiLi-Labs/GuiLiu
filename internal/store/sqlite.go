@@ -930,6 +930,27 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 		clauses = append(clauses, "((resource_id=? AND resource_type=?) OR EXISTS (SELECT 1 FROM json_each(canonical,'$.resources') r WHERE json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.type')=?))")
 		args = append(args, f.ExactResourceID, f.ResourceType, f.ExactResourceID, f.ResourceType)
 	}
+	if len(f.ExactResourceIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.ExactResourceIDs)), ",")
+		typeClause, typeClauseJSON := "", ""
+		if f.ResourceType != "" {
+			typeClause = " AND resource_type=?"
+			typeClauseJSON = " AND json_extract(r.value,'$.type')=?"
+		}
+		for _, id := range f.ExactResourceIDs {
+			args = append(args, id)
+		}
+		if f.ResourceType != "" {
+			args = append(args, f.ResourceType)
+		}
+		for _, id := range f.ExactResourceIDs {
+			args = append(args, id)
+		}
+		if f.ResourceType != "" {
+			args = append(args, f.ResourceType)
+		}
+		clauses = append(clauses, "((resource_id IN ("+placeholders+")"+typeClause+") OR EXISTS (SELECT 1 FROM json_each(canonical,'$.resources') r WHERE json_extract(r.value,'$.id') IN ("+placeholders+")"+typeClauseJSON+"))")
+	}
 	if len(f.Severities) > 0 {
 		ph := make([]string, len(f.Severities))
 		for i, s := range f.Severities {

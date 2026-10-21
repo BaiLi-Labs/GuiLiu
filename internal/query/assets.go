@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/BaiLi-Labs/GuiLiu/internal/asset"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
@@ -62,13 +63,12 @@ type AssetLookup struct {
 }
 
 func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*AssetLookup, error) {
-	if f.Provider != "tencent" || f.AccountUID == "" || f.Region == "" || f.ResourceID == "" {
-		return nil, fmt.Errorf("%w: provider, account_uid, region, resource_type and resource_id are required", ErrInvalidAssetReference)
+	p, ok := asset.ProviderFor(f.Provider)
+	if !ok || f.AccountUID == "" || f.ResourceID == "" || f.ResourceType == "" || (p.RequiresRegion && f.Region == "") {
+		return nil, fmt.Errorf("%w: known provider, account_uid, required region scope, resource_type and resource_id are required", ErrInvalidAssetReference)
 	}
-	switch f.ResourceType {
-	case "cvm", "security_group", "vpc", "subnet":
-	default:
-		return nil, fmt.Errorf("%w: unsupported resource_type", ErrInvalidAssetReference)
+	if !p.Supports(f.ResourceType) {
+		return nil, fmt.Errorf("%w: unsupported resource_type for provider", ErrInvalidAssetReference)
 	}
 	out := &AssetLookup{Status: "not_collected", Limitations: []string{"local_observations_only", "not_event_time_state", "no_network_reachability_inference"}}
 	if f.AccountID != "" {
@@ -124,25 +124,27 @@ type AssetContext struct {
 
 func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) (*AssetContext, error) {
 	out := &AssetContext{AlertID: a.ID, AlertRevision: a.Revision, Status: "unavailable", Limitations: []string{"current_asset_observation_not_event_time_state", "on_demand_inventory_not_complete_asset_coverage", "software_listeners_and_reachability_not_collected"}}
-	if a.Provider != "tencent" {
+	p, ok := asset.ProviderFor(a.Provider)
+	if !ok {
 		out.Reason = "provider_not_supported"
 		return out, nil
 	}
-	if a.Resource.Type != "host" || a.Resource.ID == "" {
+	hostID, ok := asset.NativeHostID(p, a.Resource)
+	if !ok {
 		out.Reason = "no_explicit_primary_host_reference"
 		return out, nil
 	}
-	out.ResourceID = a.Resource.ID
+	out.ResourceID = hostID
 	out.RefreshAccountID = a.AccountID
-	if a.AccountUID == "" || a.Region == "" {
+	if a.AccountUID == "" || (p.RequiresRegion && a.Region == "") {
 		out.Reason = "resource_scope_incomplete"
 		return out, nil
 	}
-	items, err := st.ListAssets(ctx, model.AssetFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: a.Resource.ID, Limit: 2})
+	items, err := st.ListAssets(ctx, model.AssetFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: hostID, Limit: 2})
 	if err != nil {
 		return nil, err
 	}
-	attempt, err := st.GetAssetRefresh(ctx, a.AccountID, a.Region, a.Resource.ID)
+	attempt, err := st.GetAssetRefresh(ctx, a.AccountID, a.Region, hostID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
@@ -151,7 +153,7 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 		out.Reason = "not_collected"
 		return out, nil
 	}
-	if len(items) != 1 || items[0].ResourceType != "cvm" {
+	if len(items) != 1 || items[0].ResourceType != p.HostType {
 		out.Reason = "resource_identity_ambiguous"
 		return out, nil
 	}
@@ -198,10 +200,17 @@ func AssetFindings(ctx context.Context, st store.Store, id, after string, limit 
 	if err != nil {
 		return nil, err
 	}
-	if a.Provider != "tencent" || a.ResourceType != "cvm" || a.AccountUID == "" || a.Region == "" {
-		return nil, fmt.Errorf("%w: related Findings require a complete CVM identity", ErrInvalidAssetReference)
+	p, ok := asset.ProviderFor(a.Provider)
+	if !ok || a.ResourceType != p.HostType || a.AccountUID == "" || (p.RequiresRegion && a.Region == "") {
+		return nil, fmt.Errorf("%w: related Findings require a complete native host identity", ErrInvalidAssetReference)
 	}
-	f := model.AlertFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ExactResourceID: a.ResourceID, ResourceType: "host", Sort: "id", AfterID: after, Limit: limit + 1, SnapshotSequence: seq}
+	resourceIDs := []string{a.ResourceID}
+	if p.AlertResourceIDs != nil {
+		scope := model.Account{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region}
+		resourceIDs = append(resourceIDs, p.AlertResourceIDs(scope, a.ResourceID)...)
+	}
+	resourceIDs = uniqueStrings(resourceIDs)
+	f := model.AlertFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ExactResourceIDs: resourceIDs, ResourceType: p.AlertHostType, Sort: "id", AfterID: after, Limit: limit + 1, SnapshotSequence: seq}
 	if err := PinSnapshot(ctx, st, &f); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidFindingSelection, err)
 	}
@@ -221,5 +230,22 @@ func AssetFindings(ctx context.Context, st store.Store, id, after string, limit 
 	if more {
 		next = items[len(items)-1].ID
 	}
-	return map[string]any{"asset_id": id, "alerts": alerts, "total": total, "snapshot_sequence": *f.SnapshotSequence, "has_more": more, "next_cursor": next, "limit": limit, "matched_on": []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}, "limitations": []string{"only_stored_findings", "resource_scope_may_be_explicit_connection_configuration"}}, nil
+	matched := []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}
+	if len(resourceIDs) > 1 {
+		matched = append(matched, "vendor_resource_id_alias")
+	}
+	return map[string]any{"asset_id": id, "alerts": alerts, "total": total, "snapshot_sequence": *f.SnapshotSequence, "has_more": more, "next_cursor": next, "limit": limit, "matched_on": matched, "limitations": []string{"only_stored_findings", "resource_scope_may_be_explicit_connection_configuration"}}, nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }

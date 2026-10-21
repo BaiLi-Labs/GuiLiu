@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -85,6 +86,35 @@ func TestAuditRESTAndMCPAttributeKeysAndKeepQueryEvidenceReferences(t *testing.T
 	rows, _ = st.ListAuditEvents(ctx, model.AuditFilter{RequestID: response.Header.Get("X-Request-ID"), Tool: "get_alert", Limit: 10})
 	if len(rows) != 1 || rows[0].Outcome != "error" || rows[0].ErrorCode != "tool_error" {
 		t.Fatal("HTTP 200 hid tool failure", rows)
+	}
+}
+
+func TestAuditCLIClientSurface(t *testing.T) {
+	ts, st, svc := setup(t, false)
+	client := newClient(t, ts)
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, "cli-user", "synthetic-cli-password", "viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _, err := svc.CreateAPIKey(ctx, user.ID, "cli", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/alerts?limit=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-Guiliu-Client", "cli")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	rows, err := st.ListAuditEvents(ctx, model.AuditFilter{Surface: "cli", Limit: 10})
+	if err != nil || len(rows) != 1 || rows[0].Surface != "cli" || rows[0].APIKeyID == "" {
+		t.Fatalf("CLI surface not recorded: %+v %v", rows, err)
 	}
 }
 

@@ -4,7 +4,7 @@
 
 版本来源、升版命令与发布约定见[版本管理](versioning.md)，各开发里程碑见[更新日志](../CHANGELOG.md)。
 
-GuiLiu 把多家云厂商的安全告警统一接入、标准化为统一事实，并按来源语义提供 [OCSF](https://github.com/ocsf/ocsf-schema) 投影，并提供 Web 控制台、REST API 和只读 MCP，供人和 Agent 使用同一份数据。
+GuiLiu 把多家云厂商的安全告警统一接入、标准化为统一事实，并按来源语义提供 [OCSF](https://github.com/ocsf/ocsf-schema) 投影，并提供 Web 控制台、REST API、只读 MCP 和只读查询 CLI，供人和 Agent 使用同一份数据。
 
 六家云的实际采集范围、SDK 字段清单和未覆盖边界见 [告警覆盖核对](alert-coverage.md)。接入一个安全汇总接口不表示已采集该云所有产品和全部历史。
 
@@ -46,6 +46,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
 | MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，20 个只读工具；HTTP 使用 API Key |
+| 查询 CLI | `guiliu query <command>`，REST 薄客户端；表格 / `--json` / `--ndjson` / `--all`，`describe` 输出机器可读命令与参数 |
 | Mock | `make mock` 启动免登录的六家云合成数据（56 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
@@ -275,10 +276,14 @@ Azure Defender ──┘
    人              程序            企业自有 Agent
 ```
 
+查询 CLI 是 REST API 的只读客户端，不绕过鉴权、审计或查询限制。
+
 ### 代码结构
 
 ```text
-cmd/guiliu/                  CLI：serve / mcp / sync / probe / accounts
+cmd/guiliu/                  CLI：serve / mcp / query / sync / probe / accounts
+internal/cli/                只读查询 CLI：REST 薄客户端、分页、表格与 JSON/NDJSON
+internal/query/              共享查询语义：时间窗口、快照、覆盖范围、资产查询
 internal/app/                进程装配与声明式账号 bootstrap
 internal/config/             JSON 配置 + 环境变量覆盖
 internal/connector/          Connector 接口、注册表、限流、错误分类
@@ -293,7 +298,7 @@ internal/store/              Store 接口 + SQLite 实现
 internal/ingest/             同步引擎（窗口/游标/重试/去重/健康）
 internal/api/                REST 路由与鉴权
 internal/mcp/                MCP JSON-RPC（HTTP + stdio）与只读工具
-internal/view/               REST/MCP 共用的公开 JSON 契约
+internal/view/               REST/MCP/CLI 共用的公开 JSON 契约
 web/                         React + Tailwind + Vite 控制台
   ├── src/                   页面、组件、API client
   ├── dist/                  构建产物（Go embed）
@@ -558,7 +563,52 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 | `get_alert_statistics` | 按等级 / 厂商 / 状态 / 天 / 资产聚合 |
 | `get_connector_health` | 游标、最近成功、错误、最近运行 |
 
-护栏：单次最多 200 条，时间范围最多 90 天，不支持任意 SQL。告警列表默认最近 7 天；只传 end 时也补齐默认起点。列表、分组和统计结果附带 `coverage` 采集状态。
+护栏：单次最多 200 条，时间范围最多 90 天，不支持任意 SQL。告警列表默认最近 7 天；只传 end 时也补齐默认起点。列表、分组和统计结果附带 `coverage` 采集状态。MCP 与查询 CLI 共用 `internal/query` 的窗口解析与上限，避免两个 Agent 入口产生不同默认值。
+
+---
+
+## 查询 CLI
+
+`guiliu query` 是 REST API 的只读薄客户端，面向只有 shell 的 Agent、CI、批量导出和翻页场景。它不直连 SQLite，也不复制查询逻辑；权限和数据语义由 REST 服务端决定，CLI 只做有界默认值与本地用法校验。
+
+```bash
+export GUILIU_URL="http://127.0.0.1:8080"
+export GUILIU_API_KEY="glk_..."
+
+guiliu query describe                 # 机器可读的命令、参数、默认值与限制
+guiliu query alerts --help
+guiliu query alerts --since 24h --severity high,critical --limit 20 --json
+```
+
+| 命令 | 对应 REST | 说明 |
+| --- | --- | --- |
+| `alerts` | `GET /alerts` | 告警列表；支持分组展开 |
+| `alert <id>` | `GET /alerts/{id}`、`/raw` | 单条告警或原始厂商 JSON |
+| `groups` | `GET /alerts/groups` | 精确字段分组 |
+| `changes` | `GET /alerts/changes` | 持久 Change Feed 与游标 |
+| `stats` | `GET /stats` | 聚合统计 |
+| `coverage` | `GET /coverage` | 来源范围、水位、失败与限制 |
+| `revisions <id>` | `GET /alerts/{id}/revisions` | 不可变修订 |
+| `context <id>` | `GET /alerts/{id}/asset-context` | 告警的当前资产上下文 |
+| `assets`、`asset <id>`、`lookup`、`findings <id>`、`component <id>` | `/assets*` | 资产清单、引用、组件原始证据与关联告警 |
+| `health` | `GET /health`、`/accounts/{id}/health` | 采集健康 |
+| `providers`、`mapping --provider <id>` | `/providers*` | 连接器能力与字段映射 |
+| `failures --account <id>` | `/accounts/{id}/failures` | 待重试的映射失败记录 |
+
+输出契约：
+
+- 默认表格；`--fields` 只选择表格列。
+- `--json` 打印单页 REST 原始响应，适合 `jq` 精确投影。
+- `--ndjson` 每行一条记录，配合 `--all` 批量消费；分页元数据和 coverage 提示写到 stderr。
+- stdout 只放数据；stderr 放错误与元数据。退出码 `0` 成功、`1` API/网络错误、`2` 用法错误。
+- `--all` 复用服务端 `snapshot_sequence` 与绝对窗口/游标，`--max-items` 默认 1000。`--json` 与 `--all` 不组合。
+
+边界与审计：
+
+- 告警、统计、覆盖默认最近 7 天，分组默认 24 小时，窗口最多 90 天；与 MCP 共用同一组常量。
+- 告警列表不返回 raw；原始载荷只对单条告警、组件修订或失败记录显式请求。
+- CLI 请求带 `X-Guiliu-Client: cli`，访问审计记录 `surface=cli`。
+- Agent 使用说明见 [`skills/guiliu-query/SKILL.md`](../skills/guiliu-query/SKILL.md)。
 
 ---
 

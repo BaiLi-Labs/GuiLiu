@@ -195,9 +195,6 @@ func (s *Server) handleAssetRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "resource_id is required")
 		return
 	}
-	if body.ResourceType == "" {
-		body.ResourceType = "cvm"
-	}
 	result, err := s.assets.Refresh(r.Context(), r.PathValue("id"), body.ResourceType, body.ResourceID)
 	if err != nil {
 		if errors.Is(err, asset.ErrInvalidRequest) {

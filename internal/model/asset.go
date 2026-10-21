@@ -66,14 +66,17 @@ type AssetTag struct {
 }
 
 type AssetComponent struct {
-	Status     string          `json:"status"`
-	Reason     string          `json:"reason,omitempty"`
-	SourceAPI  string          `json:"source_api,omitempty"`
-	APIVersion string          `json:"api_version,omitempty"`
-	ObservedAt *time.Time      `json:"observed_at,omitempty"`
-	RawHash    string          `json:"raw_hash,omitempty"`
-	Raw        json.RawMessage `json:"raw,omitempty"`
-	RawURL     string          `json:"raw_url,omitempty"`
+	Status     string     `json:"status"`
+	Reason     string     `json:"reason,omitempty"`
+	SourceAPI  string     `json:"source_api,omitempty"`
+	APIVersion string     `json:"api_version,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	// RawForm distinguishes exact vendor response bytes from a typed SDK
+	// projection when the SDK cannot expose the original stream.
+	RawForm string          `json:"raw_form,omitempty"`
+	RawHash string          `json:"raw_hash,omitempty"`
+	Raw     json.RawMessage `json:"raw,omitempty"`
+	RawURL  string          `json:"raw_url,omitempty"`
 }
 
 type AssetFilter struct {
