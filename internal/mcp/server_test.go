@@ -263,3 +263,25 @@ func TestLargeSnapshotSequenceKeepsIntegerPrecision(t *testing.T) {
 		t.Fatal("fractional sequence accepted")
 	}
 }
+
+func TestMCPRevisionHistoryMarksNonProjectedObservations(t *testing.T) {
+	srv, a := newTestServer(t)
+	ctx := context.Background()
+	a.SourceUpdatedAt = time.Now().UTC()
+	if _, err := srv.store.UpsertAlert(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	old := *a
+	old.Title, old.SourceUpdatedAt = "late older observation", a.SourceUpdatedAt.Add(-time.Hour)
+	if _, err := srv.store.UpsertAlert(ctx, &old); err != nil {
+		t.Fatal(err)
+	}
+	result, err := srv.tools["get_alert_revisions"].Handler(ctx, map[string]any{"alert_id": a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := result.(map[string]any)["revisions"].([]view.Revision)
+	if len(items) < 2 || items[0].ProjectionUpdated || items[0].Record.ProjectionUpdated || items[0].Record.Title != old.Title {
+		t.Fatalf("MCP history hid projection status: %+v", items)
+	}
+}

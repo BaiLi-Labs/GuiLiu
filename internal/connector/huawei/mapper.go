@@ -2,6 +2,7 @@ package huawei
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -128,42 +129,38 @@ func productName(a *secmastermodel.ListAlertRsp) string {
 }
 
 func observables(a *secmastermodel.ListAlertRsp, alert model.Alert) []model.Observable {
-	out := make([]model.Observable, 0, 6)
-	add := func(name string, typeID int, value string) {
-		if value != "" {
-			out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-		}
-	}
-	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
-	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
-	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	collector := connector.NewObservableCollector(alert.Raw)
+	add := collector.Add
+	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP, "/network_list/*/src_ip")
+	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP, "/network_list/*/dest_ip")
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/resource_list/0/id")
 	for _, r := range alert.Resources {
-		add("resources.uid", ocsf.ObservableResourceUID, r.ID)
+		add("resources.uid", ocsf.ObservableResourceUID, r.ID, "/resource_list/*/id")
 	}
 	if a.NetworkList != nil {
 		for i := range *a.NetworkList {
 			n := &(*a.NetworkList)[i]
-			add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.SrcIp))
-			add("dst_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.DestIp))
-			add("src_endpoint.domain", 0, connector.Str(n.SrcDomain))
-			add("dst_endpoint.domain", 0, connector.Str(n.DestDomain))
+			add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.SrcIp), fmt.Sprintf("/network_list/%d/src_ip", i))
+			add("dst_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(n.DestIp), fmt.Sprintf("/network_list/%d/dest_ip", i))
+			add("src_endpoint.domain", 0, connector.Str(n.SrcDomain), fmt.Sprintf("/network_list/%d/src_domain", i))
+			add("dst_endpoint.domain", 0, connector.Str(n.DestDomain), fmt.Sprintf("/network_list/%d/dest_domain", i))
 		}
 	}
 	if a.FileInfo != nil {
-		for _, f := range *a.FileInfo {
-			add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(f.FileMd5))
-			add("file.hash.sha256", ocsf.ObservableFileHash, connector.Str(f.FileSha256))
-			add("file.hash", ocsf.ObservableFileHash, connector.Str(f.FileHash))
-			add("file.name", ocsf.ObservableFileName, connector.Str(f.FilePath))
+		for i, f := range *a.FileInfo {
+			add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(f.FileMd5), fmt.Sprintf("/file_info/%d/file_md5", i))
+			add("file.hash.sha256", ocsf.ObservableFileHash, connector.Str(f.FileSha256), fmt.Sprintf("/file_info/%d/file_sha256", i))
+			add("file.hash", ocsf.ObservableFileHash, connector.Str(f.FileHash), fmt.Sprintf("/file_info/%d/file_hash", i))
+			add("file.name", ocsf.ObservableFileName, connector.Str(f.FilePath), fmt.Sprintf("/file_info/%d/file_path", i))
 		}
 	}
 	if a.UserInfo != nil {
-		for _, u := range *a.UserInfo {
-			add("user.name", ocsf.ObservableUserName, connector.Str(u.UserName))
-			add("user.uid", ocsf.ObservableResourceUID, connector.Str(u.UserId))
+		for i, u := range *a.UserInfo {
+			add("user.name", ocsf.ObservableUserName, connector.Str(u.UserName), fmt.Sprintf("/user_info/%d/user_name", i))
+			add("user.uid", ocsf.ObservableResourceUID, connector.Str(u.UserId), fmt.Sprintf("/user_info/%d/user_id", i))
 		}
 	}
-	return out
+	return collector.Values()
 }
 
 func evidence(a *secmastermodel.ListAlertRsp) *model.Evidence {

@@ -72,3 +72,38 @@ func TestDataAccessFeedSnapshotAndHistoricalRaw(t *testing.T) {
 		t.Fatalf("recent success falsely covered 7d: %s", body)
 	}
 }
+
+func TestLateRevisionFeedAndSnapshotExposeSeparateVersions(t *testing.T) {
+	ts, st, _ := setup(t, true)
+	client := newClient(t, ts)
+	id := createAccount(t, ts, client, "")
+	a := seedAlert(t, st, id)
+	at := time.Now().UTC()
+	a.Title, a.SourceUpdatedAt, a.Raw = "newest source state", at, json.RawMessage(`{"id":"native","state":"newest"}`)
+	if _, err := st.UpsertAlert(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	latestSequence, latestRevision := a.Sequence, a.Revision
+	old := *a
+	old.Title, old.SourceUpdatedAt, old.Raw = "older source state", at.Add(-time.Hour), json.RawMessage(`{"id":"native","state":"older"}`)
+	if _, err := st.UpsertAlert(context.Background(), &old); err != nil {
+		t.Fatal(err)
+	}
+	response, body := do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/changes?cursor="+strconv.FormatInt(latestSequence, 10), "", "")
+	var feed model.ChangePage
+	if response.StatusCode != 200 || json.Unmarshal(body, &feed) != nil || len(feed.Changes) != 1 || feed.Changes[0].ProjectionUpdated || feed.Changes[0].Revision != latestRevision+1 {
+		t.Fatalf("feed=%s", body)
+	}
+	for _, suffix := range []string{"", "?snapshot_sequence=" + strconv.FormatInt(old.Sequence, 10)} {
+		response, body = do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/"+a.ID+suffix, "", "")
+		var detail view.Alert
+		if response.StatusCode != 200 || json.Unmarshal(body, &detail) != nil || detail.Title != a.Title || detail.Revision != latestRevision {
+			t.Fatalf("current/snapshot regressed=%s", body)
+		}
+	}
+	response, body = do(t, client, http.MethodGet, ts.URL+fmt.Sprintf("/api/v1/alerts/%s/revisions/%d", a.ID, old.Revision), "", "")
+	var historical view.Alert
+	if response.StatusCode != 200 || json.Unmarshal(body, &historical) != nil || historical.ProjectionUpdated || historical.Title != old.Title || historical.RawHash != old.RawHash {
+		t.Fatalf("historical observation=%s", body)
+	}
+}

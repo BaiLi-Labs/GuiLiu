@@ -34,13 +34,14 @@ func FindingClass(kind string) (int, string) {
 }
 
 type AlertChange struct {
-	Sequence   int64     `json:"sequence"`
-	AlertID    string    `json:"alert_id"`
-	Provider   string    `json:"provider"`
-	AccountID  string    `json:"account_id"`
-	ChangeType string    `json:"change_type"`
-	Revision   int       `json:"revision"`
-	CapturedAt time.Time `json:"captured_at"`
+	ProjectionUpdated bool      `json:"projection_updated"`
+	Sequence          int64     `json:"sequence"`
+	AlertID           string    `json:"alert_id"`
+	Provider          string    `json:"provider"`
+	AccountID         string    `json:"account_id"`
+	ChangeType        string    `json:"change_type"`
+	Revision          int       `json:"revision"`
+	CapturedAt        time.Time `json:"captured_at"`
 }
 
 type ChangePage struct {

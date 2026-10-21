@@ -165,6 +165,7 @@ export interface AlertGroupList {
 }
 
 export interface AlertRevision {
+  projection_updated?: boolean;
  record?: Alert;
  sequence?: number;
  raw_hash?: string;
@@ -181,6 +182,7 @@ export interface AlertRevision {
 }
 
 export interface Alert {
+  projection_updated?: boolean;
  rule_id?: string;
  finding_kind?: string;
  source_created_at?: string;

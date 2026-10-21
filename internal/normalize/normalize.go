@@ -42,7 +42,7 @@ func Build(a model.Alert, acct model.Account, info Info) (json.RawMessage, error
 	putIf(unmapped, "original_severity", a.OriginalSeverity)
 	putIf(unmapped, "vendor_status", a.VendorStatus)
 	putIf(unmapped, "mapper_version", info.MapperVersion)
-	putIf(unmapped, "normalizer_version", "3")
+	putIf(unmapped, "normalizer_version", "4")
 	putIf(unmapped, "source_ip", a.SourceIP)
 	putIf(unmapped, "destination_ip", a.DestinationIP)
 	putIf(unmapped, "tactic", a.Tactic)
@@ -114,7 +114,6 @@ func Build(a model.Alert, acct model.Account, info Info) (json.RawMessage, error
 			Region:   region,
 			Account: &ocsf.Account{
 				UID:  accountUID,
-				Name: acct.Name,
 				Type: provider + " Account",
 			},
 		},

@@ -40,6 +40,7 @@ type Resource struct {
 }
 
 type Alert struct {
+	ProjectionUpdated  bool                         `json:"projection_updated"`
 	ObservableCount    int                          `json:"observable_count"`
 	EvidenceCount      int                          `json:"evidence_count"`
 	SourceAPI          string                       `json:"source_api"`
@@ -108,7 +109,8 @@ type Evidence struct {
 
 func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 	a := Alert{
-		ObservableCount: len(rec.Observables), EvidenceCount: len(rec.Evidences),
+		ProjectionUpdated: rec.ProjectionUpdated,
+		ObservableCount:   len(rec.Observables), EvidenceCount: len(rec.Evidences),
 		SourceAPI: rec.SourceAPI, SourceAPIVersion: rec.SourceAPIVersion,
 		RuleID: rec.RuleID, FindingKind: rec.FindingKind, SourceCreatedAt: timeutil.Format(rec.SourceCreatedAt), SourceUpdatedAt: timeutil.Format(rec.SourceUpdatedAt), IngestedAt: timeutil.Format(rec.IngestedAt), LastIngestedAt: timeutil.Format(rec.LastIngestedAt), RawHash: rec.RawHash, Revision: rec.Revision, Sequence: rec.Sequence, OccurrenceCount: rec.OccurrenceCount, OccurrenceScope: rec.OccurrenceScope,
 
@@ -300,17 +302,18 @@ func ptrFormat(t *time.Time) string {
 }
 
 type Revision struct {
-	ID            string `json:"id"`
-	AlertID       string `json:"alert_id"`
-	Revision      int    `json:"revision"`
-	Sequence      int64  `json:"sequence"`
-	CapturedAt    string `json:"captured_at"`
-	RawHash       string `json:"raw_hash"`
-	MapperVersion string `json:"mapper_version"`
-	ChangeType    string `json:"change_type"`
-	Record        Alert  `json:"record"`
+	ProjectionUpdated bool   `json:"projection_updated"`
+	ID                string `json:"id"`
+	AlertID           string `json:"alert_id"`
+	Revision          int    `json:"revision"`
+	Sequence          int64  `json:"sequence"`
+	CapturedAt        string `json:"captured_at"`
+	RawHash           string `json:"raw_hash"`
+	MapperVersion     string `json:"mapper_version"`
+	ChangeType        string `json:"change_type"`
+	Record            Alert  `json:"record"`
 }
 
 func RevisionFromModel(r model.AlertRevision) Revision {
-	return Revision{ID: r.ID, AlertID: r.AlertID, Revision: r.Revision, Sequence: r.Sequence, CapturedAt: timeutil.Format(r.CapturedAt), RawHash: r.RawHash, MapperVersion: r.MapperVersion, ChangeType: r.ChangeType, Record: AlertFromRecord(r.Record, false)}
+	return Revision{ProjectionUpdated: r.ProjectionUpdated, ID: r.ID, AlertID: r.AlertID, Revision: r.Revision, Sequence: r.Sequence, CapturedAt: timeutil.Format(r.CapturedAt), RawHash: r.RawHash, MapperVersion: r.MapperVersion, ChangeType: r.ChangeType, Record: AlertFromRecord(r.Record, false)}
 }

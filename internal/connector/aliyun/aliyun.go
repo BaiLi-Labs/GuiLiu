@@ -20,7 +20,7 @@ import (
 
 const (
 	providerID      = "aliyun"
-	mapperVersion   = "aliyun-sas/v3"
+	mapperVersion   = "aliyun-sas/v4"
 	defaultEndpoint = "sas.aliyuncs.com"
 	defaultQPS      = 5
 	defaultPageSize = 100

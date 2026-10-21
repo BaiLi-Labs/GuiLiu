@@ -42,7 +42,7 @@ func (s *SQLite) ListAlertChanges(ctx context.Context, cursor string, limit int,
 		where += " AND account_id=?"
 		args = append(args, accountID)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sequence,alert_id,provider,account_id,change_type,revision,captured_at FROM alert_revisions WHERE `+where+` ORDER BY sequence LIMIT ?`, append(args, limit+1)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT sequence,alert_id,provider,account_id,change_type,revision,captured_at,projection_updated FROM alert_revisions WHERE `+where+` ORDER BY sequence LIMIT ?`, append(args, limit+1)...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (s *SQLite) ListAlertChanges(ctx context.Context, cursor string, limit int,
 	for rows.Next() {
 		var c model.AlertChange
 		var captured int64
-		if err := rows.Scan(&c.Sequence, &c.AlertID, &c.Provider, &c.AccountID, &c.ChangeType, &c.Revision, &captured); err != nil {
+		if err := rows.Scan(&c.Sequence, &c.AlertID, &c.Provider, &c.AccountID, &c.ChangeType, &c.Revision, &captured, &c.ProjectionUpdated); err != nil {
 			return nil, err
 		}
 		if len(page.Changes) == limit {
@@ -81,7 +81,7 @@ func (s *SQLite) AlertRevisionPage(ctx context.Context, id string, beforeRevisio
 		where += " AND revision < ?"
 		args = append(args, beforeRevision)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,sequence,revision,change_type,mapper_version,raw_hash,snapshot,captured_at,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE `+where+` ORDER BY revision DESC LIMIT ?`, append(args, limit)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,sequence,revision,change_type,mapper_version,raw_hash,snapshot,captured_at,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id),(SELECT account_name FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE `+where+` ORDER BY revision DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,9 +89,9 @@ func (s *SQLite) AlertRevisionPage(ctx context.Context, id string, beforeRevisio
 	out := []model.AlertRevision{}
 	for rows.Next() {
 		var r model.AlertRevision
-		var snapshot, raw, ocsf, annotation string
+		var snapshot, raw, ocsf, annotation, accountName string
 		var captured int64
-		if err := rows.Scan(&r.ID, &r.Sequence, &r.Revision, &r.ChangeType, &r.MapperVersion, &r.RawHash, &snapshot, &captured, &raw, &ocsf, &annotation); err != nil {
+		if err := rows.Scan(&r.ID, &r.Sequence, &r.Revision, &r.ChangeType, &r.MapperVersion, &r.RawHash, &snapshot, &captured, &raw, &ocsf, &annotation, &accountName); err != nil {
 			return nil, err
 		}
 		var rec model.AlertRecord
@@ -105,6 +105,8 @@ func (s *SQLite) AlertRevisionPage(ctx context.Context, id string, beforeRevisio
 			rec.OCSF = nil
 		}
 		rec.Status = model.AlertStatus(annotation)
+		rec.AccountName = accountName
+		r.ProjectionUpdated = rec.ProjectionUpdated
 		r.Record = &rec
 		r.AlertID = rec.ID
 		r.CapturedAt = fromMillis(captured)
@@ -119,8 +121,8 @@ func (s *SQLite) AlertRevisionPage(ctx context.Context, id string, beforeRevisio
 }
 
 func (s *SQLite) GetAlertRevision(ctx context.Context, id string, revision int) (*model.AlertRecord, error) {
-	var snapshot, raw, ocsf, annotation string
-	if err := s.db.QueryRowContext(ctx, "SELECT snapshot,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE alert_id=? AND revision=?", id, revision).Scan(&snapshot, &raw, &ocsf, &annotation); err != nil {
+	var snapshot, raw, ocsf, annotation, accountName string
+	if err := s.db.QueryRowContext(ctx, "SELECT snapshot,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id),(SELECT account_name FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE alert_id=? AND revision=?", id, revision).Scan(&snapshot, &raw, &ocsf, &annotation, &accountName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -137,12 +139,13 @@ func (s *SQLite) GetAlertRevision(ctx context.Context, id string, revision int) 
 		rec.OCSF = nil
 	}
 	rec.Status = model.AlertStatus(annotation)
+	rec.AccountName = accountName
 	return &rec, nil
 }
 
 func (s *SQLite) GetAlertAtSnapshot(ctx context.Context, id string, sequence int64) (*model.AlertRecord, error) {
-	var snapshot, raw, ocsf, annotation string
-	err := s.db.QueryRowContext(ctx, "SELECT snapshot,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE alert_id=? AND sequence<=? ORDER BY sequence DESC LIMIT 1", id, sequence).Scan(&snapshot, &raw, &ocsf, &annotation)
+	var snapshot, raw, ocsf, annotation, accountName string
+	err := s.db.QueryRowContext(ctx, "SELECT snapshot,raw,ocsf,(SELECT status FROM alerts WHERE alerts.id=alert_revisions.alert_id),(SELECT account_name FROM alerts WHERE alerts.id=alert_revisions.alert_id) FROM alert_revisions WHERE alert_id=? AND sequence<=? AND projection_updated=1 ORDER BY sequence DESC LIMIT 1", id, sequence).Scan(&snapshot, &raw, &ocsf, &annotation, &accountName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -160,6 +163,7 @@ func (s *SQLite) GetAlertAtSnapshot(ctx context.Context, id string, sequence int
 		rec.OCSF = nil
 	}
 	rec.Status = model.AlertStatus(annotation)
+	rec.AccountName = accountName
 	return &rec, nil
 }
 

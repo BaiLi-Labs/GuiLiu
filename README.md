@@ -26,7 +26,7 @@ GuiLiu provides a common data layer:
 
 A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP. Analysis and response stay with the tools you choose.
 
-See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 4 requires a new database; existing databases are rejected without being erased.
+See the [data access contract](docs/security-data-access.md) for persistent change feeds, pinned query snapshots, field provenance, full revision pagination and machine-readable coverage. Development schema 5 requires a new database; existing databases are rejected without being erased.
 
 ## Connector coverage
 

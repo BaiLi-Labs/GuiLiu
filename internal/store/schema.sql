@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS alert_revisions (
     provider TEXT NOT NULL,
     account_id TEXT NOT NULL,
     change_type TEXT NOT NULL,
+    projection_updated INTEGER NOT NULL DEFAULT 1,
     mapper_version TEXT NOT NULL,
     raw_hash TEXT NOT NULL,
     snapshot TEXT NOT NULL,
@@ -194,4 +195,4 @@ CREATE INDEX IF NOT EXISTS idx_observable_lookup ON alert_observables(type_id,va
 CREATE TABLE IF NOT EXISTS alert_versions AS SELECT id, provider, account_id, account_name, account_uid, product, external_id, title, description, severity_id, severity, original_severity, vendor_status, status, alert_type, event_time, first_seen_at, last_seen_at, region, resource_id, resource_name, resource_type, src_ip, dst_ip, actor, tactic, technique, observables, evidences, mapper_version, created_at, updated_at, canonical, raw_hash, revision, sequence, ingested_at, last_ingested_at, rule_id, finding_kind, source_updated_at FROM alerts WHERE 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_identity ON alert_versions(id,sequence);
 CREATE INDEX IF NOT EXISTS idx_versions_sequence ON alert_versions(sequence);
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;

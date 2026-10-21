@@ -134,10 +134,13 @@ type Resource struct {
 
 // Observable is a searchable indicator extracted from a vendor alert.
 type Observable struct {
-	Name   string `json:"name,omitempty"`
-	Type   string `json:"type,omitempty"`
-	TypeID int    `json:"type_id"`
-	Value  string `json:"value"`
+	// SourcePaths are recorded by the mapper as it extracts the value. They are
+	// persisted through Alert.Provenance, not as a second public representation.
+	SourcePaths []string `json:"-"`
+	Name        string   `json:"name,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	TypeID      int      `json:"type_id"`
+	Value       string   `json:"value"`
 }
 
 // Evidence is a vendor-provided artifact attached to an alert.
@@ -191,20 +194,21 @@ type Alert struct {
 // AlertRevision is a material change to an alert's vendor payload or mapping.
 // Identical syncs do not create a new revision.
 type AlertRevision struct {
-	Record        *AlertRecord    `json:"record,omitempty"`
-	ID            string          `json:"id"`
-	AlertID       string          `json:"alert_id"`
-	Revision      int             `json:"revision"`
-	Sequence      int64           `json:"sequence"`
-	RawHash       string          `json:"raw_hash"`
-	MapperVersion string          `json:"mapper_version"`
-	ChangeType    string          `json:"change_type"`
-	CapturedAt    time.Time       `json:"captured_at"`
-	Title         string          `json:"title,omitempty"`
-	Severity      Severity        `json:"severity"`
-	VendorStatus  string          `json:"vendor_status,omitempty"`
-	Raw           json.RawMessage `json:"raw,omitempty"`
-	OCSF          json.RawMessage `json:"ocsf,omitempty"`
+	ProjectionUpdated bool            `json:"projection_updated"`
+	Record            *AlertRecord    `json:"record,omitempty"`
+	ID                string          `json:"id"`
+	AlertID           string          `json:"alert_id"`
+	Revision          int             `json:"revision"`
+	Sequence          int64           `json:"sequence"`
+	RawHash           string          `json:"raw_hash"`
+	MapperVersion     string          `json:"mapper_version"`
+	ChangeType        string          `json:"change_type"`
+	CapturedAt        time.Time       `json:"captured_at"`
+	Title             string          `json:"title,omitempty"`
+	Severity          Severity        `json:"severity"`
+	VendorStatus      string          `json:"vendor_status,omitempty"`
+	Raw               json.RawMessage `json:"raw,omitempty"`
+	OCSF              json.RawMessage `json:"ocsf,omitempty"`
 }
 
 // AlertRecord is a stored alert: the normalized alert plus platform metadata.
@@ -215,15 +219,16 @@ type AlertRecord struct {
 	Provider    string `json:"provider"`
 	AccountUID  string `json:"account_uid,omitempty"`
 	Alert
-	Changed        bool        `json:"-"`
-	RawHash        string      `json:"raw_hash"`
-	Revision       int         `json:"revision"`
-	Sequence       int64       `json:"sequence"`
-	IngestedAt     time.Time   `json:"ingested_at"`
-	LastIngestedAt time.Time   `json:"last_ingested_at"`
-	Status         AlertStatus `json:"status"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
+	Changed           bool        `json:"-"`
+	ProjectionUpdated bool        `json:"projection_updated"`
+	RawHash           string      `json:"raw_hash"`
+	Revision          int         `json:"revision"`
+	Sequence          int64       `json:"sequence"`
+	IngestedAt        time.Time   `json:"ingested_at"`
+	LastIngestedAt    time.Time   `json:"last_ingested_at"`
+	Status            AlertStatus `json:"status"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 // DedupeKey is the stable identity of an alert inside one cloud account.

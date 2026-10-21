@@ -85,8 +85,8 @@ func (s *SQLite) migrate() error {
 			return fmt.Errorf("unversioned database is unsupported; use a new development database")
 		}
 	}
-	if version != 0 && version != 4 {
-		return fmt.Errorf("database schema %d is unsupported; use a new database for the development data contract (schema 4)", version)
+	if version != 0 && version != 5 {
+		return fmt.Errorf("database schema %d is unsupported; use a new database for the development data contract (schema 5)", version)
 	}
 	_, err := s.db.Exec(schemaSQL)
 	return err
@@ -151,14 +151,19 @@ func (s *SQLite) UpdateAccount(ctx context.Context, a *model.Account, credential
 	if err != nil {
 		return err
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var res sql.Result
 	if credential != nil {
-		res, err = s.db.ExecContext(ctx, `
+		res, err = tx.ExecContext(ctx, `
 			UPDATE accounts SET name=?, account_uid=?, region=?, enabled=?, options=?, credential=?, access_key_hint=?, updated_at=?
 			WHERE id=?`,
 			a.Name, a.AccountUID, a.Region, boolInt(a.Enabled), string(options), *credential, a.AccessKeyHint, millis(a.UpdatedAt), a.ID)
 	} else {
-		res, err = s.db.ExecContext(ctx, `
+		res, err = tx.ExecContext(ctx, `
 			UPDATE accounts SET name=?, account_uid=?, region=?, enabled=?, options=?, updated_at=?
 			WHERE id=?`,
 			a.Name, a.AccountUID, a.Region, boolInt(a.Enabled), string(options), millis(a.UpdatedAt), a.ID)
@@ -173,7 +178,10 @@ func (s *SQLite) UpdateAccount(ctx context.Context, a *model.Account, credential
 	if n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, "UPDATE alerts SET account_name=? WHERE account_id=?", a.Name, a.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLite) UpsertAccountByName(ctx context.Context, a *model.Account) (bool, error) {
@@ -344,30 +352,54 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 	}
 	defer tx.Rollback()
 	var oldID, oldHash, oldStatus string
-	var oldCreated, oldIngested int64
+	var oldCanonical string
+	var oldCreated, oldIngested, oldLastIngested int64
 	var oldRevision int
-	err = tx.QueryRowContext(ctx, "SELECT id,content_hash,status,created_at,ingested_at,revision FROM alerts WHERE dedupe_key=?", rec.DedupeKey()).Scan(&oldID, &oldHash, &oldStatus, &oldCreated, &oldIngested, &oldRevision)
+	err = tx.QueryRowContext(ctx, "SELECT id,content_hash,status,created_at,ingested_at,last_ingested_at,revision,canonical FROM alerts WHERE dedupe_key=?", rec.DedupeKey()).Scan(&oldID, &oldHash, &oldStatus, &oldCreated, &oldIngested, &oldLastIngested, &oldRevision, &oldCanonical)
 	created := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !created {
 		return false, err
 	}
 	if !created {
 		rec.ID, rec.Status, rec.CreatedAt = oldID, model.AlertStatus(oldStatus), fromMillis(oldCreated)
+		var old model.Alert
+		if err := json.Unmarshal([]byte(oldCanonical), &old); err != nil {
+			return false, err
+		}
+		rec.ProjectionUpdated = shouldUpdateProjection(old.SourceUpdatedAt, rec.SourceUpdatedAt, fromMillis(oldLastIngested), rec.LastIngestedAt)
 		if oldHash == contentHash {
 			rec.Changed = false
 			rec.Revision = oldRevision
 			rec.IngestedAt = fromMillis(oldIngested)
-			_, err = tx.ExecContext(ctx, "UPDATE alerts SET last_ingested_at=? WHERE id=?", millis(rec.LastIngestedAt), rec.ID)
+			rec.ProjectionUpdated = false
+			_, err = tx.ExecContext(ctx, "UPDATE alerts SET last_ingested_at=MAX(last_ingested_at,?),account_name=? WHERE id=?", millis(rec.LastIngestedAt), rec.AccountName, rec.ID)
 			if err != nil {
 				return false, err
 			}
 			return false, tx.Commit()
+		}
+		if !rec.ProjectionUpdated {
+			// A known older payload is retained once. Retrying the same stale
+			// source content must not emit a new change on every collection run.
+			var existingRevision int
+			err := tx.QueryRowContext(ctx, "SELECT revision FROM alert_revisions WHERE alert_id=? AND change_hash=? ORDER BY revision DESC LIMIT 1", rec.ID, contentHash).Scan(&existingRevision)
+			if err == nil {
+				rec.Changed, rec.Revision = false, existingRevision
+				return false, tx.Commit()
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return false, err
+			}
+		}
+		if err := tx.QueryRowContext(ctx, "SELECT MAX(revision) FROM alert_revisions WHERE alert_id=?", rec.ID).Scan(&oldRevision); err != nil {
+			return false, err
 		}
 	} else {
 		if rec.ID == "" {
 			rec.ID = uuid.NewString()
 		}
 		rec.CreatedAt = now
+		rec.ProjectionUpdated = true
 	}
 	rec.Changed, rec.Revision, rec.UpdatedAt = true, oldRevision+1, now
 	accountUID := rec.AccountUID
@@ -381,8 +413,8 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 	}
 	// The snapshot is updated with its assigned sequence before commit.
 	result, err := tx.ExecContext(ctx, `INSERT INTO alert_revisions
- (id,alert_id,revision,change_hash,title,severity,vendor_status,ocsf,raw,captured_at,provider,account_id,change_type,mapper_version,raw_hash,snapshot)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), rec.ID, rec.Revision, contentHash, rec.Title, rec.Severity.String(), rec.VendorStatus, string(rec.OCSF), string(rec.Raw), millis(now), rec.Provider, rec.AccountID, changeType, rec.MapperVersion, rec.RawHash, "{}")
+ (id,alert_id,revision,change_hash,title,severity,vendor_status,ocsf,raw,captured_at,provider,account_id,change_type,mapper_version,raw_hash,snapshot,projection_updated)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), rec.ID, rec.Revision, contentHash, rec.Title, rec.Severity.String(), rec.VendorStatus, string(rec.OCSF), string(rec.Raw), millis(now), rec.Provider, rec.AccountID, changeType, rec.MapperVersion, rec.RawHash, "{}", boolInt(rec.ProjectionUpdated))
 	if err != nil {
 		return false, err
 	}
@@ -396,6 +428,9 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE alert_revisions SET snapshot=? WHERE sequence=?", string(snapshot), rec.Sequence); err != nil {
 		return false, err
+	}
+	if !rec.ProjectionUpdated {
+		return false, tx.Commit()
 	}
 	observablesJSON, err := marshalList(rec.Observables)
 	if err != nil {
@@ -434,6 +469,15 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec *model.AlertRecord) (bool,
 		return false, err
 	}
 	return created, nil
+}
+
+// Source modification times are comparable only when both are explicitly
+// known. Otherwise select the latest collection observation, never event time.
+func shouldUpdateProjection(oldSource, incomingSource, oldIngested, incomingIngested time.Time) bool {
+	if !oldSource.IsZero() && !incomingSource.IsZero() && !oldSource.Equal(incomingSource) {
+		return incomingSource.After(oldSource)
+	}
+	return !incomingIngested.Before(oldIngested)
 }
 
 func hashBytes(data []byte) string { return fmt.Sprintf("%x", sha256.Sum256(data)) }
@@ -558,8 +602,12 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 	}
 	// Window counting shares this aggregation with the page instead of running
 	// GROUP BY twice. No raw payload, evidence or title is read for grouping.
+	revisionWhere := "r.alert_id=alerts.id"
+	if f.SnapshotSequence != nil {
+		revisionWhere += fmt.Sprintf(" AND r.sequence<=%d", *f.SnapshotSequence)
+	}
 	selectCols := keyCols + `, COUNT(*), MAX(severity_id), COALESCE(MIN(NULLIF(first_seen_at,0)),0), MAX(last_seen_at),
-		MIN(resource_name), GROUP_CONCAT(DISTINCT provider), COUNT(*) OVER (), SUM(revision-1)`
+		MIN(resource_name), GROUP_CONCAT(DISTINCT provider), COUNT(*) OVER (), SUM(COALESCE((SELECT MAX(r.revision)-1 FROM alert_revisions r WHERE ` + revisionWhere + `),revision-1))`
 	query := snapshotPrefix(f) + `SELECT ` + selectCols + ` FROM alerts` + where +
 		` GROUP BY ` + groupCols +
 		` ORDER BY MAX(severity_id) DESC, COUNT(*) DESC, MAX(last_seen_at) DESC, ` + groupCols +
@@ -838,6 +886,7 @@ func scanAlert(row interface{ Scan(...any) error }, withPayload bool) (*model.Al
 	}
 	rec.IngestedAt, rec.LastIngestedAt = fromMillis(ingested), fromMillis(lastIngested)
 	rec.Severity = model.Severity(severityID)
+	rec.ProjectionUpdated = true
 	rec.Status = model.AlertStatus(status)
 	rec.EventTime = fromMillis(eventTS)
 	rec.FirstSeenAt = fromMillis(firstTS)
@@ -1195,8 +1244,8 @@ func snapshotPrefix(f model.AlertFilter) string {
 	columns := strings.Split(alertColumns+",rule_id,finding_kind,source_updated_at", ",")
 	for i, column := range columns {
 		column = strings.TrimSpace(column)
-		if column == "status" {
-			columns[i] = "current.status AS status"
+		if column == "status" || column == "account_name" {
+			columns[i] = "current." + column + " AS " + column
 		} else {
 			columns[i] = "v." + column
 		}

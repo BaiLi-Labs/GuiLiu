@@ -20,7 +20,7 @@ import (
 
 const (
 	providerID      = "aws"
-	mapperVersion   = "aws-securityhub-ocsf/v4"
+	mapperVersion   = "aws-securityhub-ocsf/v5"
 	defaultRegion   = "us-east-1"
 	defaultPageSize = 100
 	defaultQPS      = 5

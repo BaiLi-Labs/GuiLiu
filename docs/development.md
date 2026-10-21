@@ -307,7 +307,7 @@ internal/secret/             AES-256-GCM 凭据加密
 
 ---
 
-当前数据语义以[安全数据访问契约](security-data-access.md)和连接器 mapping API 为准。开发 schema 4 不维护旧库迁移。
+当前数据语义以[安全数据访问契约](security-data-access.md)和连接器 mapping API 为准。开发 schema 5 不维护旧库迁移。
 
 ## 字段映射
 

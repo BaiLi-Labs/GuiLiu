@@ -21,7 +21,7 @@ import (
 
 const (
 	providerID      = "huawei"
-	mapperVersion   = "huawei-secmaster/v3"
+	mapperVersion   = "huawei-secmaster/v4"
 	defaultRegion   = "cn-north-4"
 	defaultPageSize = 100
 	defaultQPS      = 2

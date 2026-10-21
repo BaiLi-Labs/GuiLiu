@@ -133,35 +133,31 @@ func sourceProduct(source string) string {
 }
 
 func observables(a *csip.AlertInfo, alert model.Alert) []model.Observable {
-	out := make([]model.Observable, 0, 6)
-	add := func(name string, typeID int, value string) {
-		if value != "" {
-			out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-		}
-	}
-	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
-	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
-	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	collector := connector.NewObservableCollector(alert.Raw)
+	add := collector.Add
+	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP, "/Attacker/IP", "/Attacker/OriginIP", "/ExtraInfo/SourceIP")
+	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP, "/Victim/IP")
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/Victim/InstanceID")
 	if a.Attacker != nil {
-		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(a.Attacker.OriginIP))
-		add("attacker.domain", 0, connector.Str(a.Attacker.Domain))
-		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(a.Attacker.MD5))
-		add("file.name", ocsf.ObservableFileName, connector.Str(a.Attacker.FileName))
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(a.Attacker.OriginIP), "/Attacker/OriginIP")
+		add("attacker.domain", 0, connector.Str(a.Attacker.Domain), "/Attacker/Domain")
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(a.Attacker.MD5), "/Attacker/MD5")
+		add("file.name", ocsf.ObservableFileName, connector.Str(a.Attacker.FileName), "/Attacker/FileName")
 	}
 	if a.Victim != nil {
-		add("victim.host_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.HostIP))
-		add("victim.origin_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.OriginIP))
-		add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Victim.ContainerID))
+		add("victim.host_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.HostIP), "/Victim/HostIP")
+		add("victim.origin_ip", ocsf.ObservableIPAddress, connector.Str(a.Victim.OriginIP), "/Victim/OriginIP")
+		add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Victim.ContainerID), "/Victim/ContainerID")
 	}
 	if extra := a.ExtraInfo; extra != nil {
-		add("user.name", ocsf.ObservableUserName, connector.Str(extra.LoginUserName))
-		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.FileMD5))
-		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.MaliciousProcessFileMD5))
-		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.ProcessMD5))
-		add("file.name", ocsf.ObservableFileName, connector.Str(extra.FileName))
-		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(extra.SourceIP))
+		add("user.name", ocsf.ObservableUserName, connector.Str(extra.LoginUserName), "/ExtraInfo/LoginUserName")
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.FileMD5), "/ExtraInfo/FileMD5")
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.MaliciousProcessFileMD5), "/ExtraInfo/MaliciousProcessFileMD5")
+		add("file.hash.md5", ocsf.ObservableFileHash, connector.Str(extra.ProcessMD5), "/ExtraInfo/ProcessMD5")
+		add("file.name", ocsf.ObservableFileName, connector.Str(extra.FileName), "/ExtraInfo/FileName")
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connector.Str(extra.SourceIP), "/ExtraInfo/SourceIP")
 	}
-	return out
+	return collector.Values()
 }
 
 func evidence(a *csip.AlertInfo) *model.Evidence {

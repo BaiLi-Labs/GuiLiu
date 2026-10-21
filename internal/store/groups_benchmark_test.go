@@ -52,6 +52,10 @@ func BenchmarkAlertGroups300K(b *testing.B) {
 	if err := stmt.Close(); err != nil {
 		b.Fatal(err)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO alert_revisions(sequence,id,alert_id,revision,provider,account_id,change_type,mapper_version,raw_hash,snapshot,change_hash,captured_at)
+ SELECT sequence,id,id,revision,provider,account_id,'created',mapper_version,raw_hash,'{}',content_hash,created_at FROM alerts`); err != nil {
+		b.Fatal(err)
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO alert_versions SELECT `+alertColumns+`,rule_id,finding_kind,source_updated_at FROM alerts`); err != nil {
 		b.Fatal(err)
 	}

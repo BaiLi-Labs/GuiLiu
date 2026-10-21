@@ -76,7 +76,7 @@ func normalizeFinding(f map[string]any, raw json.RawMessage) (model.Alert, error
 	if len(alert.Resources) > 0 {
 		alert.Resource = alert.Resources[0]
 	}
-	alert.Observables, alert.SourceIP, alert.DestinationIP = observables(f, info)
+	alert.Observables, alert.SourceIP, alert.DestinationIP = observables(f, raw)
 	if evidences := sliceAt(f, "evidences"); len(evidences) > 0 {
 		for _, e := range evidences {
 			if m, ok := e.(map[string]any); ok {
@@ -130,26 +130,19 @@ func statusText(f map[string]any) string {
 	return scalarString(f["status_id"])
 }
 
-func observables(f, info map[string]any) ([]model.Observable, string, string) {
-	out := make([]model.Observable, 0, 6)
-	seen := map[string]bool{}
-	add := func(name string, typeID int, value string) {
-		if value == "" || seen[name+"|"+value] {
-			return
-		}
-		seen[name+"|"+value] = true
-		out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-	}
+func observables(f map[string]any, raw json.RawMessage) ([]model.Observable, string, string) {
+	collector := connector.NewObservableCollector(raw)
+	add := collector.Add
 	sourceIP, destIP := "", ""
 	if values := sliceAt(f, "observables"); len(values) > 0 {
-		for _, item := range values {
+		for i, item := range values {
 			m, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
 			name := stringAt(m, "name")
 			value := scalarString(m["value"])
-			add(name, int(numberAt(m, "type_id")), value)
+			add(name, int(numberAt(m, "type_id")), value, fmt.Sprintf("/observables/%d/value", i))
 			switch name {
 			case "src_endpoint.ip":
 				sourceIP = connector.FirstNonEmpty(sourceIP, value)
@@ -159,7 +152,7 @@ func observables(f, info map[string]any) ([]model.Observable, string, string) {
 		}
 	}
 	if evidences := sliceAt(f, "evidences"); len(evidences) > 0 {
-		for _, item := range evidences {
+		for i, item := range evidences {
 			m, ok := item.(map[string]any)
 			if !ok {
 				continue
@@ -168,18 +161,18 @@ func observables(f, info map[string]any) ([]model.Observable, string, string) {
 			dst := mapAt(m, "dst_endpoint")
 			sourceIP = connector.FirstNonEmpty(sourceIP, stringAt(src, "ip"))
 			destIP = connector.FirstNonEmpty(destIP, stringAt(dst, "ip"))
-			add("src_endpoint.ip", 2, stringAt(src, "ip"))
-			add("dst_endpoint.ip", 2, stringAt(dst, "ip"))
+			add("src_endpoint.ip", 2, stringAt(src, "ip"), fmt.Sprintf("/evidences/%d/src_endpoint/ip", i))
+			add("dst_endpoint.ip", 2, stringAt(dst, "ip"), fmt.Sprintf("/evidences/%d/dst_endpoint/ip", i))
 		}
 	}
 	// Finding resources are useful observables even without an evidence block.
-	for _, value := range sliceAt(f, "resources") {
+	for i, value := range sliceAt(f, "resources") {
 		if r, ok := value.(map[string]any); ok {
-			add("resources.uid", 10, stringAt(r, "uid"))
-			add("resources.name", 38, stringAt(r, "name"))
+			add("resources.uid", 10, stringAt(r, "uid"), fmt.Sprintf("/resources/%d/uid", i))
+			add("resources.name", 38, stringAt(r, "name"), fmt.Sprintf("/resources/%d/name", i))
 		}
 	}
-	return out, sourceIP, destIP
+	return collector.Values(), sourceIP, destIP
 }
 
 func findingTypes(info map[string]any) string {

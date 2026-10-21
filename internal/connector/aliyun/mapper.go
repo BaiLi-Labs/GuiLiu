@@ -168,22 +168,24 @@ func tactic(a *sas.DescribeSuspEventsResponseBodySuspEvents) string {
 }
 
 func observables(a *sas.DescribeSuspEventsResponseBodySuspEvents, alert model.Alert) []model.Observable {
-	out := make([]model.Observable, 0, 5)
-	add := func(name string, typeID int, value string) {
-		if value != "" {
-			out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-		}
-	}
+	collector := connector.NewObservableCollector(alert.Raw)
+	add := collector.Add
 	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
-	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
-	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Uuid))
-	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.ContainerId))
-	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sClusterId))
-	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sNodeId))
-	add("resource.public_ip", ocsf.ObservableIPAddress, connector.Str(a.InternetIp))
-	add("resource.private_ip", ocsf.ObservableIPAddress, connector.Str(a.IntranetIp))
-	return out
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/InstanceId", "/Uuid", "/ContainerId", "/K8sClusterId")
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.Uuid), "/Uuid")
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.ContainerId), "/ContainerId")
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sClusterId), "/K8sClusterId")
+	add("resources.uid", ocsf.ObservableResourceUID, connector.Str(a.K8sNodeId), "/K8sNodeId")
+	add("resource.public_ip", ocsf.ObservableIPAddress, connector.Str(a.InternetIp), "/InternetIp")
+	add("resource.private_ip", ocsf.ObservableIPAddress, connector.Str(a.IntranetIp), "/IntranetIp")
+	for i, detail := range a.Details {
+		if detail != nil && alert.SourceIP != "" && extractSourceIP([]*sas.DescribeSuspEventsResponseBodySuspEventsDetails{detail}) == alert.SourceIP {
+			add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP, fmt.Sprintf("/Details/%d/ValueDisplay", i), fmt.Sprintf("/Details/%d/Value", i))
+			break
+		}
+	}
+	return collector.Values()
 }
 
 func evidences(a *sas.DescribeSuspEventsResponseBodySuspEvents) []model.Evidence {

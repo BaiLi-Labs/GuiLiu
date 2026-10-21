@@ -271,16 +271,9 @@ func entities(items []*armsecurity.AlertEntity) (hostname, sourceIP, destination
 }
 
 func observables(alert model.Alert, hostname, fileName, fileHash string, items []*armsecurity.AlertEntity) []model.Observable {
-	out := make([]model.Observable, 0, 7)
-	seen := map[string]bool{}
-	add := func(name string, typeID int, value string) {
-		if value == "" || seen[name+"|"+value] {
-			return
-		}
-		seen[name+"|"+value] = true
-		out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-	}
-	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
+	collector := connector.NewObservableCollector(alert.Raw)
+	add := collector.Add
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/properties/resourceIdentifiers/*/azureResourceId", "/properties/compromisedEntity")
 	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
 	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
 	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID)
@@ -288,9 +281,9 @@ func observables(alert model.Alert, hostname, fileName, fileHash string, items [
 	add("file.name", ocsf.ObservableFileName, fileName)
 	add("file.hash.sha256", ocsf.ObservableFileHash, fileHash)
 	for _, r := range alert.Resources {
-		add("resources.uid", ocsf.ObservableResourceUID, r.ID)
+		add("resources.uid", ocsf.ObservableResourceUID, r.ID, "/properties/resourceIdentifiers/*/azureResourceId")
 	}
-	for _, item := range items {
+	for i, item := range items {
 		if item == nil {
 			continue
 		}
@@ -304,30 +297,33 @@ func observables(alert model.Alert, hostname, fileName, fileHash string, items [
 			if !ok {
 				continue
 			}
+			path := fmt.Sprintf("/properties/entities/%d/%s", i, strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1"))
 			switch strings.ToLower(key) {
 			case "address", "ipaddress":
 				if strings.EqualFold(connector.Str(item.Type), "ip") {
 					// A generic IP entity carries no source/destination role.
-					add("entity.ip", ocsf.ObservableIPAddress, value)
+					add("entity.ip", ocsf.ObservableIPAddress, value, path)
 				}
 			case "sourceaddress", "sourceip", "source_ip":
-				add("src_endpoint.ip", ocsf.ObservableIPAddress, value)
+				add("src_endpoint.ip", ocsf.ObservableIPAddress, value, path)
 			case "destinationaddress", "destinationip", "destination_ip":
-				add("dst_endpoint.ip", ocsf.ObservableIPAddress, value)
+				add("dst_endpoint.ip", ocsf.ObservableIPAddress, value, path)
+			case "hostname":
+				add("hostname", ocsf.ObservableHostname, value, path)
 			case "filepath", "filename":
-				add("file.name", ocsf.ObservableFileName, value)
+				add("file.name", ocsf.ObservableFileName, value, path)
 			case "username", "userprincipalname":
-				add("user.name", ocsf.ObservableUserName, value)
+				add("user.name", ocsf.ObservableUserName, value, path)
 			case "md5":
-				add("file.hash.md5", ocsf.ObservableFileHash, value)
+				add("file.hash.md5", ocsf.ObservableFileHash, value, path)
 			case "sha1":
-				add("file.hash.sha1", ocsf.ObservableFileHash, value)
+				add("file.hash.sha1", ocsf.ObservableFileHash, value, path)
 			case "sha256":
-				add("file.hash.sha256", ocsf.ObservableFileHash, value)
+				add("file.hash.sha256", ocsf.ObservableFileHash, value, path)
 			}
 		}
 	}
-	return out
+	return collector.Values()
 }
 
 func evidence(p *armsecurity.AlertProperties) *model.Evidence {

@@ -102,15 +102,7 @@ func ApplyProvenance(a *model.Alert, provider string, acct model.Account) {
 		"source_api_version": {Source: "connector", Paths: []string{"/api_version"}, Transform: "connector_api_contract"},
 		"raw_hash":           {Source: "record", Paths: []string{""}, Transform: "sha256_exact_bytes"},
 	}
-	prefix := ""
-	if m, ok := raw.(map[string]any); ok {
-		if m["data_object"] != nil {
-			prefix = "/data_object"
-		}
-		if m["finding"] != nil {
-			prefix = "/finding"
-		}
-	}
+	prefix := sourceObjectPrefix(raw)
 	for _, spec := range MappingFor(provider) {
 		paths := []string{}
 		for _, path := range spec.Paths {
@@ -143,15 +135,21 @@ func ApplyProvenance(a *model.Alert, provider string, acct model.Account) {
 		a.Provenance["finding_kind"] = model.FieldOrigin{Source: "connector", Paths: []string{"/product_uid"}, Transform: "source_api_record_class"}
 	}
 	for i, o := range a.Observables {
-		paths := observableOrigins(raw, provider, prefix, o)
+		paths := append([]string(nil), o.SourcePaths...)
 		key := fmt.Sprintf("observables/%d/value", i)
 		if len(paths) > 0 {
 			a.Provenance[key] = model.FieldOrigin{Source: "record", Paths: paths, Transform: "typed_source_value"}
+			if o.Name == "src_endpoint.ip" && o.Value == a.SourceIP {
+				a.Provenance["source_ip"] = a.Provenance[key]
+			}
+			if o.Name == "dst_endpoint.ip" && o.Value == a.DestinationIP {
+				a.Provenance["destination_ip"] = a.Provenance[key]
+			}
 			continue
 		}
 		// Some typed values are deterministic projections, such as a subscription
 		// UID inside an Azure resource ID, rather than literal JSON leaf values.
-		field := map[string]string{"cloud.account.uid": "account_uid", "src_endpoint.ip": "source_ip", "dst_endpoint.ip": "destination_ip", "resources.uid": "resource"}[o.Name]
+		field := map[string]string{"cloud.account.uid": "account_uid", "resources.uid": "resource"}[o.Name]
 		if origin, ok := a.Provenance[field]; ok {
 			origin.Transform += ":observable_projection"
 			a.Provenance[key] = origin
@@ -170,7 +168,8 @@ func expandPointer(value any, parts []string, path string) []string {
 	out := []string{}
 	switch v := value.(type) {
 	case map[string]any:
-		if x, ok := v[head]; ok {
+		key := strings.ReplaceAll(strings.ReplaceAll(head, "~1", "/"), "~0", "~")
+		if x, ok := v[key]; ok {
 			out = append(out, expandPointer(x, parts[1:], path+"/"+head)...)
 		}
 	case []any:
@@ -182,50 +181,5 @@ func expandPointer(value any, parts []string, path string) []string {
 			out = append(out, expandPointer(v[i], parts[1:], path+"/"+head)...)
 		}
 	}
-	return out
-}
-
-func observableOrigins(raw any, provider, prefix string, o model.Observable) []string {
-	// Values are located only in typed source structures. Arbitrary prose is never
-	// parsed for addresses, roles, hashes or domains.
-	roots := map[string][]string{
-		"tencent": {"/Attacker", "/Victim", "/ExtraInfo"}, "aliyun": {"/Details", "/InternetIp", "/IntranetIp", "/Uuid", "/InstanceId", "/ContainerId", "/K8sClusterId", "/K8sNodeId"},
-		"huawei": {"/network_list", "/resource_list", "/file_info", "/user_info"}, "aws": {"/observables", "/evidences", "/resources"}, "gcp": {"/connections", "/indicator", "/sourceProperties", "/resourceName", "/files", "/access"}, "azure": {"/properties/entities", "/properties/resourceIdentifiers"},
-	}
-	out := []string{}
-	var visit func(any, string)
-	visit = func(v any, p string) {
-		switch x := v.(type) {
-		case string:
-			if x == o.Value {
-				out = append(out, p)
-			}
-		case json.Number:
-			if x.String() == o.Value {
-				out = append(out, p)
-			}
-		case map[string]any:
-			for k, y := range x {
-				visit(y, p+"/"+strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
-			}
-		case []any:
-			for i, y := range x {
-				visit(y, p+"/"+strconv.Itoa(i))
-			}
-		}
-	}
-	for _, path := range roots[provider] {
-		v := raw
-		for _, part := range strings.Split(strings.TrimPrefix(prefix+path, "/"), "/") {
-			if m, ok := v.(map[string]any); ok {
-				v = m[part]
-			} else {
-				v = nil
-				break
-			}
-		}
-		visit(v, prefix+path)
-	}
-	sort.Strings(out)
 	return out
 }

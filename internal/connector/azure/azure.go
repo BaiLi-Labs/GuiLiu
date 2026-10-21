@@ -23,7 +23,7 @@ import (
 
 const (
 	providerID      = "azure"
-	mapperVersion   = "azure-defender/v3"
+	mapperVersion   = "azure-defender/v4"
 	apiVersion      = "2022-01-01"
 	defaultEndpoint = "https://management.azure.com"
 	defaultQPS      = 3

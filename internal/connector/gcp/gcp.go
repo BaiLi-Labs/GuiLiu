@@ -21,7 +21,7 @@ import (
 
 const (
 	providerID      = "gcp"
-	mapperVersion   = "gcp-scc/v3"
+	mapperVersion   = "gcp-scc/v4"
 	defaultPageSize = 100
 	defaultQPS      = 5
 )

@@ -202,6 +202,8 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 
 ## 8. 测试
 
+可观测对象应通过 `connector.NewObservableCollector(raw)` 在提取时声明字段路径：`collector.Add("src_endpoint.ip", 2, value, "/connections/0/sourceIp")`。`Add` 的路径相对于来源 finding 对象；外层 API 上下文使用 `AddRoot`。不要扫描所有相同值来回填溯源；重复的同角色对象会合并实际路径，源和目的角色保持独立。
+
 最小要求：用真实脱敏样本测 `Normalize`。
 
 ```go

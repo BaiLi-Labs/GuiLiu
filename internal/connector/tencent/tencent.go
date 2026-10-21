@@ -18,7 +18,7 @@ import (
 
 const (
 	providerID      = "tencent"
-	mapperVersion   = "tencent-csip/v3"
+	mapperVersion   = "tencent-csip/v4"
 	defaultEndpoint = "csip.tencentcloudapi.com"
 	// The official limit is 3 requests/second. Use 2 QPS for headroom: a fixed
 	// interval at exactly 3 QPS still allows four calls in a sliding second.

@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -98,38 +99,31 @@ func mapSeverity(severity string) model.Severity {
 }
 
 func observables(f *securitycenterpb.Finding, alert model.Alert) []model.Observable {
-	out := make([]model.Observable, 0, 6)
-	seen := map[string]bool{}
-	add := func(name string, typeID int, value string) {
-		if value == "" || seen[name+"|"+value] {
-			return
-		}
-		seen[name+"|"+value] = true
-		out = append(out, model.Observable{Name: name, TypeID: typeID, Value: value})
-	}
-	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID)
-	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP)
-	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP)
-	for _, connection := range f.GetConnections() {
+	collector := connector.NewObservableCollector(alert.Raw)
+	add := collector.Add
+	add("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/resourceName")
+	add("src_endpoint.ip", ocsf.ObservableIPAddress, alert.SourceIP, "/sourceProperties/source_ip", "/sourceProperties/src_ip")
+	add("dst_endpoint.ip", ocsf.ObservableIPAddress, alert.DestinationIP, "/sourceProperties/destination_ip", "/sourceProperties/dest_ip")
+	for i, connection := range f.GetConnections() {
 		if connection == nil {
 			continue
 		}
-		add("src_endpoint.ip", ocsf.ObservableIPAddress, connection.GetSourceIp())
-		add("dst_endpoint.ip", ocsf.ObservableIPAddress, connection.GetDestinationIp())
+		add("src_endpoint.ip", ocsf.ObservableIPAddress, connection.GetSourceIp(), fmt.Sprintf("/connections/%d/sourceIp", i))
+		add("dst_endpoint.ip", ocsf.ObservableIPAddress, connection.GetDestinationIp(), fmt.Sprintf("/connections/%d/destinationIp", i))
 	}
 	if indicator := f.GetIndicator(); indicator != nil {
-		for _, ip := range indicator.GetIpAddresses() {
-			add("indicator.ip", ocsf.ObservableIPAddress, ip)
+		for i, ip := range indicator.GetIpAddresses() {
+			add("indicator.ip", ocsf.ObservableIPAddress, ip, fmt.Sprintf("/indicator/ipAddresses/%d", i))
 		}
-		for _, domain := range indicator.GetDomains() {
-			add("indicator.domain", 0, domain)
+		for i, domain := range indicator.GetDomains() {
+			add("indicator.domain", 0, domain, fmt.Sprintf("/indicator/domains/%d", i))
 		}
 	}
-	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID)
-	add("remote.ip", ocsf.ObservableIPAddress, sourceString(f, "remote_ip"))
-	add("local.ip", ocsf.ObservableIPAddress, sourceString(f, "local_ip"))
-	add("hostname", ocsf.ObservableHostname, sourceString(f, "hostname", "instance_name", "resource_name"))
-	for _, file := range f.GetFiles() {
+	add("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID, "/sourceProperties/project_id")
+	add("remote.ip", ocsf.ObservableIPAddress, sourceString(f, "remote_ip"), "/sourceProperties/remote_ip")
+	add("local.ip", ocsf.ObservableIPAddress, sourceString(f, "local_ip"), "/sourceProperties/local_ip")
+	add("hostname", ocsf.ObservableHostname, sourceString(f, "hostname", "instance_name", "resource_name"), "/sourceProperties/hostname", "/sourceProperties/instance_name", "/sourceProperties/resource_name")
+	for i, file := range f.GetFiles() {
 		if file == nil {
 			continue
 		}
@@ -137,13 +131,15 @@ func observables(f *securitycenterpb.Finding, alert model.Alert) []model.Observa
 		if file.GetPartiallyHashed() {
 			name = "file.prefix_hash.sha256"
 		}
-		add(name, ocsf.ObservableFileHash, file.GetSha256())
-		add("file.name", ocsf.ObservableFileName, file.GetPath())
+		add(name, ocsf.ObservableFileHash, file.GetSha256(), fmt.Sprintf("/files/%d/sha256", i))
+		add("file.name", ocsf.ObservableFileName, file.GetPath(), fmt.Sprintf("/files/%d/path", i))
 	}
 	if access := f.GetAccess(); access != nil {
-		add("user.name", ocsf.ObservableUserName, access.GetPrincipalEmail())
+		add("user.name", ocsf.ObservableUserName, access.GetPrincipalEmail(), "/access/principalEmail")
 	}
-	return out
+	collector.AddRoot("resources.uid", ocsf.ObservableResourceUID, alert.Resource.ID, "/resource/name")
+	collector.AddRoot("cloud.account.uid", ocsf.ObservableResourceUID, alert.CloudAccountUID, "/resource/gcpMetadata/project", "/resource/projectName")
+	return collector.Values()
 }
 
 func evidence(f *securitycenterpb.Finding) *model.Evidence {
