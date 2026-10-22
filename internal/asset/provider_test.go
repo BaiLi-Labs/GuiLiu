@@ -54,6 +54,17 @@ func TestSyntheticRefreshForEveryProvider(t *testing.T) {
 			if len(result.Asset.Components) == 0 || result.Asset.ObservedAt.IsZero() {
 				t.Fatal("observation incomplete")
 			}
+			nics, err := st.ListAssets(context.Background(), model.AssetFilter{Provider: p.ID, AccountUID: a.AccountUID, Region: a.Region, ResourceType: "nic", Limit: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+			supportsNIC := p.ID == "tencent" || p.ID == "aliyun" || p.ID == "aws" || p.ID == "azure"
+			if supportsNIC && len(nics) != 1 {
+				t.Fatalf("NIC asset not persisted: %+v", nics)
+			}
+			if !supportsNIC && len(nics) != 0 {
+				t.Fatalf("provider without native NIC identity stored one: %+v", nics)
+			}
 			if err := SeedSynthetic(context.Background(), st, a); err != nil {
 				t.Fatal(err)
 			}

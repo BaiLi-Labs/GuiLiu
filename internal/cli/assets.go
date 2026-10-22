@@ -31,7 +31,7 @@ func newAssetsCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.String(&accountUID, "account-uid", "", "Native cloud account UID")
 	fs.String(&region, "region", "", "Cloud region")
 	fs.String(&resourceID, "resource-id", "", "Exact native resource ID")
-	fs.String(&resourceType, "resource-type", "", "cvm, security_group, vpc or subnet")
+	fs.String(&resourceType, "resource-type", "", "host type, nic, security_group, vpc or subnet")
 	fs.Int(&limit, "limit", query.AssetDefaultLimit, fmt.Sprintf("Assets per page (1-%d)", query.AssetMaxLimit))
 	fs.String(&afterID, "after-id", "", "Continue using next_cursor")
 	fs.Bool(&all, "all", false, "Follow next_cursor until exhausted or --max-items")
@@ -202,7 +202,7 @@ func newLookupCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.String(&account, "account", "", "Optional source connection ID for refresh status")
 	fs.String(&accountUID, "account-uid", "", "Native cloud account UID")
 	fs.String(&region, "region", "", "Cloud region")
-	fs.String(&resourceType, "resource-type", "", "cvm, security_group, vpc or subnet")
+	fs.String(&resourceType, "resource-type", "", "host type, nic, security_group, vpc or subnet")
 	fs.String(&resourceID, "resource-id", "", "Exact native resource ID")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if err := noArgs(fs); err != nil {

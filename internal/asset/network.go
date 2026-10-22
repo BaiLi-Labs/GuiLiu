@@ -12,10 +12,11 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
-const MaxRefreshRequests = 9
+const MaxRefreshRequests = 10
 
 var vpcID = regexp.MustCompile(`^vpc-[a-zA-Z0-9]+$`)
 var subnetID = regexp.MustCompile(`^subnet-[a-zA-Z0-9]+$`)
+var eniID = regexp.MustCompile(`^eni-[a-zA-Z0-9]+$`)
 
 func ValidResource(kind, id string) bool {
 	if len(id) > 128 {
@@ -30,6 +31,8 @@ func ValidResource(kind, id string) bool {
 		return subnetID.MatchString(id)
 	case "security_group":
 		return groupID.MatchString(id)
+	case "nic":
+		return eniID.MatchString(id)
 	}
 	return false
 }

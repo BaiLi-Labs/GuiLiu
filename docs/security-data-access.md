@@ -128,6 +128,8 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 | gcp | gce | Compute `Instances.Get` | Compute `Networks.Get`、`Subnetworks.Get`、`Firewalls.Get` | `projects/…/zones/…/instances/…` |
 | azure | vm | Compute `VirtualMachines.Get`（instanceView） | Network Interfaces、PublicIPAddresses、VirtualNetworks、Subnets、NetworkSecurityGroups | 小写 ARM 资源 ID |
 
+腾讯云主机刷新会额外请求一次本主机 ENI 限定查询，并把响应保存在 `network_interfaces` 组件；阿里云与 AWS 从实例响应读取 ENI ID，Azure 从 VM 的 `networkInterfaces` 引用读取。网卡（`nic`）按来源能力接入：腾讯云 `DescribeNetworkInterfaces`（先按 `attachment.instance-id` 限定本主机，再按 ENI ID 读取）、阿里云 `DescribeNetworkInterfaces`、AWS `DescribeNetworkInterfaces`、Azure `Network Interfaces.Get`。主机只引用来源明确返回的 ENI/NIC ID；网卡资产保留原生 ID、名称、MAC、主网卡标识、私网 IP、来源直接返回的公网 IP、标签，以及 `belongs_to_vpc`、`in_subnet`、`attached_security_group`、`attached_to_host` 显式关系。Azure 网卡响应只返回公网 IP 资源 ID，首版不解析其地址，公网地址仍以主机观测为准。GCP 的 `networkInterfaces` 不是独立资源，保留在主机组件中；华为云 `ShowServer` 不返回 port ID，当前不建立网卡资产。两者都在资产差异中明确说明，不补造 ID。
+
 真实账号测试只需要提供对应云的最小只读凭据与明确作用域：
 
 | provider | 凭据 | 连接作用域必填 |
@@ -141,7 +143,7 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 
 只读权限：腾讯云 CVM/VPC 查询，阿里云 ECS/VPC 查询，华为云 ECS/VPC 查询，AWS `ec2:Describe*`，GCP `compute.instances.get`、`compute.networks.get`、`compute.subnetworks.get`、`compute.firewalls.get`，Azure `Microsoft.Compute/virtualMachines/read` 与 `Microsoft.Network/*/read`。凭据加密保存，日志和错误不输出凭据。
 
-六家共用同一资产契约：实例 ID、真实云账号 UID、地域、名称、OS、规格、厂商状态、可用区、公私网 IP、VPC、子网、安全组 ID、标签与字段溯源。账号和地域来自连接配置，不宣称为实例 API 返回字段。软件、监听端口与可达性组件保持 `not_collected`。
+六家共用同一资产契约：实例 ID、真实云账号 UID、地域、名称、OS、规格、厂商状态、可用区、公私网 IP、VPC、子网、安全组 ID、网卡、标签与字段溯源。账号和地域来自连接配置，不宣称为实例 API 返回字段。软件、监听端口与可达性组件保持 `not_collected`。
 
 组件证据保存来源 JSON。腾讯云、阿里云、华为云直接读取响应字节；GCP、Azure 在 SDK 传输层截获原始响应体后仍交回 SDK 解析，因此同样保存精确字节（`raw_form=exact_bytes`）。AWS EC2 使用 XML Query 协议，组件由 SDK 类型化响应重新编码为 JSON，标记 `raw_form=api_projection`，不会保留 SDK 未建模的字段。每条组件带 `source_api`、`api_version`、`observed_at` 与 `raw_hash`，按精确资产修订读取。
 
@@ -165,18 +167,18 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 | `GET /assets/{id}/findings` | `list_asset_findings` | 查询同一完整资源身份的已保存 Finding，支持 Finding 快照分页 |
 | `GET /assets/{id}/revisions/{revision}/components/{component}/raw` | `get_asset_component` | 读取精确组件证据；MCP 返回 `raw_text` 与 SHA-256，保留大整数和原字节表示 |
 
-所有 REST 路径均以 `/api/v1` 开头并要求认证。`/assets` 支持 `provider/account_id/account_uid/region/resource_type/resource_id/after_id/limit`；`resource_type` 必须是该 provider 声明的类型（主机类型加 `security_group/vpc/subnet`）。首版不提供名称模糊匹配、IP 过滤或标签索引；未支持的参数报错。列表 `limit` 范围 1–100，后续将 `next_cursor` 作为 `after_id`。列表是当前本地观测，不承诺固定资产快照或完整云资产覆盖。
+所有 REST 路径均以 `/api/v1` 开头并要求认证。`/assets` 支持 `provider/account_id/account_uid/region/resource_type/resource_id/after_id/limit`；`resource_type` 必须是该 provider 声明的类型（主机类型加 `security_group/vpc/subnet/nic`；GCP、华为云不支持 `nic`）。首版不提供名称模糊匹配、IP 过滤或标签索引；未支持的参数报错。列表 `limit` 范围 1–100，后续将 `next_cursor` 作为 `after_id`。列表是当前本地观测，不承诺固定资产快照或完整云资产覆盖。
 
 `/assets/lookup` 与 `get_asset_by_reference` 要求已知 provider、`account_uid`、`resource_type`、`resource_id`，以及该 provider 要求的地域（GCP 允许全局作用域为空）；可选 `account_id` 仅用于查最近刷新状态，必须与资源作用域一致。响应区分 `not_collected/available/stale`，`refresh.status` 单独说明失败或进行中状态，不把刷新失败解释为资源不存在。资产正文省略完整来源载荷，组件证据按精确修订读取。
 
 Finding 上下文可用 `revision` 或 `snapshot_sequence` 选择引用所在版本，两者互斥；资产部分始终是当前观测，明确不代表告警发生时状态。匹配条件是 provider、原生账号 UID、地域、原生主机资源 ID 和主机类型；IP、名称、Hash 和标签均不建立身份关系。腾讯云、阿里云告警存在稳定的主机类型 `host`，该类型同时参与匹配；华为、AWS、GCP、Azure 的告警资源类型由各产品自定义，关联告警只按精确原生 ID 或声明的厂商别名（AWS ARN、GCP 完整资源名）匹配。首版上下文使用主资源引用；相关告警检索同时支持明确的附加主机资源引用。作用域缺失、来源不支持、未采集和过期均明确返回。
 
-默认 GET 与全部 MCP 工具仅查本地数据库，不触发云端读取。`POST /accounts/{id}/assets/refresh` 接受 `{"resource_type":"…","resource_id":"…"}`；省略类型时使用该 provider 的主机类型。可刷新主机、`security_group`、`vpc`、`subnet`。仅管理员可调用，要求启用的连接、真实账号 UID、该 provider 要求的地域，以及华为 `project_id`、Azure `subscription_id` 与 `tenant_id`（使用客户端 ID/密钥）。只读权限按实际接口授予：腾讯云 CVM/VPC、阿里云 ECS/VPC、华为云 ECS/VPC、AWS EC2、GCP Compute、Azure Compute/Network。连接账号 UID 必须与凭据所属云账号一致；首版依据显式配置表达该归属。
+默认 GET 与全部 MCP 工具仅查本地数据库，不触发云端读取。`POST /accounts/{id}/assets/refresh` 接受 `{"resource_type":"…","resource_id":"…"}`；省略类型时使用该 provider 的主机类型。可刷新主机、`nic`、`security_group`、`vpc`、`subnet`。仅管理员可调用，要求启用的连接、真实账号 UID、该 provider 要求的地域，以及华为 `project_id`、Azure `subscription_id` 与 `tenant_id`（使用客户端 ID/密钥）。只读权限按实际接口授予：腾讯云 CVM/VPC、阿里云 ECS/VPC、华为云 ECS/VPC、AWS EC2、GCP Compute、Azure Compute/Network。连接账号 UID 必须与凭据所属云账号一致；首版依据显式配置表达该归属。
 
-请求预算与失败处理使用统一边界，按来源能力分别计数：整个云读取阶段 15 秒、单次响应 2 MiB、服务级 2 QPS、不递归遍历网络、不展开安全组模板、不自动重试云请求。主机刷新最多一次实例查询，加最多五个安全组策略/详情查询。网络引用元数据按来源能力批量或逐个精确 ID 读取：腾讯云、AWS 可一次查询多个安全组，阿里云、华为云、GCP、Azure 逐个查询且最多五个；GCP 只读 VPC 与子网；Azure 另受 3 张网卡、3 个公网 IP 上限约束。AWS、华为、GCP、Azure 的安全组或防火墙详情包含规则，不额外取策略。显式刷新单个安全组按来源决定是否再取策略。同一连接/地域/资源的尝试结果持久保留 5 分钟并复用，包括失败和进行中状态，重启不会清除这个冷却期。响应使用 `status` 与 `attempt.status` 表达成功、部分失败、未查到或不可见、权限不足及超时，`related` 说明各网络引用采集结果；失败保留既有观测，已取得的主机不会因可选网络请求超时而丢弃。安全组策略是配置证据，不代表实际监听或公网可达。
+请求预算与失败处理使用统一边界，按来源能力分别计数：整个云读取阶段 15 秒、单次响应 2 MiB、服务级 2 QPS、不递归遍历网络、不展开安全组模板、不自动重试云请求。主机刷新最多一次实例查询，加最多五个安全组策略/详情查询；腾讯云另有一次本主机 ENI 限定查询，主机刷新总请求上限为 10。网络引用元数据按来源能力批量或逐个精确 ID 读取：腾讯云、AWS 可一次查询多个安全组，阿里云、华为云、GCP、Azure 逐个查询且最多五个；GCP 只读 VPC 与子网；Azure 另受 3 张网卡、3 个公网 IP、5 个 NSG 上限约束。网卡读取最多 5 张；腾讯云主机刷新先做一次本主机 ENI 限定查询，后续引用复用该结果，不重复请求。AWS、华为、GCP、Azure 的安全组或防火墙详情包含规则，不额外取策略。显式刷新单个安全组按来源决定是否再取策略。同一连接/地域/资源的尝试结果持久保留 5 分钟并复用，包括失败和进行中状态，重启不会清除这个冷却期。响应使用 `status` 与 `attempt.status` 表达成功、部分失败、未查到或不可见、权限不足及超时，`related` 说明各网络引用采集结果；失败保留既有观测，已取得的主机不会因可选网络请求超时而丢弃。安全组策略是配置证据，不代表实际监听或公网可达。
 
-Web 告警详情展示上述本地上下文，展开网络引用可查询详情、策略、证据和来源路径，并由管理员显式刷新单个网络资源；主机支持相关告警查询。Mock 启动时为每个 mock 账号植入一台合成主机及其网络资源（腾讯云 `ins-mock0001`、阿里云 `i-mock0001`、华为云与 Azure 的固定 UUID/ARM ID、AWS `i-0123456789abcdef0`、GCP 完整资源名），数据始终带 `synthetic=true`。腾讯云与阿里云的演示告警资源 ID 与合成主机一致，可直接从告警查看完整资产路径；其他云的演示告警可能引用其他资源，可通过 `/assets` 列表或 `list_assets` 查看该账号的合成主机。真实来源不会回退到这些合成数据。
+Web 告警详情展示上述本地上下文，展开网络引用可查询详情、策略、证据和来源路径，并由管理员显式刷新单个网络资源；主机支持相关告警查询。Mock 启动时为每个 mock 账号植入一台合成主机及其网络资源（腾讯云 `ins-mock0001`/`eni-mock0001`、阿里云 `i-mock0001`/`eni-mock0001`、AWS `i-0123456789abcdef0`/`eni-0123456789abcdef0`、Azure 固定 ARM VM/NIC ID、华为云固定 UUID、GCP 完整资源名），数据始终带 `synthetic=true`。腾讯云与阿里云的演示告警资源 ID 与合成主机一致，可直接从告警查看完整资产路径；其他云的演示告警可能引用其他资源，可通过 `/assets` 列表或 `list_assets` 查看该账号的合成主机。真实来源不会回退到这些合成数据。
 
-六家云均只通过合成响应、SDK/接口契约与本地测试验证，尚未通过真实云账号验证；真实账号验证必须分别标记，不能互相代替。
+腾讯云已完成一个真实账号、一台主机、一个地域的完整调查路径验证：schema 5 数据库、72 小时 CSIP 告警同步、告警→主机资产→网卡/安全组/VPC/子网引用→同一资源的相关告警→原始证据，REST/MCP/查询 CLI 结果一致；该验证不代表其他主机、其他地域或其他云已通过。Web 复用同一 REST 接口，未做浏览器视觉回归。阿里云、华为云、AWS、GCP、Azure 仍只通过合成响应、SDK/接口契约与本地测试验证。真实账号验证必须分别标记，不能互相代替。真实账号验收步骤见[资产阶段 B 验收清单](asset-acceptance.md)。
 
 当前实例仍为共享数据集，API Key 继承创建者角色并能读全部账号；未新增多租户或账号级授权。保留共同字段查询、已实现的专有查询与完整原始载荷读取，首版未建设任意原生 JSON 字段的通用过滤器。

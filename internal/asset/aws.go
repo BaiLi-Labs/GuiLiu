@@ -33,6 +33,7 @@ const awsMapperVersion = "aws-ec2/v1"
 
 var (
 	awsInstanceID = regexp.MustCompile(`^i-[0-9a-f]+$`)
+	awsENIID      = regexp.MustCompile(`^eni-[0-9a-f]+$`)
 	awsVPCID      = regexp.MustCompile(`^vpc-[0-9a-f]+$`)
 	awsSubnetID   = regexp.MustCompile(`^subnet-[0-9a-f]+$`)
 	awsGroupID    = regexp.MustCompile(`^sg-[0-9a-f]+$`)
@@ -84,6 +85,12 @@ func AwsRaw(ctx context.Context, cred connector.Credential, a model.Account) (aw
 				return nil, err
 			}
 			return marshalAWS(out)
+		case "DescribeNetworkInterfaces":
+			out, err := client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{NetworkInterfaceIds: ids})
+			if err != nil {
+				return nil, err
+			}
+			return marshalAWS(out)
 		}
 		return nil, fmt.Errorf("unsupported asset action")
 	}, nil
@@ -110,6 +117,9 @@ func (c *awsClient) ReadInstance(ctx context.Context, a model.Account, id string
 }
 
 func (c *awsClient) ReadNetwork(ctx context.Context, a model.Account, kind string, ids []string) (map[string]*model.Asset, error) {
+	if kind == "nic" {
+		return readAWSNICBatch(ctx, a, ids, c.raw, c.limiter)
+	}
 	return readAWSNetworkBatch(ctx, a, kind, ids, c.raw, c.limiter)
 }
 
@@ -195,9 +205,11 @@ func ReadAWS(ctx context.Context, a model.Account, id string, raw awsRaw, limite
 		SecurityGroups    []struct{ GroupId, GroupName string }
 		Tags              []struct{ Key, Value string }
 		NetworkInterfaces []struct {
+			NetworkInterfaceId string
 			PrivateIpAddress   string
 			Association        *struct{ PublicIp string }
 			PrivateIpAddresses []struct{ PrivateIpAddress string }
+			Attachment         struct{ DeviceIndex int }
 		}
 	}
 	instance := instances[0]
@@ -266,6 +278,11 @@ func ReadAWS(ctx context.Context, a model.Account, id string, raw awsRaw, limite
 	for n, group := range i.SecurityGroups {
 		if group.GroupId != "" {
 			out.References = append(out.References, reference(a, "security_group", group.GroupId, "attached_security_group", "instance", fmt.Sprintf("/SecurityGroups/%d/GroupId", n)))
+		}
+	}
+	for n, nic := range i.NetworkInterfaces {
+		if awsENIID.MatchString(nic.NetworkInterfaceId) {
+			out.References = append(out.References, reference(a, "nic", nic.NetworkInterfaceId, "attached_network_interface", "instance", fmt.Sprintf("/NetworkInterfaces/%d/NetworkInterfaceId", n)))
 		}
 	}
 	for field, path := range map[string]string{"resource_id": "/InstanceId", "os": "/PlatformDetails", "state": "/State/Name", "instance_type": "/InstanceType", "zone": "/Placement/AvailabilityZone", "vpc_id": "/VpcId", "subnet_id": "/SubnetId", "security_group_ids": "/SecurityGroups", "tags": "/Tags", "private_ips": "/NetworkInterfaces", "public_ips": "/NetworkInterfaces"} {
@@ -490,6 +507,131 @@ func idPathFor(kind string) string {
 	return ""
 }
 
+// readAWSNICBatch requests exact ENI IDs from EC2.
+func readAWSNICBatch(ctx context.Context, a model.Account, ids []string, raw awsRaw, limiter *connector.Limiter) (map[string]*model.Asset, error) {
+	if len(ids) == 0 || len(ids) > MaxNICs {
+		return nil, fmt.Errorf("invalid network interface query scope")
+	}
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		if !awsENIID.MatchString(id) || wanted[id] {
+			return nil, fmt.Errorf("invalid or repeated network interface ID")
+		}
+		wanted[id] = true
+	}
+	if err := limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	payload, err := raw(ctx, "DescribeNetworkInterfaces", ids)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct{ NetworkInterfaces []json.RawMessage }
+	if json.Unmarshal(payload, &envelope) != nil {
+		return nil, fmt.Errorf("invalid network interface response")
+	}
+	out := map[string]*model.Asset{}
+	for _, item := range envelope.NetworkInterfaces {
+		var identity struct{ NetworkInterfaceId string }
+		if json.Unmarshal(item, &identity) != nil || !wanted[identity.NetworkInterfaceId] || out[identity.NetworkInterfaceId] != nil {
+			return nil, fmt.Errorf("network interface identity mismatch")
+		}
+		value, err := normalizeAWSNIC(a, identity.NetworkInterfaceId, item)
+		if err != nil {
+			return nil, err
+		}
+		out[identity.NetworkInterfaceId] = value
+	}
+	return out, nil
+}
+
+func normalizeAWSNIC(a model.Account, id string, raw json.RawMessage) (*model.Asset, error) {
+	var value struct {
+		NetworkInterfaceId, Description, VpcId, SubnetId, MacAddress, InterfaceType, Status string
+		PrivateIpAddress                                                                    string
+		PrivateIpAddresses                                                                  []struct {
+			PrivateIpAddress string
+			Primary          bool
+			Association      *struct{ PublicIp string }
+		}
+		Association *struct{ PublicIp string }
+		Groups      []struct{ GroupId string }
+		Attachment  struct {
+			InstanceId  string
+			DeviceIndex int
+		}
+		TagSet []struct{ Key, Value string }
+	}
+	if json.Unmarshal(raw, &value) != nil || value.NetworkInterfaceId != id {
+		return nil, fmt.Errorf("network interface identity mismatch")
+	}
+	primary := value.Attachment.DeviceIndex == 0
+	at := time.Now().UTC()
+	out := &model.Asset{
+		AccountID: a.ID, Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region,
+		ResourceID: id, ResourceType: "nic", Name: value.Description,
+		VPCID: value.VpcId, SubnetID: value.SubnetId, State: value.Status,
+		ObservedAt: at, MapperVersion: "aws-eni/v1",
+		Components: map[string]model.AssetComponent{"details": awsComponent(raw, "EC2 DescribeNetworkInterfaces", at)},
+		Provenance: map[string]model.FieldOrigin{},
+		Network:    &model.AssetNetwork{MACAddress: value.MacAddress, Primary: &primary},
+	}
+	if value.PrivateIpAddress != "" {
+		out.PrivateIPs = append(out.PrivateIPs, value.PrivateIpAddress)
+	}
+	for _, address := range value.PrivateIpAddresses {
+		if address.PrivateIpAddress != "" {
+			out.PrivateIPs = append(out.PrivateIPs, address.PrivateIpAddress)
+		}
+		if address.Association != nil && address.Association.PublicIp != "" {
+			out.PublicIPs = append(out.PublicIPs, address.Association.PublicIp)
+		}
+	}
+	if value.Association != nil && value.Association.PublicIp != "" {
+		out.PublicIPs = append(out.PublicIPs, value.Association.PublicIp)
+	}
+	out.PrivateIPs, out.PublicIPs = dedupeSort(out.PrivateIPs), dedupeSort(out.PublicIPs)
+	for _, group := range value.Groups {
+		if awsGroupID.MatchString(group.GroupId) {
+			out.SecurityGroupIDs = append(out.SecurityGroupIDs, group.GroupId)
+		}
+	}
+	if sourceHas(raw, "/TagSet") {
+		out.Tags = []model.AssetTag{}
+		for _, tag := range value.TagSet {
+			out.Tags = append(out.Tags, model.AssetTag{Key: tag.Key, Value: tag.Value})
+		}
+	}
+	if value.VpcId != "" {
+		out.References = append(out.References, reference(a, "vpc", value.VpcId, "belongs_to_vpc", "details", "/VpcId"))
+	}
+	if value.SubnetId != "" {
+		out.References = append(out.References, reference(a, "subnet", value.SubnetId, "in_subnet", "details", "/SubnetId"))
+	}
+	for n, group := range value.Groups {
+		if awsGroupID.MatchString(group.GroupId) {
+			out.References = append(out.References, reference(a, "security_group", group.GroupId, "attached_security_group", "details", fmt.Sprintf("/Groups/%d/GroupId", n)))
+		}
+	}
+	if awsInstanceID.MatchString(value.Attachment.InstanceId) {
+		out.References = append(out.References, reference(a, "ec2", value.Attachment.InstanceId, "attached_to_host", "details", "/Attachment/InstanceId"))
+	}
+	for field, path := range map[string]string{
+		"resource_id": "/NetworkInterfaceId", "name": "/Description", "state": "/Status",
+		"vpc_id": "/VpcId", "subnet_id": "/SubnetId", "security_group_ids": "/Groups",
+		"private_ips": "/PrivateIpAddresses", "public_ips": "/Association",
+		"tags": "/TagSet", "network.mac_address": "/MacAddress", "network.primary": "/Attachment/DeviceIndex",
+	} {
+		if sourceHas(raw, path) {
+			out.Provenance[field] = model.FieldOrigin{Source: "component:details", Paths: []string{path}, Transform: "source_field_projection"}
+		}
+	}
+	for field, path := range map[string]string{"account_uid": "/account_uid", "region": "/region"} {
+		out.Provenance[field] = model.FieldOrigin{Source: "configuration", Paths: []string{path}, Transform: "explicit_connection_scope"}
+	}
+	return out, nil
+}
+
 // ValidAWSResource validates native EC2 resource IDs.
 func ValidAWSResource(kind, id string) bool {
 	if len(id) > 128 {
@@ -504,6 +646,8 @@ func ValidAWSResource(kind, id string) bool {
 		return awsSubnetID.MatchString(id)
 	case "security_group":
 		return awsGroupID.MatchString(id)
+	case "nic":
+		return awsENIID.MatchString(id)
 	}
 	return false
 }
@@ -531,7 +675,7 @@ func init() {
 		APIVersion:        awsAPIVersion,
 		HostAPI:           "EC2 DescribeInstances",
 		PolicyAPI:         "EC2 DescribeSecurityGroups",
-		ResourceTypes:     []string{"ec2", "security_group", "vpc", "subnet"},
+		ResourceTypes:     []string{"ec2", "security_group", "vpc", "subnet", "nic"},
 		MapperVersion:     awsMapperVersion,
 		PoliciesInDetails: true,
 		DocsURL:           "https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html",

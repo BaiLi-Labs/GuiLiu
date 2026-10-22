@@ -292,11 +292,15 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 	seenRef := map[string]bool{}
 	publicRefs := []string{}
 	nsgRefs := []string{}
-	for _, nicRef := range vm.Properties.NetworkProfile.NetworkInterfaces {
+	for n, nicRef := range vm.Properties.NetworkProfile.NetworkInterfaces {
 		nicID := azureLower(nicRef.ID)
 		nicName := azureNameAfter(nicID, "networkinterfaces")
 		if nicName == "" {
 			continue
+		}
+		if !seenRef["nic|"+nicID] {
+			seenRef["nic|"+nicID] = true
+			references = append(references, reference(a, "nic", nicID, "attached_network_interface", "instance", fmt.Sprintf("/properties/networkProfile/networkInterfaces/%d/id", n)))
 		}
 		if err := limiter.Wait(ctx); err != nil {
 			return nil, err
@@ -480,6 +484,9 @@ func azureIDBefore(id, key string) string {
 }
 
 func readAzureNetworkBatch(ctx context.Context, a model.Account, kind string, ids []string, raw azureRaw, limiter *connector.Limiter) (map[string]*model.Asset, error) {
+	if kind == "nic" {
+		return readAzureNICBatch(ctx, a, ids, raw, limiter)
+	}
 	kindSegment, ok := azureProviderKinds[kind]
 	if !ok || kind == "vm" || len(ids) == 0 || len(ids) > MaxSecurityGroups {
 		return nil, fmt.Errorf("invalid network query scope")
@@ -490,6 +497,9 @@ func readAzureNetworkBatch(ctx context.Context, a model.Account, kind string, id
 		resourceID := azureLower(id)
 		if !ValidAzureResource(kind, resourceID) || seen[resourceID] {
 			return nil, fmt.Errorf("invalid or repeated network ID")
+		}
+		if subscription := a.Options["subscription_id"]; subscription != "" && !strings.EqualFold(azureSubscription(resourceID), subscription) {
+			return nil, ErrNotVisible
 		}
 		seen[resourceID] = true
 		rg := azureResourceGroup(resourceID)
@@ -511,6 +521,133 @@ func readAzureNetworkBatch(ctx context.Context, a model.Account, kind string, id
 			return nil, err
 		}
 		out[resourceID] = value
+	}
+	return out, nil
+}
+
+// readAzureNICBatch reads exact NIC ARM IDs. The NIC is the Azure resource
+// that carries private/public IPs and the NSG attachment.
+func readAzureNICBatch(ctx context.Context, a model.Account, ids []string, raw azureRaw, limiter *connector.Limiter) (map[string]*model.Asset, error) {
+	if len(ids) == 0 || len(ids) > MaxNICs {
+		return nil, fmt.Errorf("invalid network interface query scope")
+	}
+	out := map[string]*model.Asset{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		resourceID := azureLower(id)
+		if !ValidAzureResource("nic", resourceID) || seen[resourceID] {
+			return nil, fmt.Errorf("invalid or repeated network interface ID")
+		}
+		if subscription := a.Options["subscription_id"]; subscription != "" && !strings.EqualFold(azureSubscription(resourceID), subscription) {
+			return nil, ErrNotVisible
+		}
+		seen[resourceID] = true
+		if err := limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+		payload, err := raw(ctx, "NIC", map[string]string{
+			"resourceGroup": azureResourceGroup(resourceID),
+			"name":          azureNameAfter(resourceID, "networkinterfaces"),
+		})
+		if err != nil {
+			return nil, err
+		}
+		value, err := normalizeAzureNIC(a, resourceID, payload)
+		if err != nil {
+			return nil, err
+		}
+		out[resourceID] = value
+	}
+	return out, nil
+}
+
+func normalizeAzureNIC(a model.Account, id string, raw json.RawMessage) (*model.Asset, error) {
+	var value struct {
+		ID         string             `json:"id"`
+		Name       string             `json:"name"`
+		Tags       map[string]*string `json:"tags"`
+		Location   string             `json:"location"`
+		Properties struct {
+			MACAddress     string `json:"macAddress"`
+			VirtualMachine struct {
+				ID string `json:"id"`
+			} `json:"virtualMachine"`
+			NetworkSecurityGroup struct {
+				ID string `json:"id"`
+			} `json:"networkSecurityGroup"`
+			IPConfigurations []struct {
+				Properties struct {
+					PrivateIPAddress string `json:"privateIPAddress"`
+					Primary          *bool  `json:"primary"`
+					PublicIPAddress  struct {
+						ID string `json:"id"`
+					} `json:"publicIPAddress"`
+					Subnet struct {
+						ID string `json:"id"`
+					} `json:"subnet"`
+				} `json:"properties"`
+			} `json:"ipConfigurations"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(raw, &value) != nil || !strings.EqualFold(value.ID, id) {
+		return nil, fmt.Errorf("network interface identity mismatch")
+	}
+	primary := false
+	var subnetID, nsgID string
+	for _, config := range value.Properties.IPConfigurations {
+		if config.Properties.Primary != nil && *config.Properties.Primary {
+			primary = true
+		}
+		if config.Properties.PrivateIPAddress != "" {
+			// Collected below after normalization.
+		}
+		if subnet := azureLower(config.Properties.Subnet.ID); subnet != "" && subnetID == "" {
+			subnetID = subnet
+		}
+	}
+	if nsg := azureLower(value.Properties.NetworkSecurityGroup.ID); nsg != "" {
+		nsgID = nsg
+	}
+	at := time.Now().UTC()
+	out := &model.Asset{
+		AccountID: a.ID, Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region,
+		ResourceID: id, ResourceType: "nic", Name: value.Name,
+		SubnetID: subnetID, ObservedAt: at, MapperVersion: "azure-nic/v1",
+		Components: map[string]model.AssetComponent{"details": component(raw, "Network Interfaces.Get", azureAPIVersion, at)},
+		Provenance: map[string]model.FieldOrigin{},
+		Network:    &model.AssetNetwork{MACAddress: value.Properties.MACAddress, Primary: &primary},
+	}
+	for _, config := range value.Properties.IPConfigurations {
+		if config.Properties.PrivateIPAddress != "" {
+			out.PrivateIPs = append(out.PrivateIPs, config.Properties.PrivateIPAddress)
+		}
+	}
+	if subnetID != "" {
+		out.VPCID = azureIDBefore(subnetID, "subnets")
+		out.References = append(out.References, reference(a, "vpc", out.VPCID, "belongs_to_vpc", "details", "/properties/ipConfigurations/0/properties/subnet/id"))
+		out.References = append(out.References, reference(a, "subnet", subnetID, "in_subnet", "details", "/properties/ipConfigurations/0/properties/subnet/id"))
+	}
+	if nsgID != "" {
+		out.SecurityGroupIDs = []string{nsgID}
+		out.References = append(out.References, reference(a, "security_group", nsgID, "attached_security_group", "details", "/properties/networkSecurityGroup/id"))
+	}
+	if hostID, ok := azureVMID(value.Properties.VirtualMachine.ID); ok {
+		out.References = append(out.References, reference(a, "vm", hostID, "attached_to_host", "details", "/properties/virtualMachine/id"))
+	}
+	out.Tags = azureTags(value.Tags)
+	for field, path := range map[string]string{
+		"resource_id": "/id", "name": "/name", "vpc_id": "/properties/ipConfigurations/0/properties/subnet/id",
+		"subnet_id":          "/properties/ipConfigurations/0/properties/subnet/id",
+		"security_group_ids": "/properties/networkSecurityGroup/id", "private_ips": "/properties/ipConfigurations",
+		"tags": "/tags", "network.mac_address": "/properties/macAddress",
+		"network.primary": "/properties/ipConfigurations/0/properties/primary",
+	} {
+		if sourceHas(raw, path) {
+			out.Provenance[field] = model.FieldOrigin{Source: "component:details", Paths: []string{path}, Transform: "source_field_projection"}
+		}
+	}
+	for field, path := range map[string]string{"account_uid": "/account_uid", "region": "/region"} {
+		out.Provenance[field] = model.FieldOrigin{Source: "configuration", Paths: []string{path}, Transform: "explicit_connection_scope"}
 	}
 	return out, nil
 }
@@ -621,6 +758,8 @@ func ValidAzureResource(kind, id string) bool {
 			strings.Contains(id, "/subnets/") && azureNameAfter(id, "subnets") != ""
 	case "security_group":
 		return azureHasProvider(id, "microsoft.network", "networksecuritygroups")
+	case "nic":
+		return azureHasProvider(id, "microsoft.network", "networkinterfaces")
 	}
 	return false
 }
@@ -633,7 +772,7 @@ func init() {
 		APIVersion:        azureAPIVersion,
 		HostAPI:           "Compute VirtualMachines.Get",
 		PolicyAPI:         "Network SecurityGroups.Get",
-		ResourceTypes:     []string{"vm", "security_group", "vpc", "subnet"},
+		ResourceTypes:     []string{"vm", "security_group", "vpc", "subnet", "nic"},
 		MapperVersion:     azureMapperVersion,
 		PoliciesInDetails: true,
 		RequiresRegion:    true,

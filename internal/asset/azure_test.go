@@ -36,7 +36,7 @@ func TestAzureInstanceMappingAndExactEvidence(t *testing.T) {
 	if len(value.Tags) != 1 || value.Tags[0].Key != "environment" {
 		t.Fatalf("tags: %+v", value.Tags)
 	}
-	if len(value.References) != 3 {
+	if len(value.References) != 4 {
 		t.Fatalf("references: %+v", value.References)
 	}
 	c := value.Components["instance"]

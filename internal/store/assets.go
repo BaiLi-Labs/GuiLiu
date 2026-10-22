@@ -14,6 +14,76 @@ import (
 	"github.com/google/uuid"
 )
 
+// marshalAssetStorage keeps each component's exact source bytes as a JSON
+// string. encoding/json compacts RawMessage values, which would otherwise make
+// the stored bytes differ from raw_hash and the /raw endpoint.
+func marshalAssetStorage(a *model.Asset) (string, error) {
+	base, err := json.Marshal(a)
+	if err != nil {
+		return "", err
+	}
+	var value map[string]any
+	dec := json.NewDecoder(strings.NewReader(string(base)))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
+		return "", err
+	}
+	if components, ok := value["components"].(map[string]any); ok {
+		for key, c := range a.Components {
+			if len(c.Raw) == 0 {
+				continue
+			}
+			component, ok := components[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			component["raw"] = string(c.Raw)
+		}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func unmarshalAssetStorage(raw string, a *model.Asset) error {
+	var value map[string]any
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
+		return err
+	}
+	raws := map[string]string{}
+	if components, ok := value["components"].(map[string]any); ok {
+		for key, c := range components {
+			component, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := component["raw"].(string); ok {
+				raws[key] = text
+				// Do not re-encode raw through RawMessage here: encoding/json
+				// would compact it and lose the exact source bytes.
+				delete(component, "raw")
+			}
+		}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(encoded, a); err != nil {
+		return err
+	}
+	for key, text := range raws {
+		c := a.Components[key]
+		c.Raw = json.RawMessage(text)
+		a.Components[key] = c
+	}
+	return nil
+}
+
 func (s *SQLite) SaveAsset(ctx context.Context, a *model.Asset) error {
 	if a.Provider == "" || a.AccountUID == "" || a.Region == "" || a.ResourceID == "" || a.AccountID == "" || a.ObservedAt.IsZero() {
 		return fmt.Errorf("asset requires complete source identity and observation time")
@@ -69,7 +139,7 @@ func (s *SQLite) SaveAsset(ctx context.Context, a *model.Asset) error {
 	}
 	if oldRecord != "" {
 		var old model.Asset
-		if err := json.Unmarshal([]byte(oldRecord), &old); err != nil {
+		if err := unmarshalAssetStorage(oldRecord, &old); err != nil {
 			return err
 		}
 		if a.ObservedAt.Before(old.LastObservedAt) {
@@ -79,7 +149,7 @@ func (s *SQLite) SaveAsset(ctx context.Context, a *model.Asset) error {
 	a.LastObservedAt = a.ObservedAt
 	if oldHash == hash {
 		var old model.Asset
-		if err := json.Unmarshal([]byte(oldRecord), &old); err != nil {
+		if err := unmarshalAssetStorage(oldRecord, &old); err != nil {
 			return err
 		}
 		old.LastObservedAt = a.ObservedAt
@@ -87,16 +157,16 @@ func (s *SQLite) SaveAsset(ctx context.Context, a *model.Asset) error {
 	} else {
 		a.Revision++
 	}
-	raw, err = json.Marshal(a)
+	stored, err := marshalAssetStorage(a)
 	if err != nil {
 		return err
 	}
 	if oldHash != hash {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO asset_revisions(asset_id,revision,record) VALUES(?,?,?)`, a.ID, a.Revision, string(raw)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO asset_revisions(asset_id,revision,record) VALUES(?,?,?)`, a.ID, a.Revision, stored); err != nil {
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO assets(id,account_id,provider,account_uid,region,resource_id,revision,content_hash,record) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,revision=excluded.revision,content_hash=excluded.content_hash,record=excluded.record`, a.ID, a.AccountID, a.Provider, a.AccountUID, a.Region, a.ResourceID, a.Revision, hash, string(raw))
+	_, err = tx.ExecContext(ctx, `INSERT INTO assets(id,account_id,provider,account_uid,region,resource_id,revision,content_hash,record) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,revision=excluded.revision,content_hash=excluded.content_hash,record=excluded.record`, a.ID, a.AccountID, a.Provider, a.AccountUID, a.Region, a.ResourceID, a.Revision, hash, stored)
 	if err != nil {
 		return err
 	}
@@ -118,7 +188,7 @@ func (s *SQLite) GetAsset(ctx context.Context, id string, revision int) (*model.
 		return nil, err
 	}
 	var a model.Asset
-	err = json.Unmarshal([]byte(raw), &a)
+	err = unmarshalAssetStorage(raw, &a)
 	return &a, err
 }
 
@@ -151,7 +221,7 @@ func (s *SQLite) ListAssets(ctx context.Context, f model.AssetFilter) ([]model.A
 		if err := rows.Scan(&raw); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		if err := unmarshalAssetStorage(raw, &a); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

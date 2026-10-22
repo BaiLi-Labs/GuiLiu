@@ -35,6 +35,7 @@ var (
 	aliyunVPCID      = regexp.MustCompile(`^vpc-[a-zA-Z0-9]+$`)
 	aliyunVSwitchID  = regexp.MustCompile(`^vsw-[a-zA-Z0-9]+$`)
 	aliyunGroupID    = regexp.MustCompile(`^sg-[a-zA-Z0-9]+$`)
+	aliyunENIID      = regexp.MustCompile(`^eni-[a-zA-Z0-9]+$`)
 )
 
 var aliyunServices = map[string]struct{ endpoint, version string }{
@@ -132,6 +133,9 @@ func (c *aliyunClient) ReadInstance(ctx context.Context, a model.Account, id str
 }
 
 func (c *aliyunClient) ReadNetwork(ctx context.Context, a model.Account, kind string, ids []string) (map[string]*model.Asset, error) {
+	if kind == "nic" {
+		return readAliyunNICBatch(ctx, a, ids, c.call, c.limiter)
+	}
 	return readAliyunNetworkBatch(ctx, a, kind, ids, c.call, c.limiter)
 }
 
@@ -195,8 +199,11 @@ func ReadAliyun(ctx context.Context, a model.Account, id string, call Call, limi
 			VpcId, VSwitchId string
 			PrivateIpAddress struct{ IpAddress []string }
 		}
-		SecurityGroupIds struct{ SecurityGroupId []string }
-		Tags             struct {
+		SecurityGroupIds  struct{ SecurityGroupId []string }
+		NetworkInterfaces struct {
+			NetworkInterface []struct{ NetworkInterfaceId string }
+		}
+		Tags struct {
 			Tag []struct{ TagKey, TagValue string }
 		}
 	}
@@ -234,6 +241,11 @@ func ReadAliyun(ctx context.Context, a model.Account, id string, call Call, limi
 	}
 	for n, g := range i.SecurityGroupIds.SecurityGroupId {
 		out.References = append(out.References, reference(a, "security_group", g, "attached_security_group", "instance", fmt.Sprintf("/SecurityGroupIds/SecurityGroupId/%d", n)))
+	}
+	for n, nic := range i.NetworkInterfaces.NetworkInterface {
+		if aliyunENIID.MatchString(nic.NetworkInterfaceId) {
+			out.References = append(out.References, reference(a, "nic", nic.NetworkInterfaceId, "attached_network_interface", "instance", fmt.Sprintf("/NetworkInterfaces/NetworkInterface/%d/NetworkInterfaceId", n)))
+		}
 	}
 	for field, path := range map[string]string{"resource_id": "/InstanceId", "name": "/InstanceName", "os": "/OSName", "state": "/Status", "instance_type": "/InstanceType", "zone": "/ZoneId", "private_ips": "/VpcAttributes/PrivateIpAddress/IpAddress", "vpc_id": "/VpcAttributes/VpcId", "subnet_id": "/VpcAttributes/VSwitchId", "security_group_ids": "/SecurityGroupIds/SecurityGroupId", "tags": "/Tags"} {
 		if sourceHas(instance, path) {
@@ -454,6 +466,124 @@ func normalizeAliyunNetwork(a model.Account, kind, id, action, api string, raw j
 	return out, nil
 }
 
+// readAliyunNICBatch requests exact ENI IDs from the ECS API.
+func readAliyunNICBatch(ctx context.Context, a model.Account, ids []string, call Call, limiter *connector.Limiter) (map[string]*model.Asset, error) {
+	if len(ids) == 0 || len(ids) > MaxNICs {
+		return nil, fmt.Errorf("invalid network interface query scope")
+	}
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		if !aliyunENIID.MatchString(id) || wanted[id] {
+			return nil, fmt.Errorf("invalid or repeated network interface ID")
+		}
+		wanted[id] = true
+	}
+	if err := limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	raw, err := call(ctx, "ecs", "DescribeNetworkInterfaces", map[string]any{
+		"NetworkInterfaceId": ids,
+		"MaxResults":         len(ids),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		NetworkInterfaceSets struct{ NetworkInterfaceSet []json.RawMessage }
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil, fmt.Errorf("invalid network interface response")
+	}
+	out := map[string]*model.Asset{}
+	for _, item := range envelope.NetworkInterfaceSets.NetworkInterfaceSet {
+		var identity struct{ NetworkInterfaceId string }
+		if json.Unmarshal(item, &identity) != nil || !wanted[identity.NetworkInterfaceId] || out[identity.NetworkInterfaceId] != nil {
+			return nil, fmt.Errorf("network interface identity mismatch")
+		}
+		value, err := normalizeAliyunNIC(a, identity.NetworkInterfaceId, item)
+		if err != nil {
+			return nil, err
+		}
+		out[identity.NetworkInterfaceId] = value
+	}
+	return out, nil
+}
+
+func normalizeAliyunNIC(a model.Account, id string, raw json.RawMessage) (*model.Asset, error) {
+	var value struct {
+		NetworkInterfaceId, NetworkInterfaceName, VpcId, VSwitchId string
+		MacAddress, Type, Status, CreationTime, InstanceId         string
+		SecurityGroupIds                                           struct{ SecurityGroupId []string }
+		PrivateIpSets                                              struct {
+			PrivateIpSet []struct {
+				PrivateIpAddress string
+				Primary          bool
+			}
+		}
+		Tags struct {
+			Tag []struct{ Key, Value, TagKey, TagValue string }
+		}
+	}
+	if json.Unmarshal(raw, &value) != nil || value.NetworkInterfaceId != id {
+		return nil, fmt.Errorf("network interface identity mismatch")
+	}
+	primary := strings.EqualFold(value.Type, "Primary")
+	at := time.Now().UTC()
+	out := &model.Asset{
+		AccountID: a.ID, Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region,
+		ResourceID: id, ResourceType: "nic", Name: value.NetworkInterfaceName,
+		VPCID: value.VpcId, SubnetID: value.VSwitchId, SecurityGroupIDs: value.SecurityGroupIds.SecurityGroupId,
+		State: value.Status, ObservedAt: at, MapperVersion: "aliyun-eni/v1",
+		Components: map[string]model.AssetComponent{"details": component(raw, "ECS DescribeNetworkInterfaces", aliyunECSAV, at)},
+		Provenance: map[string]model.FieldOrigin{},
+		Network:    &model.AssetNetwork{MACAddress: value.MacAddress, Primary: &primary, SourceCreatedTime: value.CreationTime},
+	}
+	for _, address := range value.PrivateIpSets.PrivateIpSet {
+		if address.PrivateIpAddress != "" {
+			out.PrivateIPs = append(out.PrivateIPs, address.PrivateIpAddress)
+		}
+	}
+	if sourceHas(raw, "/Tags/Tag") {
+		out.Tags = []model.AssetTag{}
+		for _, tag := range value.Tags.Tag {
+			key, val := tag.Key, tag.Value
+			if tag.TagKey != "" {
+				key, val = tag.TagKey, tag.TagValue
+			}
+			out.Tags = append(out.Tags, model.AssetTag{Key: key, Value: val})
+		}
+	}
+	if value.VpcId != "" {
+		out.References = append(out.References, reference(a, "vpc", value.VpcId, "belongs_to_vpc", "details", "/VpcId"))
+	}
+	if value.VSwitchId != "" {
+		out.References = append(out.References, reference(a, "subnet", value.VSwitchId, "in_subnet", "details", "/VSwitchId"))
+	}
+	for n, group := range value.SecurityGroupIds.SecurityGroupId {
+		if aliyunGroupID.MatchString(group) {
+			out.References = append(out.References, reference(a, "security_group", group, "attached_security_group", "details", fmt.Sprintf("/SecurityGroupIds/SecurityGroupId/%d", n)))
+		}
+	}
+	if aliyunInstanceID.MatchString(value.InstanceId) {
+		out.References = append(out.References, reference(a, "ecs", value.InstanceId, "attached_to_host", "details", "/InstanceId"))
+	}
+	for field, path := range map[string]string{
+		"resource_id": "/NetworkInterfaceId", "name": "/NetworkInterfaceName", "state": "/Status",
+		"vpc_id": "/VpcId", "subnet_id": "/VSwitchId", "security_group_ids": "/SecurityGroupIds/SecurityGroupId",
+		"private_ips": "/PrivateIpSets/PrivateIpSet", "tags": "/Tags/Tag",
+		"network.mac_address": "/MacAddress", "network.primary": "/Type",
+		"network.source_created_time": "/CreationTime",
+	} {
+		if sourceHas(raw, path) {
+			out.Provenance[field] = model.FieldOrigin{Source: "component:details", Paths: []string{path}, Transform: "source_field_projection"}
+		}
+	}
+	for field, path := range map[string]string{"account_uid": "/account_uid", "region": "/region"} {
+		out.Provenance[field] = model.FieldOrigin{Source: "configuration", Paths: []string{path}, Transform: "explicit_connection_scope"}
+	}
+	return out, nil
+}
+
 // ValidAliyunResource validates native IDs without guessing resource identity.
 func ValidAliyunResource(kind, id string) bool {
 	if len(id) > 128 {
@@ -468,6 +598,8 @@ func ValidAliyunResource(kind, id string) bool {
 		return aliyunVSwitchID.MatchString(id)
 	case "security_group":
 		return aliyunGroupID.MatchString(id)
+	case "nic":
+		return aliyunENIID.MatchString(id)
 	}
 	return false
 }
@@ -480,7 +612,7 @@ func init() {
 		APIVersion:      aliyunECSAV,
 		HostAPI:         "ECS DescribeInstances",
 		PolicyAPI:       "ECS DescribeSecurityGroupAttribute",
-		ResourceTypes:   []string{"ecs", "security_group", "vpc", "subnet"},
+		ResourceTypes:   []string{"ecs", "security_group", "vpc", "subnet", "nic"},
 		MapperVersion:   aliyunMapperVersion,
 		DocsURL:         "https://help.aliyun.com/zh/ecs/developer-reference/api-ecs-2014-05-26-describeinstances",
 		SyntheticHostID: "i-mock0001",

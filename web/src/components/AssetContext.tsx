@@ -15,7 +15,7 @@ export interface Asset {
   tags?: { key: string; value: string }[] | null; revision: number; observed_at: string;
   last_observed_at: string; synthetic: boolean; provenance: unknown;
   references?: AssetReference[];
-  network?: { description?: string; cidr_block?: string; ipv6_cidr_block?: string; is_default?: boolean; source_created_time?: string };
+  network?: { description?: string; cidr_block?: string; ipv6_cidr_block?: string; mac_address?: string; primary?: boolean; is_default?: boolean; source_created_time?: string };
   components: Record<string, { status: string; reason?: string; raw_url?: string; raw_hash?: string; source_api?: string; observed_at?: string }>;
 }
 export interface AssetContext {
@@ -34,7 +34,7 @@ const messages: Record<string, string> = {
   cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新', storage_failed: '保存资产失败',
   failed: '读取失败', source_not_connected: '尚未接入该数据源', request_budget_exceeded: '已达到本次查询预算',
 };
-const componentLabels: Record<string, string> = { instance: '实例信息', software: '软件清单', listening_ports: '监听端口', reachability: '可达性观测' };
+const componentLabels: Record<string, string> = { instance: '实例信息', network_interfaces: '网卡信息', software: '软件清单', listening_ports: '监听端口', reachability: '可达性观测' };
 
 export function AssetSummary({ asset }: { asset: Asset }) {
   const { t } = useI18n();

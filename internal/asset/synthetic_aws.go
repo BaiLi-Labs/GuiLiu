@@ -15,7 +15,9 @@ const (
 	SyntheticAWSGroupID    = "sg-0123456789abcdef0"
 )
 
-const SyntheticAWSInstance = `{"InstanceId":"i-0123456789abcdef0","InstanceType":"m7g.large","PlatformDetails":"Linux/UNIX","ImageId":"ami-0123456789abcdef0","PrivateIpAddress":"10.30.0.11","PublicIpAddress":"192.0.2.40","VpcId":"vpc-0123456789abcdef0","SubnetId":"subnet-0123456789abcdef0","State":{"Name":"running"},"Placement":{"AvailabilityZone":"ap-southeast-1a"},"SecurityGroups":[{"GroupId":"sg-0123456789abcdef0","GroupName":"synthetic-web-access"}],"Tags":[{"Key":"Name","Value":"synthetic-web-01"},{"Key":"environment","Value":"demo"}],"NetworkInterfaces":[{"PrivateIpAddress":"10.30.0.11","Association":{"PublicIp":"192.0.2.40"},"PrivateIpAddresses":[{"PrivateIpAddress":"10.30.0.11"}]}],"FutureVendorField":9007199254740993}`
+const SyntheticAWSInstance = `{"InstanceId":"i-0123456789abcdef0","InstanceType":"m7g.large","PlatformDetails":"Linux/UNIX","ImageId":"ami-0123456789abcdef0","PrivateIpAddress":"10.30.0.11","PublicIpAddress":"192.0.2.40","VpcId":"vpc-0123456789abcdef0","SubnetId":"subnet-0123456789abcdef0","State":{"Name":"running"},"Placement":{"AvailabilityZone":"ap-southeast-1a"},"SecurityGroups":[{"GroupId":"sg-0123456789abcdef0","GroupName":"synthetic-web-access"}],"Tags":[{"Key":"Name","Value":"synthetic-web-01"},{"Key":"environment","Value":"demo"}],"NetworkInterfaces":[{"NetworkInterfaceId":"eni-0123456789abcdef0","PrivateIpAddress":"10.30.0.11","Association":{"PublicIp":"192.0.2.40"},"PrivateIpAddresses":[{"PrivateIpAddress":"10.30.0.11"}]}],"FutureVendorField":9007199254740993}`
+
+const SyntheticAWSENI = `{"NetworkInterfaceId":"eni-0123456789abcdef0","Description":"synthetic-web-eni","VpcId":"vpc-0123456789abcdef0","SubnetId":"subnet-0123456789abcdef0","PrivateIpAddress":"10.30.0.11","PrivateIpAddresses":[{"PrivateIpAddress":"10.30.0.11","Primary":true}],"Association":{"PublicIp":"192.0.2.40"},"Groups":[{"GroupId":"sg-0123456789abcdef0"}],"Attachment":{"InstanceId":"i-0123456789abcdef0","DeviceIndex":0},"MacAddress":"02:00:00:00:00:01","Status":"in-use","InterfaceType":"interface","TagSet":[{"Key":"environment","Value":"demo"}],"FutureVendorField":9007199254740993}`
 
 const SyntheticAWSVPC = `{"VpcId":"vpc-0123456789abcdef0","CidrBlock":"10.30.0.0/16","IsDefault":false,"State":"available","Tags":[{"Key":"Name","Value":"synthetic-production-network"},{"Key":"environment","Value":"demo"}],"FutureVendorField":9007199254740993}`
 
@@ -44,6 +46,11 @@ func SyntheticAWSRaw() awsRaw {
 				return json.RawMessage(`{"Subnets":[]}`), nil
 			}
 			return json.RawMessage(`{"Subnets":[` + SyntheticAWSSubnet + `]}`), nil
+		case "DescribeNetworkInterfaces":
+			if ids[0] != "eni-0123456789abcdef0" {
+				return json.RawMessage(`{"NetworkInterfaces":[]}`), nil
+			}
+			return json.RawMessage(`{"NetworkInterfaces":[` + SyntheticAWSENI + `]}`), nil
 		case "DescribeSecurityGroups":
 			if ids[0] != SyntheticAWSGroupID {
 				return json.RawMessage(`{"SecurityGroups":[]}`), nil

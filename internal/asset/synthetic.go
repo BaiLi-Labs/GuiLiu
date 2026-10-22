@@ -16,6 +16,7 @@ const SyntheticPolicy = `{"SecurityGroupPolicySet":{"Version":"1","Ingress":[{"P
 const SyntheticVPC = `{"VpcId":"vpc-synthetic","VpcName":"synthetic-production-network","CidrBlock":"10.0.0.0/16","IsDefault":false,"CreatedTime":"2026-01-01 09:00:00","TagSet":[{"Key":"environment","Value":"demo"}],"FutureVendorField":9007199254740993}`
 const SyntheticSubnet = `{"SubnetId":"subnet-synthetic","SubnetName":"synthetic-web-subnet","VpcId":"vpc-synthetic","CidrBlock":"10.0.0.0/24","Zone":"ap-guangzhou-6","IsDefault":false,"RouteTableId":"rtb-synthetic","NetworkAclId":"acl-synthetic","TagSet":[]}`
 const SyntheticSecurityGroup = `{"SecurityGroupId":"sg-synthetic","SecurityGroupName":"synthetic-web-access","SecurityGroupDesc":"Synthetic HTTPS policy group","IsDefault":false,"CreatedTime":"2026-01-01 09:00:00","TagSet":[{"Key":"team","Value":"demo"}]}`
+const SyntheticTencentENI = `{"NetworkInterfaceId":"eni-mock0001","NetworkInterfaceName":"synthetic-web-eni","VpcId":"vpc-synthetic","SubnetId":"subnet-synthetic","GroupSet":["sg-synthetic"],"Primary":true,"MacAddress":"52:54:00:12:34:56","State":"AVAILABLE","PrivateIpAddressSet":[{"PrivateIpAddress":"10.0.0.11","Primary":true}],"Attachment":{"InstanceId":"ins-mock0001"},"TagSet":[{"Key":"environment","Value":"demo"}],"CreatedTime":"2026-01-01 09:00:00","FutureVendorField":9007199254740993}`
 
 func SyntheticCall() Call {
 	return func(_ context.Context, service, action string, params map[string]any) (json.RawMessage, error) {
@@ -28,6 +29,28 @@ func SyntheticCall() Call {
 		}
 		if action == "DescribeSecurityGroupPolicies" {
 			return json.RawMessage(SyntheticPolicy), nil
+		}
+		if action == "DescribeNetworkInterfaces" {
+			ids, _ := params["NetworkInterfaceIds"].([]string)
+			matched := false
+			for _, id := range ids {
+				if id == "eni-mock0001" {
+					matched = true
+				}
+			}
+			if filters, ok := params["Filters"].([]map[string]any); ok {
+				for _, filter := range filters {
+					if filter["Name"] == "attachment.instance-id" {
+						if values, ok := filter["Values"].([]string); ok && len(values) == 1 && values[0] == "ins-mock0001" {
+							matched = true
+						}
+					}
+				}
+			}
+			if !matched {
+				return json.RawMessage(`{"NetworkInterfaceSet":[],"TotalCount":0}`), nil
+			}
+			return json.RawMessage(fmt.Sprintf(`{"NetworkInterfaceSet":[%s],"TotalCount":1}`, SyntheticTencentENI)), nil
 		}
 		for _, spec := range []struct{ action, key, idKey, id, raw string }{
 			{"DescribeVpcs", "VpcSet", "VpcIds", "vpc-synthetic", SyntheticVPC},

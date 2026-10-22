@@ -56,6 +56,8 @@ type AssetNetwork struct {
 	Description       string `json:"description,omitempty"`
 	CIDRBlock         string `json:"cidr_block,omitempty"`
 	IPv6CIDRBlock     string `json:"ipv6_cidr_block,omitempty"`
+	MACAddress        string `json:"mac_address,omitempty"`
+	Primary           *bool  `json:"primary,omitempty"`
 	IsDefault         *bool  `json:"is_default,omitempty"`
 	SourceCreatedTime string `json:"source_created_time,omitempty"`
 }

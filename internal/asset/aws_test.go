@@ -30,7 +30,7 @@ func TestAWSInstanceMappingAndExactEvidence(t *testing.T) {
 	if len(value.PublicIPs) != 1 || value.PublicIPs[0] != "192.0.2.40" || len(value.PrivateIPs) != 1 || value.PrivateIPs[0] != "10.30.0.11" {
 		t.Fatalf("addresses: %+v", value)
 	}
-	if len(value.Tags) != 2 || len(value.References) != 3 {
+	if len(value.Tags) != 2 || len(value.References) != 4 {
 		t.Fatalf("tags/references: %+v %+v", value.Tags, value.References)
 	}
 	c := value.Components["instance"]
@@ -76,7 +76,7 @@ func TestAWSRequestBudgetAndIdentity(t *testing.T) {
 	if calls != 6 || a.Components["security_group:sg-00000000000000006"].Reason != "request_budget_exceeded" {
 		t.Fatalf("budget: %d %+v", calls, a.Components)
 	}
-	if len(a.References) != 8 {
+	if len(a.References) != 9 {
 		t.Fatalf("source references dropped: %d", len(a.References))
 	}
 	for _, id := range []string{"", "*", "ins-mock0001", "i-ABC"} {

@@ -96,7 +96,7 @@ func TestAssetInvestigationRESTAndMCPUseIdenticalFacts(t *testing.T) {
 	compare("/assets?limit=1", "list_assets", map[string]any{"limit": 1})
 	hostView := compare("/assets/"+value.ID+"?revision=1", "get_asset", map[string]any{"asset_id": value.ID, "revision": 1})
 	refs := hostView["references"].([]any)
-	if len(refs) != 3 {
+	if len(refs) != 4 {
 		t.Fatal("missing scoped resource references", refs)
 	}
 	for _, rawRef := range refs {

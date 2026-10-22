@@ -11,7 +11,7 @@ export interface AssetReference {
   source_component: string; source_path: string; lookup_url?: string;
 }
 interface Lookup { status: string; asset?: Asset; refresh?: { status: string; attempted_at: string } }
-const resourceLabels: Record<string, string> = { vpc: 'VPC', subnet: '子网', security_group: '安全组', cvm: '云主机', ecs: '云主机', ec2: '云主机', gce: '云主机', vm: '云主机' };
+const resourceLabels: Record<string, string> = { vpc: 'VPC', subnet: '子网', security_group: '安全组', nic: '网卡', cvm: '云主机', ecs: '云主机', ec2: '云主机', gce: '云主机', vm: '云主机' };
 const statusLabels: Record<string, string> = { available: '已有本地观测', stale: '本地观测已过期', not_collected: '尚未采集', partial: '部分组件未取得', permission_denied: '来源权限不足', timeout: '来源请求超时', source_request_failed: '来源请求失败', not_found_or_not_visible: '该范围内未查到或无权查看', storage_failed: '保存资产失败', cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新' };
 
 export function resourceLookupPath(ref: AssetReference): string {
@@ -27,12 +27,22 @@ export function NetworkSummary({ asset }: { asset: Asset }) {
       <dt>ID</dt><dd>{asset.resource_id}</dd>
       <dt>{t('云账号')}</dt><dd>{asset.account_uid}</dd>
       <dt>{t('地域')}</dt><dd>{asset.region}</dd>
-      {asset.resource_type !== 'security_group' ? <>
+      {asset.resource_type === 'vpc' || asset.resource_type === 'subnet' ? <>
         <dt>CIDR</dt><dd>{asset.network?.cidr_block || t('未知')}</dd>
         <dt>IPv6 CIDR</dt><dd>{asset.network?.ipv6_cidr_block || t('未知')}</dd>
-      </> : <><dt>{t('说明')}</dt><dd>{asset.network?.description || t('未知')}</dd></>}
+      </> : null}
+      {asset.resource_type === 'security_group' ? <><dt>{t('说明')}</dt><dd>{asset.network?.description || t('未知')}</dd></> : null}
       {asset.resource_type === 'subnet' ? <><dt>VPC</dt><dd>{asset.vpc_id || t('未知')}</dd><dt>{t('可用区')}</dt><dd>{asset.zone || t('未知')}</dd></> : null}
-      <dt>{t('默认资源')}</dt><dd>{asset.network?.is_default === undefined ? t('未知') : t(asset.network.is_default ? '是' : '否')}</dd>
+      {asset.resource_type === 'nic' ? <>
+        <dt>VPC</dt><dd>{asset.vpc_id || t('未知')}</dd>
+        <dt>{t('子网')}</dt><dd>{asset.subnet_id || t('未知')}</dd>
+        <dt>{t('私网 IP')}</dt><dd>{asset.private_ips?.length ? asset.private_ips.join(', ') : t('未知')}</dd>
+        <dt>{t('公网 IP')}</dt><dd>{asset.public_ips?.length ? asset.public_ips.join(', ') : t('来源未提供')}</dd>
+        <dt>{t('安全组')}</dt><dd>{asset.security_group_ids?.length ? asset.security_group_ids.join(', ') : t('未知')}</dd>
+        <dt>MAC</dt><dd>{asset.network?.mac_address || t('未知')}</dd>
+        <dt>{t('主网卡')}</dt><dd>{asset.network?.primary === undefined ? t('未知') : t(asset.network.primary ? '是' : '否')}</dd>
+      </> : null}
+      {asset.resource_type === 'vpc' || asset.resource_type === 'subnet' ? <><dt>{t('默认资源')}</dt><dd>{asset.network?.is_default === undefined ? t('未知') : t(asset.network.is_default ? '是' : '否')}</dd></> : null}
       <dt>{t('标签')}</dt><dd>{asset.tags == null ? t('未知') : asset.tags.length ? asset.tags.map(tag => `${tag.key}=${tag.value}`).join(', ') : t('无（来源报告）')}</dd>
       <dt>{t('厂商创建时间原值')}</dt><dd>{asset.network?.source_created_time || t('未知')}</dd>
       <dt>{t('最近确认时间')}</dt><dd>{formatTime(asset.last_observed_at)}</dd>

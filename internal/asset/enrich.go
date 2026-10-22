@@ -18,7 +18,7 @@ type RelatedRefresh struct {
 func (s *Service) enrichNetworks(ctx context.Context, a model.Account, p Provider, host *model.Asset, client Client) ([]RelatedRefresh, bool, error) {
 	results := []RelatedRefresh{}
 	partial := false
-	for _, kind := range []string{"security_group", "vpc", "subnet"} {
+	for _, kind := range []string{"nic", "security_group", "vpc", "subnet"} {
 		if ctx.Err() != nil {
 			for _, ref := range host.References {
 				if ref.ResourceType == kind {

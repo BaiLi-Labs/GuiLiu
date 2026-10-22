@@ -32,6 +32,12 @@ func TestTencentSourceBytesMappingAndPartialPolicies(t *testing.T) {
 			}
 			return json.RawMessage(`{"InstanceSet":[` + SyntheticInstance + `]}`), nil
 		}
+		if action == "DescribeNetworkInterfaces" {
+			if _, ok := params["Filters"]; !ok {
+				t.Fatal("ENI discovery must be scoped to the instance", params)
+			}
+			return json.RawMessage(`{"NetworkInterfaceSet":[` + SyntheticTencentENI + `],"TotalCount":1}`), nil
+		}
 		if action != "DescribeSecurityGroupPolicies" || params["SecurityGroupId"] != "sg-synthetic" {
 			t.Fatal(action, params)
 		}
@@ -41,8 +47,20 @@ func TestTencentSourceBytesMappingAndPartialPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || value.OS != "TencentOS Server 3.1" || value.VPCID != "vpc-synthetic" || len(value.Tags) != 1 || value.Provenance["region"].Source != "configuration" {
+	if calls != 3 || value.OS != "TencentOS Server 3.1" || value.VPCID != "vpc-synthetic" || len(value.Tags) != 1 || value.Provenance["region"].Source != "configuration" {
 		t.Fatalf("mapping: %+v", value)
+	}
+	if value.Components["network_interfaces"].Status != "available" {
+		t.Fatalf("ENI discovery: %+v", value.Components["network_interfaces"])
+	}
+	foundNIC := false
+	for _, ref := range value.References {
+		if ref.ResourceType == "nic" && ref.ResourceID == "eni-mock0001" {
+			foundNIC = true
+		}
+	}
+	if !foundNIC {
+		t.Fatalf("host lost ENI reference: %+v", value.References)
 	}
 	c := value.Components["instance"]
 	if string(c.Raw) != SyntheticInstance || c.RawHash != fmt.Sprintf("%x", sha256.Sum256(c.Raw)) {
@@ -63,10 +81,13 @@ func TestTencentRequestBudgetAndUnknownFields(t *testing.T) {
 	delete(instance, "OsName")
 	raw, _ := json.Marshal(instance)
 	calls := 0
-	call := func(_ context.Context, service, _ string, _ map[string]any) (json.RawMessage, error) {
+	call := func(_ context.Context, service, action string, _ map[string]any) (json.RawMessage, error) {
 		calls++
 		if service == "cvm" {
 			return json.RawMessage(`{"InstanceSet":[` + string(raw) + `]}`), nil
+		}
+		if action == "DescribeNetworkInterfaces" {
+			return json.RawMessage(`{"NetworkInterfaceSet":[],"TotalCount":0}`), nil
 		}
 		return json.RawMessage(SyntheticPolicy), nil
 	}
@@ -74,7 +95,7 @@ func TestTencentRequestBudgetAndUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 6 || a.Components["security_group:sg-6"].Reason != "request_budget_exceeded" || a.OS != "" {
+	if calls != 7 || a.Components["security_group:sg-6"].Reason != "request_budget_exceeded" || a.OS != "" {
 		t.Fatalf("unbounded or invented fields: %d %+v", calls, a)
 	}
 	if _, ok := a.Provenance["os"]; ok {
@@ -88,7 +109,7 @@ func TestTencentRequestBudgetAndUnknownFields(t *testing.T) {
 			t.Fatal("invalid ID accepted")
 		}
 	}
-	if calls != 6 {
+	if calls != 7 {
 		t.Fatal("invalid input invoked source")
 	}
 }
@@ -140,7 +161,7 @@ func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 	if err != nil || first.Status != "available" || first.Asset == nil || first.Asset.Revision != 1 {
 		t.Fatalf("first: %+v %v", first, err)
 	}
-	if _, err = s.Refresh(ctx, a.ID, "cvm", "ins-mock0001"); err != nil || calls != 5 {
+	if _, err = s.Refresh(ctx, a.ID, "cvm", "ins-mock0001"); err != nil || calls != 6 {
 		t.Fatalf("cache: calls=%d %v", calls, err)
 	}
 	base := time.Now()

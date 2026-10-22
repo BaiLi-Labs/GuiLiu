@@ -110,7 +110,7 @@ func (s *Service) client(ctx context.Context, a model.Account, p Provider) (Clie
 		return nil, err
 	}
 	if p.ID == "tencent" && s.Factory != nil {
-		return &tencentClient{call: s.Factory(cred, a.Region), limiter: limiter}, nil
+		return &tencentClient{call: s.Factory(cred, a.Region), limiter: limiter, nicCache: &nicCache{}}, nil
 	}
 	return p.New(cred, a, limiter)
 }
@@ -188,7 +188,7 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 			attempt.Status = errorCode(err, p.ID)
 		} else {
 			for key, c := range value.Components {
-				if (strings.HasPrefix(key, "security_group:") || key == "policies") && c.Status != "available" {
+				if (strings.HasPrefix(key, "security_group:") || key == "policies" || key == "network_interfaces") && c.Status != "available" {
 					attempt.Status = "partial"
 				}
 			}
