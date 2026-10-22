@@ -120,6 +120,7 @@ export interface Resource {
   type?: string;
   account_uid?: string;
   source?: 'vendor_declared' | 'identifier_fallback';
+  declared_name?: string;
 }
 
 export interface Observable {

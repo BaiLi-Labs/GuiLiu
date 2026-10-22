@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -57,8 +58,17 @@ func TestAzureInstanceMappingAndExactEvidence(t *testing.T) {
 func TestAzureSubscriptionScopeAndIdentity(t *testing.T) {
 	other := azureAccount()
 	other.Options = map[string]string{"subscription_id": "22222222-2222-2222-2222-222222222222"}
-	if _, err := ReadAzure(context.Background(), other, SyntheticAzureVMID, SyntheticAzureRaw(), connector.NewLimiter(100000)); err == nil {
-		t.Fatal("cross-subscription ID accepted")
+	calls := 0
+	call := func(context.Context, string, map[string]string) (json.RawMessage, error) {
+		calls++
+		return nil, errors.New("scope check must run before any source call")
+	}
+	_, err := ReadAzure(context.Background(), other, SyntheticAzureVMID, call, connector.NewLimiter(100000))
+	if !errors.Is(err, ErrScopeMismatch) {
+		t.Fatalf("cross-subscription ID: err=%v, want ErrScopeMismatch", err)
+	}
+	if calls != 0 {
+		t.Fatalf("scope mismatch called the source %d time(s)", calls)
 	}
 	for _, id := range []string{"synthetic-web-01", SyntheticAzureVMID + "/extra", "i-mock0001"} {
 		if _, err := ReadAzure(context.Background(), azureAccount(), id, SyntheticAzureRaw(), connector.NewLimiter(100000)); err == nil {

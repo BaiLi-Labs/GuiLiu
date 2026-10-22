@@ -89,12 +89,16 @@ func TestExtraInfoAndUnknownAlertTypesArePreserved(t *testing.T) {
 }
 
 func TestResourceNameOriginIsExplicit(t *testing.T) {
-	declared, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"a","Victim":{"IP":"10.0.0.6","InstanceID":"ins-x","AssetType":1,"Name":"db-01"}}`))
+	// RoleInfo.Name is an enterprise name, not an asset name.
+	enterprise, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"a","Victim":{"IP":"10.0.0.6","InstanceID":"ins-x","AssetType":1,"Name":"Example Holdings Ltd"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if declared.Resource.Name != "db-01" || declared.Resource.Source != model.ResourceSourceVendorDeclared {
-		t.Fatalf("declared resource = %+v", declared.Resource)
+	if enterprise.Resource.Name != "10.0.0.6" || enterprise.Resource.Source != model.ResourceSourceIdentifierFallback {
+		t.Fatalf("enterprise name became an asset name: %+v", enterprise.Resource)
+	}
+	if enterprise.Resource.DeclaredName != "Example Holdings Ltd" {
+		t.Fatalf("declared name was not preserved: %+v", enterprise.Resource)
 	}
 
 	fallback, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"b","Victim":{"IP":"10.0.0.7","InstanceID":"ins-y","AssetType":1}}`))
@@ -132,11 +136,21 @@ func TestNormalize(t *testing.T) {
 	if alert.Resource.ID != "ins-abc" || alert.Resource.Type != "host" {
 		t.Fatalf("resource = %+v", alert.Resource)
 	}
-	if alert.Resource.Name != "web-prod-01" || alert.Resource.Source != model.ResourceSourceVendorDeclared {
-		t.Fatalf("resource name = %+v, want the declared asset name", alert.Resource)
+	if alert.Resource.Name != "10.0.0.5" || alert.Resource.Source != model.ResourceSourceIdentifierFallback {
+		t.Fatalf("resource name = %+v, want an identifier fallback", alert.Resource)
 	}
-	if alert.Resource.AccountUID != "1250000000" {
-		t.Fatalf("resource account = %q", alert.Resource.AccountUID)
+	if alert.Resource.AccountUID != "" {
+		t.Fatalf("Victim.Account is an AppID, not a UIN; it must not become account_uid: %q", alert.Resource.AccountUID)
+	}
+	if alert.Resource.DeclaredName != "web-prod-01" {
+		t.Fatalf("the source-declared name must be kept verbatim: %q", alert.Resource.DeclaredName)
+	}
+	evidence, err := json.Marshal(alert.Evidences)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(evidence), "web-prod-01") {
+		t.Fatal("the role name must stay available in vendor evidence")
 	}
 	if alert.SourceLocation != "示例省示例市" || alert.SourceCountry != "示例国家" {
 		t.Fatalf("source location = %q/%q", alert.SourceLocation, alert.SourceCountry)

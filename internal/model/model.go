@@ -146,6 +146,12 @@ type Resource struct {
 	// supplied a human-readable asset name, identifier_fallback when Name is a
 	// domain, IP address or native ID used only as a last resort.
 	Source string `json:"source,omitempty"`
+	// DeclaredName is the readable name the source declares for this resource
+	// role. Its meaning is defined by the source (instance name, asset name or
+	// enterprise name) and GuiLiu does not assert which. It is kept verbatim
+	// even when Name must fall back to an identifier; the cloud-authoritative
+	// host name comes from asset observations.
+	DeclaredName string `json:"declared_name,omitempty"`
 }
 
 // Observable is a searchable indicator extracted from a vendor alert.
@@ -254,6 +260,27 @@ type AlertRecord struct {
 	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
+// ResourceAccountUID returns the account that owns the primary resource. A
+// source-declared owner wins; otherwise the alert's own account applies. The
+// store uses the same rule, so asset context, grouping, related Findings and
+// refresh connection selection stay consistent.
+func (r *AlertRecord) ResourceAccountUID() string {
+	if owner := strings.TrimSpace(r.Resource.AccountUID); owner != "" {
+		return owner
+	}
+	return r.AccountUID
+}
+
+// ResourceIdentityMatchedOn lists the identity fields used to relate a Finding
+// to a saved asset host. It is shared by asset context and related Findings.
+func ResourceIdentityMatchedOn(resourceOwnerUsed bool) []string {
+	matched := []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}
+	if resourceOwnerUsed {
+		matched = append(matched, "resource_account_uid")
+	}
+	return matched
+}
+
 // DedupeKey is the stable identity of an alert inside one cloud account.
 func (r *AlertRecord) DedupeKey() string {
 	return r.Provider + "|" + r.AccountID + "|" + r.ExternalID
@@ -359,7 +386,12 @@ type SyncRun struct {
 
 // AlertFilter is shared by REST, MCP and the store.
 type AlertFilter struct {
-	AccountUID            string
+	AccountUID string
+	// ResourceAccountUID matches the account that owns the primary resource:
+	// the source-declared resource account when present, otherwise the alert's
+	// own account. Use it to relate saved assets to the Findings that reference
+	// them, not to re-scope the source connection.
+	ResourceAccountUID    string
 	Region                string
 	ExactResourceID       string
 	ExactResourceIDs      []string

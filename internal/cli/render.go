@@ -155,6 +155,7 @@ func alertAllColumns() []column[view.Alert] {
 			return firstNonEmpty(a.Resource.Name, a.Resource.ID)
 		}},
 		{key: "resource_id", header: "RESOURCE_ID", value: func(a view.Alert) string { return a.Resource.ID }},
+		{key: "resource_declared_name", header: "RESOURCE_DECLARED_NAME", max: 36, value: func(a view.Alert) string { return a.Resource.DeclaredName }},
 		{key: "resource_account", header: "RESOURCE_ACCOUNT", value: func(a view.Alert) string { return a.Resource.AccountUID }},
 		{key: "resource_source", header: "RESOURCE_SOURCE", value: func(a view.Alert) string { return a.Resource.Source }},
 		{key: "source_ip", header: "SRC", value: func(a view.Alert) string { return a.SourceIP }},
@@ -326,6 +327,7 @@ func renderAlertDetail(w io.Writer, a view.Alert) error {
 		{"resource", firstNonEmpty(a.Resource.Name, a.Resource.ID)},
 		{"resource_type", a.Resource.Type},
 		{"resource_id", a.Resource.ID},
+		{"resource_declared_name", a.Resource.DeclaredName},
 		{"resource_account", a.Resource.AccountUID},
 		{"resource_source", a.Resource.Source},
 		{"source_ip", a.SourceIP},
@@ -482,6 +484,7 @@ func renderAssetContext(w io.Writer, context query.AssetContext) error {
 		{"reason", context.Reason},
 		{"resource_id", context.ResourceID},
 		{"matched_on", strings.Join(context.MatchedOn, ",")},
+		{"refresh_reason", context.RefreshReason},
 	}
 	if err := renderDetail(w, pairs); err != nil {
 		return err

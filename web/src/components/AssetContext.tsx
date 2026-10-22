@@ -22,7 +22,7 @@ export interface Asset {
 }
 export interface AssetContext {
   status: string; reason?: string; asset?: Asset; resource_id?: string; refresh_account_id?: string;
-  refresh?: { status: string; attempted_at: string; source_error?: SourceError }; matched_on?: string[]; limitations: string[];
+  refresh?: { status: string; attempted_at: string; source_error?: SourceError }; refresh_reason?: string; matched_on?: string[]; limitations: string[];
   scope?: { provider: string; account_uid?: string; region?: string; resource_type?: string; resource_id?: string; source_api?: string; api_version?: string };
 }
 
@@ -36,6 +36,9 @@ const messages: Record<string, string> = {
   source_request_failed: '来源请求失败', timeout: '来源请求超时', partial: '部分组件未取得',
   cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新', storage_failed: '保存资产失败',
   failed: '读取失败', source_not_connected: '尚未接入该数据源', request_budget_exceeded: '已达到本次查询预算',
+  scope_mismatch: '资源不在该连接的配置范围内，未请求云端',
+  not_requested: '没有可用的凭据或客户端，未请求云端',
+  resource_account_not_connected: '资源所属账号尚未配置连接，无法刷新',
 };
 const componentLabels: Record<string, string> = { instance: '实例信息', network_interfaces: '网卡信息', software: '软件清单', listening_ports: '监听端口', reachability: '可达性观测' };
 
@@ -127,6 +130,7 @@ export function AssetContextPanel({ detail, isAdmin }: { detail: Alert; isAdmin:
       {members.map(item => <a className="block break-all text-xs underline" key={item.id} href={`#/alerts?alert=${encodeURIComponent(item.id)}`}>{item.title} · {item.external_id}</a>)}
     </> : null}
     {value?.refresh ? <p className="text-xs text-[var(--muted)]">{t('最近刷新')}：{t(messages[value.refresh.status] || value.refresh.status)} · {formatTime(value.refresh.attempted_at)}</p> : null}
+    {value?.refresh_reason ? <p className="text-xs text-[var(--muted)]">{t(messages[value.refresh_reason] || value.refresh_reason)}</p> : null}
     {value?.scope && !value.asset ? <p className="text-xs text-[var(--muted)]">{t('尝试范围')}：{[value.scope.provider, value.scope.region || t('未限定地域'), value.scope.resource_type, value.scope.resource_id, value.scope.source_api].filter(Boolean).join(' · ')}</p> : null}
     <SourceFailure value={value?.refresh?.source_error} />
     {notice ? <p role="status" className="text-xs">{t(messages[notice] || notice)}</p> : null}

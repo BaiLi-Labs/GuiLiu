@@ -16,7 +16,14 @@ import (
 )
 
 var ErrInvalidRequest = errors.New("invalid asset request")
+
+// ErrNotVisible means the source was queried in an authorized scope and
+// returned no record. ErrScopeMismatch means a local scope check rejected the
+// request before any cloud call. ErrNotRequested means no client could be built
+// from local configuration or credentials. Only the first case is a source fact.
 var ErrNotVisible = errors.New("resource not visible in this scope")
+var ErrScopeMismatch = errors.New("resource identity is outside the configured source scope")
+var ErrNotRequested = errors.New("no source client available for this request")
 
 const CacheTTL = 5 * time.Minute
 
@@ -61,6 +68,12 @@ func errorCode(err error, provider string) string {
 	}
 	if errors.Is(err, ErrNotVisible) {
 		return "not_found_or_not_visible"
+	}
+	if errors.Is(err, ErrScopeMismatch) {
+		return "scope_mismatch"
+	}
+	if errors.Is(err, ErrNotRequested) {
+		return "not_requested"
 	}
 	if detail := connector.SourceError(connector.Classify(provider, err)); detail != nil {
 		switch connector.ErrorKind(detail.Kind) {
@@ -159,34 +172,34 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		var value *model.Asset
-		var client Client
-		if client, err = s.client(ctx, *a, p); err == nil && client != nil {
-			if kind == p.HostType {
-				value, err = client.ReadInstance(ctx, *a, id)
-			} else {
-				var items map[string]*model.Asset
-				items, err = client.ReadNetwork(ctx, *a, kind, []string{id})
-				if err == nil {
-					value = items[id]
-					if value == nil {
-						err = ErrNotVisible
-					}
-				}
-				if err == nil && kind == "security_group" && !p.PoliciesInDetails {
-					component, policyErr := client.ReadPolicies(ctx, *a, id)
-					if policyErr != nil {
-						component = model.AssetComponent{Status: "failed", Reason: errorCode(policyErr, p.ID), SourceAPI: p.PolicyAPI, APIVersion: p.APIVersion}
-						component.SourceError = connector.SourceError(connector.WithSourceAPI(p.ID, p.PolicyAPI, policyErr))
-					}
-					value.Components["policies"] = component
+		client, clientErr := s.client(ctx, *a, p)
+		switch {
+		case clientErr != nil || client == nil:
+			// Credential decryption, option validation and client construction
+			// are local. No cloud request happened, so this is not a source fact.
+			err = ErrNotRequested
+		case kind == p.HostType:
+			value, err = client.ReadInstance(ctx, *a, id)
+		default:
+			var items map[string]*model.Asset
+			items, err = client.ReadNetwork(ctx, *a, kind, []string{id})
+			if err == nil {
+				value = items[id]
+				if value == nil {
+					err = ErrNotVisible
 				}
 			}
-			if value != nil {
-				value.Synthetic = s.Synthetic
+			if err == nil && kind == "security_group" && !p.PoliciesInDetails {
+				component, policyErr := client.ReadPolicies(ctx, *a, id)
+				if policyErr != nil {
+					component = model.AssetComponent{Status: "failed", Reason: errorCode(policyErr, p.ID), SourceAPI: p.PolicyAPI, APIVersion: p.APIVersion}
+					component.SourceError = connector.SourceError(connector.WithSourceAPI(p.ID, p.PolicyAPI, policyErr))
+				}
+				value.Components["policies"] = component
 			}
 		}
-		if err == nil && client == nil {
-			err = errors.New("asset client unavailable")
+		if value != nil {
+			value.Synthetic = s.Synthetic
 		}
 		if err == nil && value == nil {
 			err = ErrNotVisible
@@ -194,10 +207,10 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 		attempt.Status = "available"
 		if err != nil {
 			attempt.Status = errorCode(err, p.ID)
-			// An authorized read that simply returned no record is not a source
-			// request failure. record the status and keep the attempted scope,
-			// but do not fabricate an SDK error without a code.
-			if !errors.Is(err, ErrNotVisible) {
+			// Only an actual source request failure carries an SDK error. A local
+			// scope rejection, an unavailable client or an authorized empty
+			// result must not invent one.
+			if !errors.Is(err, ErrNotVisible) && !errors.Is(err, ErrScopeMismatch) && !errors.Is(err, ErrNotRequested) {
 				attempt.SourceError = connector.SourceError(connector.Classify(p.ID, err))
 			}
 		} else {

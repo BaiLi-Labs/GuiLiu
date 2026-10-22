@@ -698,6 +698,9 @@ function AlertDrawer({
                     {detail.resource?.source === 'identifier_fallback' ? (
                       <div className="text-xs text-[var(--muted)]">{t('名称回退到标识符，厂商未声明资产名')}</div>
                     ) : null}
+                    {detail.resource?.declared_name ? (
+                      <div className="mt-1 text-xs text-[var(--muted)]">{t('来源声明名称')}：{detail.resource.declared_name}</div>
+                    ) : null}
                     {detail.resource?.id ? (
                       <div className="mt-1 break-all font-mono text-xs text-[var(--muted)]">
                         {detail.resource.id}

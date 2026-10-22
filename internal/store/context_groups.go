@@ -41,8 +41,8 @@ func contextPrefix(f model.AlertFilter) string {
  WHERE s.sequence=(SELECT MAX(s2.sequence) FROM asset_revision_sequences s2 WHERE s2.asset_id=r.asset_id AND s2.sequence<=` + watermark + `)
  ), hosts AS (
  SELECT a.id finding_id, h.asset_id, h.record
- FROM eligible a JOIN asset_at h ON h.provider=a.provider AND h.account_uid=a.account_uid AND h.region=a.region
- AND a.account_uid<>'' AND a.resource_id<>'' AND (
+ FROM eligible a JOIN asset_at h ON h.provider=a.provider AND h.account_uid=` + resourceOwnerExpr("a") + ` AND h.region=a.region
+ AND ` + resourceOwnerExpr("a") + `<>'' AND a.resource_id<>'' AND (
  (a.provider='tencent' AND a.resource_type='host' AND h.resource_type='cvm' AND a.resource_id=h.resource_id) OR
  (a.provider='aliyun' AND a.resource_type='host' AND h.resource_type='ecs' AND a.resource_id=h.resource_id) OR
  (a.provider='huawei' AND lower(a.resource_type) IN ('host','server','vm','ecs') AND h.resource_type='ecs' AND a.resource_id=h.resource_id) OR
@@ -85,17 +85,18 @@ func contextPrefix(f model.AlertFilter) string {
   ) `
 	} else {
 		extra := ""
-		required := `a.account_uid='' OR a.resource_id='' OR a.resource_type='' OR (a.region='' AND a.provider IN ('tencent','aliyun','huawei','aws'))`
+		owner := resourceOwnerExpr("a")
+		required := owner + `='' OR a.resource_id='' OR a.resource_type='' OR (a.region='' AND a.provider IN ('tencent','aliyun','huawei','aws'))`
 		if f.GroupBy == model.GroupByNameAsset {
 			extra = `,'product',a.product,'vendor_title',a.title`
 			required += ` OR a.product='' OR a.title=''`
 		}
 		prefix += `, context_members AS (
-   SELECT a.id finding_id,h.asset_id,h.record,
-   CASE WHEN ` + required + ` THEN json_object('singleton',a.id)
-   ELSE json_object('provider',a.provider,'account_uid',a.account_uid,'region',a.region,'resource_type',COALESCE(json_extract(h.record,'$.resource_type'),a.resource_type),'resource_id',COALESCE(json_extract(h.record,'$.resource_id'),a.resource_id)` + extra + `) END group_key
-   FROM eligible a LEFT JOIN hosts h ON h.finding_id=a.id
-  ) `
+  SELECT a.id finding_id,h.asset_id,h.record,
+  CASE WHEN ` + required + ` THEN json_object('singleton',a.id)
+  ELSE json_object('provider',a.provider,'account_uid',` + owner + `,'region',a.region,'resource_type',COALESCE(json_extract(h.record,'$.resource_type'),a.resource_type),'resource_id',COALESCE(json_extract(h.record,'$.resource_id'),a.resource_id)` + extra + `) END group_key
+  FROM eligible a LEFT JOIN hosts h ON h.finding_id=a.id
+) `
 	}
 	return prefix
 }

@@ -945,6 +945,17 @@ func scanAlert(row interface{ Scan(...any) error }, withPayload bool) (*model.Al
 	return &rec, nil
 }
 
+// resourceOwnerExpr resolves the account that owns the primary resource. A
+// source-declared resource account wins; otherwise the alert's own account
+// applies. Keep this in sync with model.AlertRecord.ResourceAccountUID.
+func resourceOwnerExpr(alias string) string {
+	canonical, account := "canonical", "account_uid"
+	if alias != "" {
+		canonical, account = alias+".canonical", alias+".account_uid"
+	}
+	return `COALESCE(NULLIF(json_extract(` + canonical + `,'$.resource.account_uid'),''),` + account + `)`
+}
+
 func buildAlertWhere(f model.AlertFilter) (string, []any) {
 	clauses := make([]string, 0, 10)
 	args := make([]any, 0, 10)
@@ -960,6 +971,10 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 	if f.AccountUID != "" {
 		clauses = append(clauses, "account_uid=?")
 		args = append(args, f.AccountUID)
+	}
+	if f.ResourceAccountUID != "" {
+		clauses = append(clauses, resourceOwnerExpr("")+"=?")
+		args = append(args, f.ResourceAccountUID)
 	}
 	if f.Region != "" {
 		clauses = append(clauses, "region=?")

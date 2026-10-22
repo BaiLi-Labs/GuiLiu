@@ -575,8 +575,15 @@ Object.assign(en, {
   '尝试范围': 'Attempted scope',
   '未限定地域': 'no region pinned',
   '名称回退到标识符，厂商未声明资产名': 'Name fell back to an identifier; the source declared no asset name.',
+  '来源声明名称': 'Source-declared name',
   '来源位置': 'Source location',
   '处置动作': 'Response action',
+  '资源不在该连接的配置范围内，未请求云端':
+    'The resource is outside this connection scope; no cloud request was made.',
+  '没有可用的凭据或客户端，未请求云端':
+    'No usable credential or client; no cloud request was made.',
+  '资源所属账号尚未配置连接，无法刷新':
+    'The account that owns this resource has no configured connection, so it cannot be refreshed.',
 });
 const zh: Record<string, string> = {
   'Optional, for temporary credentials': '可选，用于临时凭据',

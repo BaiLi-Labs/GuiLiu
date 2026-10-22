@@ -6,9 +6,11 @@
 
 ### 新增与调整
 
-- 告警的受影响资产名优先取来源为该资产声明的名称（腾讯 `Victim.Name`、阿里 `InstanceName`、华为/AWS 资源 `name`、GCP `displayName`、Azure `compromisedEntity`），没有声明时才回退到域名、IP 或原生 ID；新增 `resource.source` 区分 `vendor_declared` 与 `identifier_fallback`。告警标题、描述和本地标签不会被当作资产名。
-- 腾讯新增结构化投影：`resource.account_uid`（`Victim.Account`）、`source_location` / `source_country`（`Attacker.Address` / `Attacker.Country`）、`response_action`（`ProcessType`）；Azure 补受影响资源所属订阅。六家 mapper 升级到 v5，历史记录可用 `guiliu replay -apply` 重放。
-- `/alerts/{id}/asset-context` 与 `/assets/lookup` 始终返回 `scope`（provider、账号、地域、资源类型、原生 ID、来源 API 与版本）。来源请求本身失败时保留 `refresh.source_error`；`not_found_or_not_visible` 且无 `source_error` 表示授权查询在该范围内确实没有记录，便于区分“查不到”“权限不足”和“地域配错”。
+- 告警的受影响资产名优先取来源为该资产声明的名称（阿里 `InstanceName`、华为/AWS 资源 `name`、GCP `displayName`、Azure `compromisedEntity`），没有声明时才回退到域名、IP 或原生 ID；新增 `resource.source` 区分 `vendor_declared` 与 `identifier_fallback`。告警标题、描述和本地标签不会被当作资产名。
+- 修正腾讯资产语义：`Victim.Name` 的语义在来源侧不一致（SDK 写企业名称、示例为 `name1`、真实主机资产上是显示名），因此不再作为 `resource.name`，改为原样保留到 `resource.declared_name`；`Victim.Account`（实测为 AppID）不再投影为 `resource.account_uid`。腾讯主机名仍以 CVM 资产观测为准。
+- 腾讯新增结构化投影：`source_location` / `source_country`（`Attacker.Address` / `Attacker.Country`）、`response_action`（`ProcessType`）；Azure 补受影响资源所属订阅。六家 mapper 升级到 v5，腾讯因上述资产语义修正升级到 `tencent-csip/v6`；历史记录可用 `guiliu replay -apply` 重放。
+- 资产身份规则统一：资产上下文、资产分组、同资源告警和刷新连接都按“来源声明的资源账号优先，否则用告警账号”定位主机；资源所属账号未接入连接时返回 `refresh_reason=resource_account_not_connected`，不使用告警账号的凭据代刷。
+- `/alerts/{id}/asset-context` 与 `/assets/lookup` 始终返回 `scope`（provider、账号、地域、资源类型、原生 ID、来源 API 与版本）。刷新状态区分 `scope_mismatch`（本地范围检查拒绝，未请求云端）、`not_requested`（无可用客户端/凭据）与 `not_found_or_not_visible`（已请求但无记录）；只有真实来源失败才带 `source_error`。
 
 ## [0.3.1-dev] - 2026-10-22（开发中，未发布）
 

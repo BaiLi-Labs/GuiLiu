@@ -40,10 +40,13 @@ type Resource struct {
 	AccountUID string `json:"account_uid,omitempty"`
 	// Source is vendor_declared or identifier_fallback; see model.Resource.
 	Source string `json:"source,omitempty"`
+	// DeclaredName is the source's own name for the resource role, kept
+	// verbatim; its semantics are not asserted by GuiLiu.
+	DeclaredName string `json:"declared_name,omitempty"`
 }
 
 func ResourceFromModel(r model.Resource) Resource {
-	return Resource{ID: r.ID, Name: r.Name, Type: r.Type, AccountUID: r.AccountUID, Source: r.Source}
+	return Resource{ID: r.ID, Name: r.Name, Type: r.Type, AccountUID: r.AccountUID, Source: r.Source, DeclaredName: r.DeclaredName}
 }
 
 type Alert struct {

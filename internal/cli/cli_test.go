@@ -73,15 +73,15 @@ func TestQueryJSONIsExactRESTBodyAndUsesAgentWindow(t *testing.T) {
 }
 
 func TestQueryFieldsExposeResourceAndSourceFacts(t *testing.T) {
-	body := `{"alerts":[{"id":"a1","provider":"tencent","title":"One","severity":"high","status":"open","event_time":"2026-10-21T00:00:00Z","resource":{"id":"ins-1","name":"web-01","type":"host","account_uid":"1250000000","source":"vendor_declared"},"source_country":"中国","response_action":"BlockAttackIP","revision":1}],"total":1,"limit":1,"offset":0,"snapshot_sequence":1,"has_more":false,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"}}`
-	code, stdout, stderr := runCLI(t, []string{"alerts", "--since", "24h", "--fields", "resource,resource_source,resource_account,source_country,response_action"}, func(w http.ResponseWriter, r *http.Request) {
+	body := `{"alerts":[{"id":"a1","provider":"tencent","title":"One","severity":"high","status":"open","event_time":"2026-10-21T00:00:00Z","resource":{"id":"ins-1","name":"web-01","type":"host","account_uid":"1250000000","source":"vendor_declared","declared_name":"示例主机"},"source_country":"中国","response_action":"BlockAttackIP","revision":1}],"total":1,"limit":1,"offset":0,"snapshot_sequence":1,"has_more":false,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"}}`
+	code, stdout, stderr := runCLI(t, []string{"alerts", "--since", "24h", "--fields", "resource,resource_source,resource_declared_name,resource_account,source_country,response_action"}, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
 	})
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr)
 	}
-	for _, want := range []string{"RESOURCE_SOURCE", "vendor_declared", "1250000000", "中国", "BlockAttackIP"} {
+	for _, want := range []string{"RESOURCE_SOURCE", "RESOURCE_DECLARED_NAME", "vendor_declared", "示例主机", "1250000000", "中国", "BlockAttackIP"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("missing %q in output:\n%s", want, stdout)
 		}

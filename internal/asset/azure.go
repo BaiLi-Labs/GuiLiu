@@ -235,7 +235,7 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		subscription = a.Options["subscription_id"]
 	}
 	if subscription != "" && !strings.EqualFold(azureSubscription(vmID), subscription) {
-		return nil, ErrNotVisible
+		return nil, ErrScopeMismatch
 	}
 	rg := azureResourceGroup(vmID)
 	name := azureNameAfter(vmID, "virtualmachines")
@@ -499,7 +499,7 @@ func readAzureNetworkBatch(ctx context.Context, a model.Account, kind string, id
 			return nil, fmt.Errorf("invalid or repeated network ID")
 		}
 		if subscription := a.Options["subscription_id"]; subscription != "" && !strings.EqualFold(azureSubscription(resourceID), subscription) {
-			return nil, ErrNotVisible
+			return nil, ErrScopeMismatch
 		}
 		seen[resourceID] = true
 		rg := azureResourceGroup(resourceID)
@@ -539,7 +539,7 @@ func readAzureNICBatch(ctx context.Context, a model.Account, ids []string, raw a
 			return nil, fmt.Errorf("invalid or repeated network interface ID")
 		}
 		if subscription := a.Options["subscription_id"]; subscription != "" && !strings.EqualFold(azureSubscription(resourceID), subscription) {
-			return nil, ErrNotVisible
+			return nil, ErrScopeMismatch
 		}
 		seen[resourceID] = true
 		if err := limiter.Wait(ctx); err != nil {

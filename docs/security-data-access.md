@@ -35,8 +35,10 @@
 ## 资产与来源位置事实
 
 - `resource.id` 只来自来源明确给出的原生资源标识；`resource.type` 只来自来源类型字段或该来源声明的固定类型。
-- `resource.name` 按“来源声明的资产名 → 域名 / 地址 / 原生 ID”取值，`resource.source` 记录取值方式：`vendor_declared` 表示来源为该资产明确声明了可读名称（腾讯 `Victim.Name`、阿里 `InstanceName`、华为 `resource_list[].name`、AWS `resources[].name`、GCP `resource.displayName`、Azure `compromisedEntity`）；`identifier_fallback` 表示来源未声明名称，只用了域名、IP 或原生 ID。两者都是来源事实；告警标题、描述文本和本地标签不会被当作资产名。
-- `resource.account_uid` 只在来源独立声明了受影响资源所属账号时填写（腾讯 `Victim.Account`、Azure 资源 ID 中的订阅）。为空表示来源没有把“告警账号”和“资源账号”分开，不代表两者不同。
+- `resource.name` 按“来源声明的资产名 → 域名 / 地址 / 原生 ID”取值，`resource.source` 记录取值方式：`vendor_declared` 表示来源为该资产明确声明了可读名称（阿里 `InstanceName`、华为 `resource_list[].name`、AWS `resources[].name`、GCP `resource.displayName`、Azure `compromisedEntity`）；`identifier_fallback` 表示来源未声明名称，只用了域名、IP 或原生 ID。两者都是来源事实；告警标题、描述文本和本地标签不会被当作资产名。
+- 腾讯 `Victim.Name` 的语义在来源侧并不一致：SDK 注释为“企业名称”，国际站接口示例为 `name1`，真实主机资产上观察到的是实例显示名。它因此不进入 `resource.name`，而是原样保留在 `resource.declared_name`（溯源 `/Victim/Name`），由使用者按来源语境解读。腾讯主机名以 CVM 资产观测为准；`declared_name` 与资产 `name` 的差异不做自动合并或推断。
+- `resource.account_uid` 只在来源独立声明了受影响资源所属账号时填写（例如 Azure 资源 ID 中的订阅）。腾讯 `Victim.Account` 不写入该字段：实测值是 AppID，而告警账号 `account_uid` 取 UIN，两者不能混用身份。为空表示来源没有单独声明资源账号，不代表两者不同。
+- 资产关联、资产分组、同资源告警查询和刷新连接统一使用“来源声明的资源账号优先，否则用告警账号”的规则。资源属于账号 B 而告警由账号 A 采集时，查询按 B 定位主机资产；刷新只使用 B 的连接，B 未接入时返回 `resource_account_not_connected`，不会用 A 的凭据去读 B 的资源。
 - `source_location` / `source_country` 只保留来源对攻击者的位置声明（例如腾讯 `Attacker.Address` / `Attacker.Country`）。不解析 IP、不查询 GeoIP、不归一化国家名；为空表示来源没有声明。
 - `response_action` 只保留来源声明的处置动作（例如腾讯 `ProcessType`）。它不代表归流执行了处置、不代表动作已生效，也不是本地 `status`。
 
@@ -199,7 +201,18 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 
 `/alerts/{id}/asset-context` 与 `/assets/lookup` 始终返回 `scope`，说明本次查询实际使用的 provider、`account_uid`、region、`resource_type`、`resource_id`、`source_api` 与 `api_version`；来源请求本身失败时，`refresh.source_error` 保留结构化错误（provider、kind、SDK 错误码、HTTP 状态、调用的接口）。因此“范围内没有记录”“权限不足”“地域配错”可以分开判断，而不是都落在一句 unavailable 上。
 
-Finding 上下文可用 `revision` 或 `snapshot_sequence` 选择引用所在版本，两者互斥；资产部分始终是当前观测，明确不代表告警发生时状态。匹配条件是 provider、原生账号 UID、地域、原生主机资源 ID 和主机类型；IP、名称、Hash 和标签均不建立身份关系。腾讯云、阿里云告警存在稳定的主机类型 `host`，该类型同时参与匹配；华为、AWS、GCP、Azure 的告警资源类型由各产品自定义，关联告警只按精确原生 ID 或声明的厂商别名（AWS ARN、GCP 完整资源名）匹配。首版上下文使用主资源引用；相关告警检索同时支持明确的附加主机资源引用。作用域缺失、来源不支持、未采集和过期均明确返回。
+刷新状态区分四种结果，其中只有最后一种携带 `source_error`：
+
+| 状态 | 含义 | 是否请求云端 |
+| --- | --- | --- |
+| `scope_mismatch` | 本地作用域检查拒绝（例如资源订阅与该连接配置不一致） | 否 |
+| `not_requested` | 没有可用客户端或凭据，请求未发出 | 否 |
+| `not_found_or_not_visible` | 授权范围内已请求，来源没有该记录 | 是 |
+| `permission_denied` / `authentication_failed` / `access_denied` / `source_request_failed` / `timeout` / `throttled` | 请求已发出并失败 | 是 |
+
+`scope_mismatch` 与 `not_requested` 不是来源事实，不应被解读为“资源不存在”。主机资产的刷新目标账号与告警采集账号可能不同；`refresh_account_id` 为空且 `refresh_reason=resource_account_not_connected` 时，说明资源所属账号尚未配置连接。
+
+Finding 上下文可用 `revision` 或 `snapshot_sequence` 选择引用所在版本，两者互斥；资产部分始终是当前观测，明确不代表告警发生时状态。匹配条件是 provider、**资源所属账号**（来源声明的资源账号优先，否则用告警账号）、地域、原生主机资源 ID 和主机类型；`matched_on` 用 `resource_account_uid` 表示该规则，来源未单独声明资源账号时它取告警账号的值。IP、名称、Hash 和标签均不建立身份关系。腾讯云、阿里云告警存在稳定的主机类型 `host`，该类型同时参与匹配；华为、AWS、GCP、Azure 的告警资源类型由各产品自定义，关联告警只按精确原生 ID 或声明的厂商别名（AWS ARN、GCP 完整资源名）匹配。首版上下文使用主资源引用；相关告警检索同时支持明确的附加主机资源引用。作用域缺失、来源不支持、未采集和过期均明确返回。
 
 默认 GET 与全部 MCP 工具仅查本地数据库，不触发云端读取。`POST /accounts/{id}/assets/refresh` 接受 `{"resource_type":"…","resource_id":"…"}`；省略类型时使用该 provider 的主机类型。可刷新主机、`nic`、`security_group`、`vpc`、`subnet`。仅管理员可调用，要求启用的连接、真实账号 UID、该 provider 要求的地域，以及华为 `project_id`、Azure `subscription_id` 与 `tenant_id`（使用客户端 ID/密钥）。只读权限按实际接口授予：腾讯云 CVM/VPC、阿里云 ECS/VPC、华为云 ECS/VPC、AWS EC2、GCP Compute、Azure Compute/Network。连接账号 UID 必须与凭据所属云账号一致；首版依据显式配置表达该归属。
 

@@ -155,6 +155,7 @@ type AssetContext struct {
 	RefreshAccountID string              `json:"refresh_account_id,omitempty"`
 	ResourceID       string              `json:"resource_id,omitempty"`
 	Refresh          *model.AssetRefresh `json:"refresh,omitempty"`
+	RefreshReason    string              `json:"refresh_reason,omitempty"`
 	Scope            *AssetScope         `json:"scope,omitempty"`
 	MatchedOn        []string            `json:"matched_on,omitempty"`
 	Limitations      []string            `json:"limitations"`
@@ -172,20 +173,32 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 		out.Reason = "no_explicit_primary_host_reference"
 		return out, nil
 	}
+	// The asset belongs to the account the source declares for that resource,
+	// not necessarily to the account that reported the alert.
+	accountUID := a.ResourceAccountUID()
+	ownerDeclared := accountUID != a.AccountUID
 	out.ResourceID = hostID
-	out.RefreshAccountID = a.AccountID
-	out.Scope = scopeFor(p, a.AccountUID, a.Region, p.HostType, hostID)
-	if a.AccountUID == "" || (p.RequiresRegion && a.Region == "") {
+	out.Scope = scopeFor(p, accountUID, a.Region, p.HostType, hostID)
+	if accountUID == "" || (p.RequiresRegion && a.Region == "") {
 		out.Reason = "resource_scope_incomplete"
 		return out, nil
 	}
-	items, err := st.ListAssets(ctx, model.AssetFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ResourceID: hostID, Limit: 2})
+	items, err := st.ListAssets(ctx, model.AssetFilter{Provider: a.Provider, AccountUID: accountUID, Region: a.Region, ResourceID: hostID, Limit: 2})
 	if err != nil {
 		return nil, err
 	}
-	attempt, err := st.GetAssetRefresh(ctx, a.AccountID, a.Region, hostID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, err
+	connectionID, connected := refreshConnection(ctx, st, a, p, accountUID)
+	if connected {
+		out.RefreshAccountID = connectionID
+	} else {
+		out.RefreshReason = "resource_account_not_connected"
+	}
+	var attempt *model.AssetRefresh
+	if connected {
+		attempt, err = st.GetAssetRefresh(ctx, connectionID, a.Region, hostID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
 	}
 	out.Refresh = attempt
 	if len(items) == 0 {
@@ -205,8 +218,31 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 	if time.Since(asset.LastObservedAt) > 5*time.Minute {
 		out.Status = "stale"
 	}
-	out.MatchedOn = []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}
+	out.MatchedOn = model.ResourceIdentityMatchedOn(ownerDeclared)
 	return out, nil
+}
+
+// refreshConnection picks the connection whose source identity owns the asset.
+// A refresh is a cloud read and must use that account's credentials; the
+// connection that reported the alert is not interchangeable.
+func refreshConnection(ctx context.Context, st store.Store, a *model.AlertRecord, p asset.Provider, owner string) (string, bool) {
+	if owner == a.AccountUID {
+		return a.AccountID, true
+	}
+	accounts, err := st.ListAccounts(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, candidate := range accounts {
+		if !candidate.Enabled || candidate.Provider != a.Provider || candidate.AccountUID != owner {
+			continue
+		}
+		if p.RequiresRegion && candidate.Region != a.Region {
+			continue
+		}
+		return candidate.ID, true
+	}
+	return "", false
 }
 
 func failedRefreshStatus(attempt *model.AssetRefresh) string {
@@ -214,7 +250,7 @@ func failedRefreshStatus(attempt *model.AssetRefresh) string {
 		return ""
 	}
 	switch attempt.Status {
-	case "authentication_failed", "permission_denied", "access_denied", "not_found_or_not_visible", "source_request_failed", "timeout", "throttled", "storage_failed", "refreshing":
+	case "authentication_failed", "permission_denied", "access_denied", "not_found_or_not_visible", "scope_mismatch", "not_requested", "source_request_failed", "timeout", "throttled", "storage_failed", "refreshing":
 		return attempt.Status
 	default:
 		return ""
@@ -264,7 +300,9 @@ func AssetFindings(ctx context.Context, st store.Store, id, after string, limit 
 		resourceIDs = append(resourceIDs, p.AlertResourceIDs(scope, a.ResourceID)...)
 	}
 	resourceIDs = uniqueStrings(resourceIDs)
-	f := model.AlertFilter{Provider: a.Provider, AccountUID: a.AccountUID, Region: a.Region, ExactResourceIDs: resourceIDs, ResourceType: p.AlertHostType, Sort: "id", AfterID: after, Limit: limit + 1, SnapshotSequence: seq}
+	// Match the account that owns the resource, not the account that reported
+	// the alert: a cross-account alert still references this host.
+	f := model.AlertFilter{Provider: a.Provider, ResourceAccountUID: a.AccountUID, Region: a.Region, ExactResourceIDs: resourceIDs, ResourceType: p.AlertHostType, Sort: "id", AfterID: after, Limit: limit + 1, SnapshotSequence: seq}
 	if err := PinSnapshot(ctx, st, &f); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidFindingSelection, err)
 	}
@@ -284,7 +322,7 @@ func AssetFindings(ctx context.Context, st store.Store, id, after string, limit 
 	if more {
 		next = items[len(items)-1].ID
 	}
-	matched := []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}
+	matched := []string{"provider", "resource_account_uid", "region", "native_resource_id", "host_resource_type"}
 	if len(resourceIDs) > 1 {
 		matched = append(matched, "vendor_resource_id_alias")
 	}

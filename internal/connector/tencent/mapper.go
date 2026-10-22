@@ -62,13 +62,19 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 	}
 	if a.Victim != nil {
 		alert.DestinationIP = connector.Str(a.Victim.IP)
+		// RoleInfo.Name is documented as an enterprise name, not an asset name,
+		// so it never becomes resource.name. It stays available in the vendor
+		// evidence and raw payload. The host name comes from CVM asset data.
+		// RoleInfo.Account is kept out of resource.account_uid as well: the
+		// observed value is an AppID, while account_uid is a UIN, so projecting
+		// it would invent a cross-account identity that cannot be matched.
 		alert.Resource = connector.NamedResource(
 			connector.Str(a.Victim.InstanceID),
 			assetType(connector.Int64(a.Victim.AssetType)),
-			connector.Str(a.Victim.Name),
+			"",
 			connector.Str(a.Victim.Domain), connector.Str(a.Victim.IP), connector.Str(a.Victim.InstanceID),
 		)
-		alert.Resource.AccountUID = connector.Str(a.Victim.Account)
+		alert.Resource.DeclaredName = connector.Str(a.Victim.Name)
 	}
 	alert.ResponseAction = connector.Str(a.ProcessType)
 

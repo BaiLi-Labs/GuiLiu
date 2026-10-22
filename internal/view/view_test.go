@@ -10,11 +10,12 @@ func TestResourceAndSourceFactsAreExposed(t *testing.T) {
 		Resource: model.Resource{
 			ID: "ins-1", Name: "web-01", Type: "host",
 			AccountUID: "1250000000", Source: model.ResourceSourceVendorDeclared,
+			DeclaredName: "示例主机名",
 		},
 		SourceLocation: "示例省示例市", SourceCountry: "示例国家", ResponseAction: "BlockAttackIP",
 	}}
 	list := AlertFromRecord(rec, false)
-	if list.Resource.Name != "web-01" || list.Resource.AccountUID != "1250000000" || list.Resource.Source != model.ResourceSourceVendorDeclared {
+	if list.Resource.Name != "web-01" || list.Resource.AccountUID != "1250000000" || list.Resource.Source != model.ResourceSourceVendorDeclared || list.Resource.DeclaredName != "示例主机名" {
 		t.Fatalf("resource = %+v", list.Resource)
 	}
 	if list.SourceLocation != "示例省示例市" || list.SourceCountry != "示例国家" || list.ResponseAction != "BlockAttackIP" {

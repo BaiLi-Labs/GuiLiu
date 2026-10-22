@@ -53,12 +53,16 @@ last 24 hours, and the window is capped at 90 days. Pass `--since 24h`,
 guiliu query alerts --since 24h --severity high,critical --limit 20 --json \
   | jq -c '.alerts[] | {id,severity,title,event_time,resource:.resource.name,source_ip}'
 guiliu query alerts --since 72h --limit 20 \
-  --fields event_time,title,resource,resource_source,source_ip,source_country,response_action
+  --fields event_time,title,resource,resource_source,resource_declared_name,source_ip,source_country,response_action
 ```
 
 `resource.name` is the name the source declared for that asset; `resource.source`
 says whether it is `vendor_declared` or an `identifier_fallback` (domain, IP or
 native ID). A fallback name is not an asset name, so do not quote it as one.
+`resource.declared_name` is the source's own name for the resource role (Tencent
+`Victim.Name`); its meaning is defined by the source and is not asserted to be
+the cloud instance name. Only asset context gives the host name the cloud
+inventory reports.
 `source_location` / `source_country` and `response_action` are the source's own
 statements (for example `BlockAttackIP`); they are not platform verdicts.
 
@@ -154,7 +158,11 @@ native ID, source API and API version): one failed refresh no longer means an
 unknown reason. `refresh.source_error` is present only when the source request
 itself failed; `not_found_or_not_visible` with an empty error means an
 authorized read returned no record in that exact scope, not a permission
-problem.
+problem. `scope_mismatch` and `not_requested` mean **no cloud request was made**
+(local scope check or missing client), so they are not evidence about the
+resource. `refresh_reason=resource_account_not_connected` means the resource
+belongs to an account with no configured connection; do not retry it through the
+reporting account.
 
 ### 8. Source mapping and ingestion failures
 

@@ -29,8 +29,8 @@ func MappingFor(provider string) []MappingSpec {
 			"title": "/Name", "description": "/RiskInvestigation,/UrgentSuggestion,/RiskTreatment",
 			"source_ip": "/Attacker/IP,/Attacker/OriginIP,/ExtraInfo/SourceIP", "destination_ip": "/Victim/IP",
 			"source_location": "/Attacker/Address", "source_country": "/Attacker/Country", "response_action": "/ProcessType",
-			"resource":             "/Victim/InstanceID,/Victim/Name,/Victim/Domain,/Victim/IP,/Victim/AssetType",
-			"resource.account_uid": "/Victim/Account", "resource.source": "/Victim/Name", "occurrence_count": "/Count",
+			"resource":               "/Victim/InstanceID,/Victim/Domain,/Victim/IP,/Victim/AssetType",
+			"resource.declared_name": "/Victim/Name", "occurrence_count": "/Count",
 		},
 		"aliyun": {
 			"external_id": "/Id,/AlarmUniqueInfo,/UniqueInfo",
@@ -80,7 +80,7 @@ func MappingFor(provider string) []MappingSpec {
 			"tactic": "/properties/intent", "technique": "/properties/techniques,/properties/subTechniques",
 		},
 	}
-	transforms := map[string]string{"severity": "versioned_vendor_severity_map", "vendor_status": "preserve_source_value", "event_time": "parse_source_time_utc", "first_seen_at": "parse_source_time_utc", "last_seen_at": "parse_source_time_utc", "source_created_at": "parse_source_time_utc", "source_updated_at": "parse_source_time_utc", "finding_kind": "explicit_source_class_map", "source_ip": "explicit_source_role_only", "destination_ip": "explicit_destination_role_only", "source_location": "preserve_source_value", "source_country": "preserve_source_value", "response_action": "preserve_source_value", "resource.account_uid": "preserve_source_value", "resource.source": "declared_name_or_identifier"}
+	transforms := map[string]string{"severity": "versioned_vendor_severity_map", "vendor_status": "preserve_source_value", "event_time": "parse_source_time_utc", "first_seen_at": "parse_source_time_utc", "last_seen_at": "parse_source_time_utc", "source_created_at": "parse_source_time_utc", "source_updated_at": "parse_source_time_utc", "finding_kind": "explicit_source_class_map", "source_ip": "explicit_source_role_only", "destination_ip": "explicit_destination_role_only", "source_location": "preserve_source_value", "source_country": "preserve_source_value", "response_action": "preserve_source_value", "resource.account_uid": "preserve_source_value", "resource.source": "declared_name_or_identifier", "resource.declared_name": "preserve_source_value"}
 	out := []MappingSpec{}
 	for field, paths := range fields[provider] {
 		transform := transforms[field]
