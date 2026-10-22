@@ -5,7 +5,6 @@ package azure
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,7 +22,7 @@ import (
 
 const (
 	providerID      = "azure"
-	mapperVersion   = "azure-defender/v4"
+	mapperVersion   = "azure-defender/v5"
 	apiVersion      = "2022-01-01"
 	defaultEndpoint = "https://management.azure.com"
 	defaultQPS      = 3
@@ -136,13 +135,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	}
 	token, err := c.credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{c.scope}})
 	if err != nil {
-		return connector.Page{}, &connector.Error{
-			Provider: providerID,
-			Kind:     connector.KindAuth,
-			Code:     "auth",
-			Message:  "get Azure token: " + err.Error(),
-			Err:      err,
-		}
+		return connector.Page{}, connector.WithSourceAPI(providerID, "Azure Identity GetToken", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -154,7 +147,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "Defender for Cloud ARM Alerts - List", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -209,16 +202,5 @@ func alertInWindow(a *armsecurity.Alert, start, end time.Time) bool {
 }
 
 func azureHTTPError(resp *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	msg := fmt.Sprintf("Azure alerts API %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	switch {
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return &connector.Error{Provider: providerID, Kind: connector.KindAuth, Code: "auth", Message: msg}
-	case resp.StatusCode == http.StatusTooManyRequests:
-		return &connector.Error{Provider: providerID, Kind: connector.KindThrottled, Code: "throttled", Message: msg}
-	case resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode >= 500:
-		return &connector.Error{Provider: providerID, Kind: connector.KindTransient, Code: "transient", Message: msg}
-	default:
-		return connector.Classify(providerID, errors.New(msg))
-	}
+	return connector.HTTPError(providerID, "Defender for Cloud ARM Alerts - List", resp)
 }

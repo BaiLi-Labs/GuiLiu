@@ -68,11 +68,12 @@ type AssetTag struct {
 }
 
 type AssetComponent struct {
-	Status     string     `json:"status"`
-	Reason     string     `json:"reason,omitempty"`
-	SourceAPI  string     `json:"source_api,omitempty"`
-	APIVersion string     `json:"api_version,omitempty"`
-	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	SourceError *SourceError `json:"source_error,omitempty"`
+	Status      string       `json:"status"`
+	Reason      string       `json:"reason,omitempty"`
+	SourceAPI   string       `json:"source_api,omitempty"`
+	APIVersion  string       `json:"api_version,omitempty"`
+	ObservedAt  *time.Time   `json:"observed_at,omitempty"`
 	// RawForm distinguishes exact vendor response bytes from a typed SDK
 	// projection when the SDK cannot expose the original stream.
 	RawForm string          `json:"raw_form,omitempty"`
@@ -88,9 +89,10 @@ type AssetFilter struct {
 
 // AssetRefresh records operational state separately from source observations.
 type AssetRefresh struct {
-	AccountID   string    `json:"account_id"`
-	Region      string    `json:"region"`
-	ResourceID  string    `json:"resource_id"`
-	Status      string    `json:"status"`
-	AttemptedAt time.Time `json:"attempted_at"`
+	SourceError *SourceError `json:"source_error,omitempty"`
+	AccountID   string       `json:"account_id"`
+	Region      string       `json:"region"`
+	ResourceID  string       `json:"resource_id"`
+	Status      string       `json:"status"`
+	AttemptedAt time.Time    `json:"attempted_at"`
 }

@@ -28,7 +28,9 @@ func MappingFor(provider string) []MappingSpec {
 			"account_uid": "/Uin,/AppID", "product": "/Source", "alert_type": "/Type,/SubType",
 			"title": "/Name", "description": "/RiskInvestigation,/UrgentSuggestion,/RiskTreatment",
 			"source_ip": "/Attacker/IP,/Attacker/OriginIP,/ExtraInfo/SourceIP", "destination_ip": "/Victim/IP",
-			"resource": "/Victim/InstanceID,/Victim/Domain,/Victim/IP,/Victim/AssetType", "occurrence_count": "/Count",
+			"source_location": "/Attacker/Address", "source_country": "/Attacker/Country", "response_action": "/ProcessType",
+			"resource":             "/Victim/InstanceID,/Victim/Name,/Victim/Domain,/Victim/IP,/Victim/AssetType",
+			"resource.account_uid": "/Victim/Account", "resource.source": "/Victim/Name", "occurrence_count": "/Count",
 		},
 		"aliyun": {
 			"external_id": "/Id,/AlarmUniqueInfo,/UniqueInfo",
@@ -39,6 +41,7 @@ func MappingFor(provider string) []MappingSpec {
 			"source_ip": "/Details/*/NameDisplay,/Details/*/Type,/Details/*/ValueDisplay,/Details/*/Value",
 			"resource":  "/InstanceId,/Uuid,/ContainerId,/K8sClusterId,/InstanceName,/K8sPodName,/ContainerImageName,/K8sClusterName",
 			"resources": "/InstanceId,/Uuid,/ContainerId,/K8sClusterId", "tactic": "/TacticItems/*,/Stages",
+			"resource.source": "/InstanceName,/K8sPodName,/ContainerImageName,/K8sClusterName",
 		},
 		"huawei": {
 			"external_id": "/id,/origin_id", "event_time": "/first_observed_time", "first_seen_at": "/first_observed_time", "last_seen_at": "/last_observed_time",
@@ -47,6 +50,7 @@ func MappingFor(provider string) []MappingSpec {
 			"account_uid": "/domain_id", "region": "/region_id", "product": "/data_source", "alert_type": "/alert_type",
 			"title": "/title,/alert_type", "description": "/description", "actor": "/actor",
 			"source_ip": "/network_list/*/src_ip", "destination_ip": "/network_list/*/dest_ip", "resources": "/resource_list/*", "resource": "/resource_list/0", "occurrence_count": "/count",
+			"resource.source": "/resource_list/0/name",
 		},
 		"aws": {
 			"external_id": "/finding_info/uid,/metadata/uid", "rule_id": "/finding_info/analytic/uid",
@@ -55,13 +59,13 @@ func MappingFor(provider string) []MappingSpec {
 			"severity": "/severity_id,/severity", "original_severity": "/severity,/severity_id", "vendor_status": "/status,/status_id",
 			"finding_kind": "/class_uid", "account_uid": "/cloud/account/uid", "region": "/cloud/region", "product": "/metadata/product/name",
 			"alert_type": "/finding_info/types,/metadata/event_code,/class_name", "title": "/finding_info/title", "description": "/finding_info/desc",
-			"resources": "/resources/*", "resource": "/resources/0", "source_ip": "/observables/*,/evidences/*/src_endpoint/ip", "destination_ip": "/observables/*,/evidences/*/dst_endpoint/ip",
+			"resources": "/resources/*", "resource": "/resources/0", "resource.source": "/resources/0/name", "source_ip": "/observables/*,/evidences/*/src_endpoint/ip", "destination_ip": "/observables/*,/evidences/*/dst_endpoint/ip",
 		},
 		"gcp": {
 			"external_id": "/name,/canonicalName", "event_time": "/eventTime", "source_created_at": "/createTime",
 			"severity": "/severity", "original_severity": "/severity", "vendor_status": "/state", "finding_kind": "/findingClass",
 			"product": "/sourceProperties/source,/sourceProperties/scanner_name,/sourceProperties/product", "alert_type": "/category,/findingClass", "title": "/category,/sourceProperties/title", "description": "/description,/sourceProperties/description",
-			"resource": "/resourceName", "account_uid": "/sourceProperties/project_id,/resourceName", "region": "/resourceName",
+			"resource": "/resourceName", "resource.source": "/resource/displayName", "account_uid": "/sourceProperties/project_id,/resourceName", "region": "/resourceName",
 			"source_ip": "/connections/*/sourceIp,/sourceProperties/source_ip,/sourceProperties/src_ip", "destination_ip": "/connections/*/destinationIp,/sourceProperties/destination_ip,/sourceProperties/dest_ip",
 			"tactic": "/mitreAttack/primaryTactic", "technique": "/mitreAttack/primaryTechniques",
 		},
@@ -71,12 +75,12 @@ func MappingFor(provider string) []MappingSpec {
 			"severity": "/properties/severity", "original_severity": "/properties/severity", "vendor_status": "/properties/status",
 			"account_uid": "/id,/properties/resourceIdentifiers/*/azureResourceId", "region": "/id,/properties/resourceIdentifiers/*/azureResourceId",
 			"product": "/properties/productName,/properties/vendorName", "alert_type": "/properties/alertType", "title": "/properties/alertDisplayName,/properties/alertType", "description": "/properties/description",
-			"resource": "/properties/resourceIdentifiers/*,/properties/compromisedEntity", "resources": "/properties/resourceIdentifiers/*",
+			"resource": "/properties/resourceIdentifiers/*,/properties/compromisedEntity", "resource.source": "/properties/compromisedEntity", "resources": "/properties/resourceIdentifiers/*",
 			"source_ip": "/properties/entities/*/sourceAddress,/properties/entities/*/sourceIp,/properties/entities/*/source_ip", "destination_ip": "/properties/entities/*/destinationAddress,/properties/entities/*/destinationIp,/properties/entities/*/destination_ip",
 			"tactic": "/properties/intent", "technique": "/properties/techniques,/properties/subTechniques",
 		},
 	}
-	transforms := map[string]string{"severity": "versioned_vendor_severity_map", "vendor_status": "preserve_source_value", "event_time": "parse_source_time_utc", "first_seen_at": "parse_source_time_utc", "last_seen_at": "parse_source_time_utc", "source_created_at": "parse_source_time_utc", "source_updated_at": "parse_source_time_utc", "finding_kind": "explicit_source_class_map", "source_ip": "explicit_source_role_only", "destination_ip": "explicit_destination_role_only"}
+	transforms := map[string]string{"severity": "versioned_vendor_severity_map", "vendor_status": "preserve_source_value", "event_time": "parse_source_time_utc", "first_seen_at": "parse_source_time_utc", "last_seen_at": "parse_source_time_utc", "source_created_at": "parse_source_time_utc", "source_updated_at": "parse_source_time_utc", "finding_kind": "explicit_source_class_map", "source_ip": "explicit_source_role_only", "destination_ip": "explicit_destination_role_only", "source_location": "preserve_source_value", "source_country": "preserve_source_value", "response_action": "preserve_source_value", "resource.account_uid": "preserve_source_value", "resource.source": "declared_name_or_identifier"}
 	out := []MappingSpec{}
 	for field, paths := range fields[provider] {
 		transform := transforms[field]
@@ -121,6 +125,14 @@ func ApplyProvenance(a *model.Alert, provider string, acct model.Account) {
 			if len(found) > 0 {
 				a.Provenance[field] = model.FieldOrigin{Source: "record", Paths: found, Transform: "resource_enrichment_precedence"}
 			}
+		}
+	}
+	if provider == "azure" && a.Resource.AccountUID != "" {
+		// The owning subscription is an explicit segment of the resource ID
+		// already recorded under resource, never an inferred tenant.
+		if origin, ok := a.Provenance["resource"]; ok {
+			origin.Transform += ":resource_id_segment"
+			a.Provenance["resource.account_uid"] = origin
 		}
 	}
 	if a.CloudAccountUID == "" && acct.AccountUID != "" {

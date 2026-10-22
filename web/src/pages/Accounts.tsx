@@ -1,3 +1,4 @@
+import { SourceFailure, sourceFailureReason } from "../components/SourceFailure";
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Pencil, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { api } from '../api';
@@ -68,7 +69,7 @@ export function Accounts() {
       toast(message);
       await load();
     } catch (err: any) {
-      toast(err.message || '操作失败', true);
+        toast(err.sourceError ? `${t(sourceFailureReason(err.sourceError.kind))} ${[err.sourceError.source_api, err.sourceError.code].filter(Boolean).join(' · ')}` : err.message || '操作失败', true);
     } finally {
       setBusy('');
     }
@@ -200,7 +201,7 @@ export function Accounts() {
                         />
                         {t(state)}
                       </span>
-                      {account.sync_state?.last_error ? (
+                      {account.sync_state?.last_source_error ? <SourceFailure value={account.sync_state.last_source_error} /> : account.sync_state?.last_error ? (
                         <div
                           className="cell-sub max-w-[200px] text-[var(--danger)]"
                           title={account.sync_state.last_error}
@@ -229,7 +230,7 @@ export function Accounts() {
                                 account.id,
                                 `/accounts/${encodeURIComponent(account.id)}/check`,
                                 'POST',
-                                '连接正常，凭据与权限有效',
+                                '告警查询验证成功；资产和网络权限尚未验证',
                               )
                             }
                           >

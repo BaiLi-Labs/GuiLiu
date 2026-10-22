@@ -45,6 +45,8 @@ type Store interface {
 	AccountCredential(ctx context.Context, id string) (string, error)
 
 	SnapshotSequence(ctx context.Context) (int64, error)
+	AssetSnapshotSequence(ctx context.Context) (int64, error)
+	GroupingSummary(ctx context.Context, filter model.AlertFilter) (*model.GroupingSummary, error)
 	ListAlertChanges(ctx context.Context, cursor string, limit int, provider, accountID string) (*model.ChangePage, error)
 	AlertRevisionPage(ctx context.Context, id string, beforeRevision, limit int) ([]model.AlertRevision, error)
 	GetAlertAtSnapshot(ctx context.Context, id string, sequence int64) (*model.AlertRecord, error)

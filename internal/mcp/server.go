@@ -333,7 +333,7 @@ func (s *Server) register(t Tool) {
 		switch t.Name {
 		case "list_alerts", "list_alert_groups", "get_alert_group", "search_alerts_by_ip", "search_alerts_by_asset", "get_alert_statistics":
 			for key, value := range map[string]any{"time_field": strProp("Timestamp used by start/end: event_time (default), source_updated_at or ingested_at"),
-				"rule_id": strProp("Exact native rule ID, scoped by provider and product"), "finding_kind": strProp("detection, vulnerability, compliance, incident or other"), "vendor_status": strProp("Exact source status; independent of local annotation status"), "observable_type": map[string]any{"type": "integer", "minimum": 0, "description": "OCSF observable type ID"}, "observable_value": strProp("Exact typed observable value: IP, domain, hash, account, user or resource"), "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned snapshot sequence for stable paging and group expansion"}, "after_id": strProp("Continue an ID-sorted snapshot using next_cursor")} {
+				"vendor_title": strProp("Exact source-reported finding title; a statistical field, not a rule ID"), "asset_snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned asset watermark for stable network group membership"}, "rule_id": strProp("Exact native rule ID, scoped by provider and product"), "finding_kind": strProp("detection, vulnerability, compliance, incident or other"), "vendor_status": strProp("Exact source status; independent of local annotation status"), "observable_type": map[string]any{"type": "integer", "minimum": 0, "description": "OCSF observable type ID"}, "observable_value": strProp("Exact typed observable value: IP, domain, hash, account, user or resource"), "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned snapshot sequence for stable paging and group expansion"}, "after_id": strProp("Continue an ID-sorted snapshot using next_cursor")} {
 				props[key] = value
 			}
 			props["offset"] = map[string]any{"type": "integer", "minimum": 0, "description": "Page offset; prefer ID cursor for deep traversal"}
@@ -389,8 +389,8 @@ func intProp(desc string, def, min, max int) map[string]any {
 func groupByProp() map[string]any {
 	return map[string]any{
 		"type":        "string",
-		"description": "Exact-field grouping: type_asset (default, type and asset without requiring a source IP), signature (native rule ID, cloud account UID, region, asset and source IP), asset, or source (source IP and type). Groups are views, not incident or verdict classifications.",
-		"enum":        []string{"type_asset", "signature", "asset", "source"},
+		"description": "Exact-field grouping: asset (default), name_asset (exact source title and asset), vpc, subnet, security_group, nic, type_asset, signature or source. Network groups describe the primary host’s explicitly observed resource references, not traffic paths or effective policies. Reuse both snapshot_sequence and asset_snapshot_sequence and the absolute window. Group memberships overlap; never sum them as unique Findings.",
+		"enum":        []string{"asset", "name_asset", "vpc", "subnet", "security_group", "nic", "type_asset", "signature", "source"},
 	}
 }
 

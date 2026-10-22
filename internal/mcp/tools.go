@@ -48,7 +48,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "list_alert_groups",
-		Description: "Group findings by exact fields: native rule/account/region/asset/source signature, type and asset, asset, or source. Counts are stored alert records, not attack occurrences. max_severity is the maximum vendor-mapped severity among members. No verdicts or filtering are inferred. Reuse the returned snapshot_sequence and window.start/end when expanding or paging.",
+		Description: "Group Findings by asset (default), exact source title and asset, explicit VPC/subnet/security group/NIC references, or original field views. Counts are stored alert records, not attack occurrences. max_severity is the maximum vendor-mapped severity among members. No verdicts or filtering are inferred. Reuse both snapshot_sequence and asset_snapshot_sequence with window.start/end when expanding or paging. Network memberships overlap; asset/title summaries contain at most 5 items.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"group_by":   groupByProp(),
 			"provider":   strProp("Provider id"),
@@ -66,7 +66,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert_group",
-		Description: "Get original alerts in a group. Copy group_by, group_key and window.start/end from list_alert_groups to keep membership within the same time range.",
+		Description: "Get original alerts in a group. Copy group_by, group_key, both snapshot sequences and window.start/end from list_alert_groups to keep membership within the same time range.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"group_by":   groupByProp(),
 			"group_key":  groupKeyProp(),
@@ -150,12 +150,12 @@ func (s *Server) toolListAlertGroups(ctx context.Context, args map[string]any) (
 		return nil, err
 	}
 	if f.GroupBy == "" {
-		f.GroupBy = model.GroupByTypeAsset
+		f.GroupBy = model.GroupByAsset
 	}
 	if err := query.PinSnapshot(ctx, s.store, &f); err != nil {
 		return nil, err
 	}
-	groups, total, err := s.store.ListAlertGroups(ctx, f)
+	page, err := query.GroupPage(ctx, s.store, f)
 	if err != nil {
 		return nil, err
 	}
@@ -163,15 +163,8 @@ func (s *Server) toolListAlertGroups(ctx context.Context, args map[string]any) (
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"snapshot_sequence": f.SnapshotSequence,
-		"coverage": coverage,
-		"window":   view.WindowFromFilter(f),
-		"total":    total,
-		"group_by": f.GroupBy,
-		"limit":    f.Limit,
-		"offset":   f.Offset,
-		"groups":   groups,
-	}, nil
+	page["coverage"] = coverage
+	return page, nil
 }
 
 func (s *Server) toolGetAlertGroup(ctx context.Context, args map[string]any) (any, error) {
@@ -398,7 +391,7 @@ func (s *Server) listAlerts(ctx context.Context, f model.AlertFilter) (any, erro
 	if f.Sort == "id" && len(items) > 0 && hasMore {
 		next = items[len(items)-1].ID
 	}
-	return map[string]any{"snapshot_sequence": f.SnapshotSequence, "next_cursor": next, "has_more": hasMore,
+	return map[string]any{"asset_snapshot_sequence": f.AssetSnapshotSequence, "snapshot_sequence": f.SnapshotSequence, "next_cursor": next, "has_more": hasMore,
 		"coverage": coverage,
 		"window":   view.WindowFromFilter(f),
 		"total":    total,
@@ -415,7 +408,7 @@ func (s *Server) coverage(ctx context.Context, f model.AlertFilter) (any, error)
 
 func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration) (model.AlertFilter, error) {
 	f := model.AlertFilter{
-		TimeField: argString(args, "time_field"), Provider: argString(args, "provider"),
+		VendorTitle: rawString(args, "vendor_title"), TimeField: argString(args, "time_field"), Provider: argString(args, "provider"),
 		AccountID: argString(args, "account_id"),
 		Keyword:   argString(args, "keyword"),
 		IP:        argString(args, "ip"),
@@ -440,6 +433,14 @@ func (s *Server) filterFromArgs(args map[string]any, defaultWindow time.Duration
 		}
 		f.SnapshotSequence = &n
 	}
+	if raw, ok := args["asset_snapshot_sequence"]; ok {
+		n, e := parseInteger(raw)
+		if e != nil || n < 0 {
+			return f, fmt.Errorf("invalid asset_snapshot_sequence")
+		}
+		f.AssetSnapshotSequence = &n
+	}
+
 	if f.AfterID != "" {
 		f.Sort = "id"
 	}
@@ -502,7 +503,7 @@ func argStringMap(args map[string]any, key string) map[string]string {
 	out := make(map[string]string, len(raw))
 	for k, item := range raw {
 		if s, ok := item.(string); ok {
-			out[k] = strings.TrimSpace(s)
+			out[k] = s
 		}
 	}
 	return out
@@ -589,3 +590,5 @@ func parseInteger(value any) (int64, error) {
 		return strconv.ParseInt(fmt.Sprint(value), 10, 64)
 	}
 }
+
+func rawString(args map[string]any, key string) string { value, _ := args[key].(string); return value }

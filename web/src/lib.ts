@@ -162,9 +162,10 @@ export function accountStatus(account: Account): string {
 }
 
 export function groupTitle(
-  group: Pick<AlertGroup, 'key' | 'group_by' | 'resource_name' | 'resource_id' | 'source_ip' | 'alert_type'>,
+  group: Pick<AlertGroup, 'key' | 'group_by' | 'resource_name' | 'resource_id' | 'source_ip' | 'alert_type' | 'title'>,
 ): string {
-  if (group.key.singleton) return `${t('未归并告警')} · ${group.alert_type || t('未知类型')}`;
+  if (group.title) return group.title;
+    if (group.key.singleton) return `${t('未归并告警')} · ${group.resource_name || group.resource_id || group.alert_type || t('未知类型')}`;
   if (group.group_by === 'asset') return group.resource_name || group.resource_id || t('未命名资产');
   if (group.group_by === 'source')
     return `${group.source_ip || t('未知来源')} · ${group.alert_type || t('未知类型')}`;

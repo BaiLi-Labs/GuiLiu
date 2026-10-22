@@ -1,3 +1,4 @@
+import { SourceFailure } from "../components/SourceFailure";
 import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { api } from '../api';
@@ -174,7 +175,7 @@ export function Health() {
                         />
                         {t(status)}
                       </span>
-                      {account.sync_state?.last_error ? (
+                      {account.sync_state?.last_source_error ? <SourceFailure value={account.sync_state.last_source_error} /> : account.sync_state?.last_error ? (
                         <div
                           className="cell-sub max-w-[240px] text-[var(--danger)]"
                           title={account.sync_state.last_error}
@@ -289,7 +290,7 @@ export function Health() {
                     <td>{fmtNum(run.updated)}</td>
                     <td className={run.failed ? 'text-[var(--danger)]' : ''}>{fmtNum(run.failed)}</td>
                     <td className="max-w-[260px] truncate text-xs text-[var(--muted)]" title={run.error}>
-                      {run.error || '—'}
+                      {run.source_error ? <SourceFailure value={run.source_error} /> : run.error || '—'}
                     </td>
                   </tr>
                 );

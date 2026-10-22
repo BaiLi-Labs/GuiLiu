@@ -33,6 +33,7 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 			return nil, err
 		}
 		c := model.AccountCoverage{AccountID: a.ID, Provider: a.Provider, Name: a.Name, Enabled: a.Enabled, Scope: map[string]string{}, API: apis[a.Provider], TimeBasis: basis[a.Provider], Status: state.Health(time.Now().UTC(), maxAge), LastSuccessAt: state.LastSuccessAt, FailedRecords: state.FailedRecords, LastError: state.LastError, Limitations: []string{"upstream_permissions_and_retention", "not_all_vendor_products", "no_historical_state_reconciliation"}}
+		c.LastSourceError = state.LastSourceError
 		if d, ok := registry.Descriptor(a.Provider); ok {
 			c.APIVersion = d.APIVersion
 			if d.SourceAPI != "" {

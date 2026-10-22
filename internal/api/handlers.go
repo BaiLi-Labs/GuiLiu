@@ -279,10 +279,13 @@ func (s *Server) handleCheckAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"account":    acct.Name,
-		"provider":   acct.Provider,
-		"checked_at": timeutil.Format(time.Now().UTC()),
+		"ok":          true,
+		"account":     acct.Name,
+		"provider":    acct.Provider,
+		"checked_at":  timeutil.Format(time.Now().UTC()),
+		"checked_api": conn.Info().SourceAPI,
+		"check_scope": "finding_query_only",
+		"limitations": []string{"asset_and_network_permissions_not_checked", "only_the_requested_source_scope_was_tested"},
 	})
 }
 
@@ -438,7 +441,7 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		next = items[len(items)-1].ID
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"coverage": coverage, "snapshot_sequence": f.SnapshotSequence, "next_cursor": next, "has_more": hasMore,
+		"coverage": coverage, "snapshot_sequence": f.SnapshotSequence, "asset_snapshot_sequence": f.AssetSnapshotSequence, "next_cursor": next, "has_more": hasMore,
 		"alerts": alerts,
 		"window": view.WindowFromFilter(f),
 		"total":  total,
@@ -454,7 +457,7 @@ func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.GroupBy == "" {
-		f.GroupBy = model.GroupByTypeAsset
+		f.GroupBy = model.GroupByAsset
 	}
 	if f.End == nil {
 		now := time.Now().UTC()
@@ -467,7 +470,7 @@ func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	groups, total, err := s.store.ListAlertGroups(r.Context(), f)
+	page, err := query.GroupPage(r.Context(), s.store, f)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -477,14 +480,8 @@ func (s *Server) handleListAlertGroups(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"coverage": coverage, "snapshot_sequence": f.SnapshotSequence,
-		"groups":   groups,
-		"window":   view.WindowFromFilter(f),
-		"total":    total,
-		"group_by": f.GroupBy,
-		"limit":    f.Limit,
-		"offset":   f.Offset,
-	})
+	page["coverage"] = coverage
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) handleGetAlertRevisions(w http.ResponseWriter, r *http.Request) {
@@ -624,7 +621,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 	q := r.URL.Query()
 	f := model.AlertFilter{
-		TimeField: q.Get("time_field"), RuleID: strings.TrimSpace(q.Get("rule_id")), FindingKind: strings.TrimSpace(q.Get("finding_kind")), VendorStatus: strings.TrimSpace(q.Get("vendor_status")), ObservableValue: strings.TrimSpace(q.Get("observable_value")), AfterID: strings.TrimSpace(q.Get("after_id")),
+		VendorTitle: q.Get("vendor_title"), TimeField: q.Get("time_field"), RuleID: strings.TrimSpace(q.Get("rule_id")), FindingKind: strings.TrimSpace(q.Get("finding_kind")), VendorStatus: strings.TrimSpace(q.Get("vendor_status")), ObservableValue: strings.TrimSpace(q.Get("observable_value")), AfterID: strings.TrimSpace(q.Get("after_id")),
 		Provider:  strings.TrimSpace(q.Get("provider")),
 		AccountID: strings.TrimSpace(q.Get("account_id")),
 		Keyword:   strings.TrimSpace(firstNonEmpty(q.Get("q"), q.Get("keyword"))),
@@ -640,6 +637,14 @@ func parseAlertFilter(r *http.Request) (model.AlertFilter, error) {
 		}
 		f.SnapshotSequence = &n
 	}
+	if raw := q.Get("asset_snapshot_sequence"); raw != "" {
+		n, e := strconv.ParseInt(raw, 10, 64)
+		if e != nil || n < 0 {
+			return f, errors.New("invalid asset_snapshot_sequence")
+		}
+		f.AssetSnapshotSequence = &n
+	}
+
 	if raw := q.Get("observable_type"); raw != "" {
 		n, e := strconv.Atoi(raw)
 		if e != nil || n < 0 {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
 func TestNormalizeAWSOCSFFinding(t *testing.T) {
@@ -53,6 +55,9 @@ func TestNormalizeAWSOCSFFinding(t *testing.T) {
 	}
 	if alert.Resource.ID == "" || alert.Resource.Name != "i-123" || alert.Resource.Type != "Instance" {
 		t.Fatalf("resource = %+v", alert.Resource)
+	}
+	if alert.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("resource name must be marked as vendor declared: %+v", alert.Resource)
 	}
 	if len(alert.Resources) != 2 || alert.Resources[1].ID != "secondary-resource" {
 		t.Fatalf("secondary resources lost: %+v", alert.Resources)

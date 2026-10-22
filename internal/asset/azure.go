@@ -33,7 +33,7 @@ import (
 )
 
 const azureAPIVersion = "2024-07-01"
-const azureMapperVersion = "azure-vm/v1"
+const azureMapperVersion = "azure-vm/v2"
 const maxAzureNICs = 3
 const maxAzurePublicIPs = 3
 
@@ -134,13 +134,15 @@ func AzureRaw(cred connector.Credential, a model.Account) (azureRaw, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, action string, params map[string]string) (json.RawMessage, error) {
+	return func(ctx context.Context, action string, params map[string]string) (result json.RawMessage, callErr error) {
+		defer func() {
+			callErr = connector.WithSourceAPI("azure", map[string]string{"VM": "Compute VirtualMachines.Get", "NIC": "Network Interfaces.Get", "PublicIP": "Network PublicIPAddresses.Get", "VNet": "Network VirtualNetworks.Get", "Subnet": "Network Subnets.Get", "NSG": "Network SecurityGroups.Get"}[action], callErr)
+		}()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		recorder := &azureRecorder{}
 		ctx = context.WithValue(ctx, azureRecorderKey{}, recorder)
-		var callErr error
 		switch action {
 		case "VM":
 			expand := armcompute.InstanceViewTypesInstanceView
@@ -288,7 +290,6 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 	var publicIPs, privateIPs []string
 	var references []model.AssetReference
 	var networkComponents = map[string]model.AssetComponent{}
-	var nicRaw []json.RawMessage
 	seenRef := map[string]bool{}
 	publicRefs := []string{}
 	nsgRefs := []string{}
@@ -307,7 +308,8 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		}
 		nicPayload, err := raw(ctx, "NIC", map[string]string{"resourceGroup": azureResourceGroup(nicID), "name": nicName})
 		if err != nil {
-			return nil, err
+			networkComponents[fmt.Sprintf("network_interface:%d", n)] = failedComponent(err, "azure", "Network Interfaces.Get", azureAPIVersion)
+			continue
 		}
 		var nic struct {
 			ID         string `json:"id"`
@@ -331,8 +333,9 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		if json.Unmarshal(nicPayload, &nic) != nil || !strings.EqualFold(nic.ID, nicID) {
 			return nil, fmt.Errorf("network interface identity mismatch")
 		}
-		nicRaw = append(nicRaw, nicPayload)
-		for _, config := range nic.Properties.IPConfigurations {
+		nicKey := fmt.Sprintf("network_interface:%d", n)
+		networkComponents[nicKey] = component(nicPayload, "Network Interfaces.Get", azureAPIVersion, time.Now().UTC())
+		for configIndex, config := range nic.Properties.IPConfigurations {
 			if config.Properties.PrivateIPAddress != "" {
 				privateIPs = append(privateIPs, config.Properties.PrivateIPAddress)
 			}
@@ -342,16 +345,17 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 			if subnet := azureLower(config.Properties.Subnet.ID); subnet != "" {
 				if !seenRef["subnet|"+subnet] {
 					seenRef["subnet|"+subnet] = true
-					references = append(references, reference(a, "subnet", subnet, "in_subnet", "network_interface", "/properties/ipConfigurations/0/properties/subnet/id"))
+					references = append(references, reference(a, "subnet", subnet, "in_subnet", nicKey, fmt.Sprintf("/properties/ipConfigurations/%d/properties/subnet/id", configIndex)))
 				}
 				if vnet := azureIDBefore(subnet, "subnets"); vnet != "" && !seenRef["vpc|"+vnet] {
 					seenRef["vpc|"+vnet] = true
-					references = append(references, reference(a, "vpc", vnet, "belongs_to_vpc", "network_interface", "/properties/ipConfigurations/0/properties/subnet/id"))
+					references = append(references, reference(a, "vpc", vnet, "belongs_to_vpc", nicKey, fmt.Sprintf("/properties/ipConfigurations/%d/properties/subnet/id", configIndex)))
 				}
 			}
 		}
 		if nsg := azureLower(nic.Properties.NetworkSecurityGroup.ID); nsg != "" {
 			nsgRefs = append(nsgRefs, nsg)
+			references = append(references, reference(a, "security_group", nsg, "attached_security_group", nicKey, "/properties/networkSecurityGroup/id"))
 		}
 	}
 	publicRefs = dedupeSort(publicRefs)
@@ -369,7 +373,8 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		}
 		pipPayload, err := raw(ctx, "PublicIP", map[string]string{"resourceGroup": azureResourceGroup(pipID), "name": name})
 		if err != nil {
-			return nil, err
+			networkComponents["public_ip:"+pipID] = failedComponent(err, "azure", "Network PublicIPAddresses.Get", azureAPIVersion)
+			continue
 		}
 		var pip struct {
 			Properties struct {
@@ -389,7 +394,6 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		c := model.AssetComponent{Status: "not_collected", Reason: "request_budget_exceeded", SourceAPI: "Network SecurityGroups.Get", APIVersion: azureAPIVersion}
 		if n >= MaxSecurityGroups {
 			networkComponents[key] = c
-			references = append(references, reference(a, "security_group", nsgID, "attached_security_group", "network_interface", "/properties/networkSecurityGroup/id"))
 			continue
 		}
 		name := azureNameAfter(nsgID, "networksecuritygroups")
@@ -406,11 +410,11 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		nsgPayload, err := raw(ctx, "NSG", map[string]string{"resourceGroup": azureResourceGroup(nsgID), "name": name})
 		if err != nil {
 			c.Status, c.Reason = "failed", errorCode(err, "azure")
+			c.SourceError = connector.SourceError(connector.WithSourceAPI("azure", c.SourceAPI, err))
 			networkComponents[key] = c
 			continue
 		}
 		networkComponents[key] = component(nsgPayload, "Network SecurityGroups.Get", azureAPIVersion, time.Now().UTC())
-		references = append(references, reference(a, "security_group", nsgID, "attached_security_group", "network_interface", "/properties/networkSecurityGroup/id"))
 	}
 	var vpcID, subnetID string
 	for _, ref := range references {
@@ -446,10 +450,6 @@ func ReadAzure(ctx context.Context, a model.Account, id string, raw azureRaw, li
 		out.Provenance["tags"] = model.FieldOrigin{Source: "component:instance", Paths: []string{"/tags"}, Transform: "source_map_projection"}
 	}
 	out.References = references
-	for n, payload := range nicRaw {
-		key := fmt.Sprintf("network_interface:%d", n)
-		out.Components[key] = component(payload, "Network Interfaces.Get", azureAPIVersion, at)
-	}
 	for key, c := range networkComponents {
 		out.Components[key] = c
 	}

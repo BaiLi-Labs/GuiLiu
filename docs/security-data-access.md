@@ -2,6 +2,8 @@
 
 归流：统一安全数据，不统一安全结论。
 
+来源权限与认证失败按官方 SDK / API 的结构化字段记录，具体分类、查询字段与验证边界参见 [来源访问失败与权限提示](source-errors.md)。
+
 归流是 Security Data Access Layer。它保存来源记录、执行可重放的字段转换、维护查询索引，并向 Web、REST、MCP 与只读查询 CLI 提供相同的数据。厂商的误报、攻击、风险、处理结果仅作为来源声明；归流不新增这些判断。巡检调度、研判、封禁、通知和工单属于消费方。
 
 ## 数据分层
@@ -29,6 +31,14 @@
 严重等级仅为显式显示映射，未知等级为 Unknown，并保留原值。`status` 是使用者的本地标注；`vendor_status` 直接保留厂商状态原值（数值状态转为十进制字符串），不重命名或改变大小写。本地标注不会产生来源修订、进入变更流或回写厂商。
 
 `account_name` 是当前连接的本地展示名称，与本地标注一样不冻结在来源快照中。修改连接名称立即更新展示，不改变来源内容指纹、事实更新时间或变更流。通用 OCSF 不把该名称填入厂商云账号名称；来源原生 OCSF 的账号名称仍原样保留。
+
+## 资产与来源位置事实
+
+- `resource.id` 只来自来源明确给出的原生资源标识；`resource.type` 只来自来源类型字段或该来源声明的固定类型。
+- `resource.name` 按“来源声明的资产名 → 域名 / 地址 / 原生 ID”取值，`resource.source` 记录取值方式：`vendor_declared` 表示来源为该资产明确声明了可读名称（腾讯 `Victim.Name`、阿里 `InstanceName`、华为 `resource_list[].name`、AWS `resources[].name`、GCP `resource.displayName`、Azure `compromisedEntity`）；`identifier_fallback` 表示来源未声明名称，只用了域名、IP 或原生 ID。两者都是来源事实；告警标题、描述文本和本地标签不会被当作资产名。
+- `resource.account_uid` 只在来源独立声明了受影响资源所属账号时填写（腾讯 `Victim.Account`、Azure 资源 ID 中的订阅）。为空表示来源没有把“告警账号”和“资源账号”分开，不代表两者不同。
+- `source_location` / `source_country` 只保留来源对攻击者的位置声明（例如腾讯 `Attacker.Address` / `Attacker.Country`）。不解析 IP、不查询 GeoIP、不归一化国家名；为空表示来源没有声明。
+- `response_action` 只保留来源声明的处置动作（例如腾讯 `ProcessType`）。它不代表归流执行了处置、不代表动作已生效，也不是本地 `status`。
 
 ## 乱序记录与当前投影
 
@@ -66,20 +76,36 @@ GET /api/v1/alerts/{id}?snapshot_sequence=123
 
 时间筛选可通过 `time_field=event_time|source_updated_at|ingested_at` 明确选择依据；缺失发生时间的记录仍可按采集时间检索。覆盖判断会标明时间依据与厂商采集窗口不一致的限制。
 
-统一筛选支持 `provider`、`account_id`、`severity`、本地 `status`、`vendor_status`、`finding_kind`、`rule_id`、`ip`、`resource`、`q`、`start/end`。通用对象查询使用 `observable_value`（精确值）与可选 `observable_type`（OCSF 类型 ID，例如 IP=2、用户名=4、文件 Hash=8、资源=10）。类型 0 是明确的 Unknown 类型，不是全类型通配。
+统一筛选支持 `provider`、`account_id`、`severity`、本地 `status`、`vendor_status`、`finding_kind`、`rule_id`、`vendor_title`（原始名称精确匹配）、`ip`、`resource`、`q`、`start/end`。通用对象查询使用 `observable_value`（精确值）与可选 `observable_type`（OCSF 类型 ID，例如 IP=2、用户名=4、文件 Hash=8、资源=10）。类型 0 是明确的 Unknown 类型，不是全类型通配。
 
 `ip` 覆盖源、目的及所有已明确提取的 IP Observables。任意文本里像 IP 的字符串不被自动赋予源/目的角色。完整 Raw 可查看，不等于所有未知嵌套字段都已进入查询索引。
 
 ## Finding Grouping
 
-分组只表示字段等值。默认 `type_asset` 是类型与资产的统计视角；`signature` 使用 provider、连接配置、真实云账号 UID、region、product、原生 rule_id、资产 ID 和源 IP。关键字段缺失时保留独立记录。其他 `asset` / `source` 是不同统计视角，不代表同一次攻击或同一事件。
+分组只表示字段等值。默认 `asset` 按完整资源身份统计并返回有界的资产与告警名称摘要；`type_asset` 仍提供类型与资产的统计视角；`signature` 使用 provider、连接配置、真实云账号 UID、region、product、原生 rule_id、资产 ID 和源 IP。关键字段缺失时保留独立记录。`source` 按源 IP 与类型统计，不代表同一次攻击或同一事件。
+
+新增视角：
+
+| `group_by` | 等值依据与用途 |
+| --- | --- |
+| `asset` | provider、真实账号 UID、region、资源类型与原生 ID；已有明确主机观测时使用该资产的原生身份，支持 AWS ARN / GCP 资源名等明确别名 |
+| `name_asset` | 资产身份 + 来源产品 + 完全相等的厂商告警名称；名称不是规则 ID，也不用于去重来源记录 |
+| `vpc` / `subnet` / `security_group` / `nic` | 主机来源明确引用的网络资源完整身份；最多跟随一层明确网卡引用读取已保存的网卡关系，不按 IP、名称或 CIDR 推断 |
+
+网络视角表示“这些告警的主机明确引用该网络资源”，不证明告警经过某张网卡、某安全组规则生效或攻击关系成立。当前只关联明确的主资源主机；不自动将一个 Finding 的所有次要资源铺开。没有主机观测或明确网络引用的记录逐条保留，不以空值合并。普通查询只读本地数据，不调用云 API。
+
+`asset`、`name_asset` 与网络视角返回独立的 `asset_snapshot_sequence`。翻页与展开时应同时携带它、Finding 的 `snapshot_sequence` 和绝对时间窗口；上述分组成员展开缺少资产水位会报错。资产水位在实质修订保存时持久递增，与 Finding 变化序号独立，重启后保留。已有 schema 5 资产修订在首次启动时补建辅助水位索引。同内容刷新不改变分组关系水位。摘要使用该水位下的不可变资产修订及其 `observed_at`，不宣称包含最新重复确认时间，也不表示告警发生时的历史配置。资产列表及普通资产查找仍是实时本地观测；没有新增通用资产 Change Feed。
+
+每组返回 `asset_count`（匹配的独立主机观测数）、最多 5 个 `assets`（ID、修订、观测时间及显式引用）和最多 5 项 `top_titles`（原始名称及精确计数），它们是摘要而非完整清单。网络组额外返回最多 5 项 `relation_evidence`，固定主机修订、声明关系的主机或网卡 ID/修订，以及来源组件与 JSON Pointer，可按精确版本读取原始证据。完整成员继续按同一 `group_key` 分页读取；`vendor_title` 可精确筛选某一原始名称，保留大小写和空白，不做模糊归类。未归并记录通过 `missing_fields` 说明缺失字段。
+
+页面级 `summary` 返回独立 `finding_count`、有主机观测的 `asset_context_finding_count`、缺少分组依据的 `ungrouped_finding_count` 和可重复的 `membership_count`。同一告警可属于多个安全组或网卡组，每组内只计一次；跨组数量不能作为独立告警总量相加。Web 默认先展开摘要，再按名称或全部成员下钻；网络详情仍独立按来源引用查询。
 
 - `finding_count`：分组中的独立来源记录数量。
 - `revision_count`：成员的可记录内容变化次数，不含每条记录的初始版本。
 - `occurrence_count`：单条来源明确报告的次数，附带 `occurrence_scope`。当前不跨记录求和，不把不同厂商或不同定义的次数混算。
 - `max_severity`：成员的最高厂商映射等级，不是归流对分组的风险评价。
 
-展开成员需重复分组返回的完整 `group_key`、查询过滤条件、绝对时间窗口和 `snapshot_sequence`。
+展开成员需重复分组返回的完整 `group_key`、查询过滤条件、绝对时间窗口、`snapshot_sequence`，以及返回的 `asset_snapshot_sequence`。
 
 ## Change Feed
 
@@ -156,7 +182,7 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 
 安全组、VPC、子网作为独立资产保存，不把完整网络资源复制进每台主机。`references` 带 provider、原生账号 UID、region、resource_type、resource_id、来源组件、JSON 路径和 `lookup_url`；仅来源明确的 ID 建立引用。安全组提供名称、说明、标签和策略组件；策略来自腾讯云 `DescribeSecurityGroupPolicies`、阿里云 `DescribeSecurityGroupAttribute`，AWS/华为/Azure/GCP 的安全组或防火墙详情本身包含规则，因此不额外请求。VPC/子网提供名称、CIDR、来源明确给出的默认标识与标签；原生创建时间按原值保留。路由表、网络 ACL 等未建模字段仍可通过原始详情读取，不展开其配置，不推导有效开放端口。
 
-资产独立保存，不复制到 Finding。对实质变化创建资产修订，相同内容只推进 `last_observed_at`；组件的 `observed_at` 和精确原始字节保留在原修订中。刷新失败保留既有资产，并单独报告最近刷新状态。资产变化不进入 Finding Change Feed，也不改变 Finding 修订。资产旧版本可按 `1..revision` 查询；首版没有资产快照或资产变更流。
+资产独立保存，不复制到 Finding。对实质变化创建资产修订，相同内容只推进 `last_observed_at`；组件的 `observed_at` 和精确原始字节保留在原修订中。刷新失败保留既有资产，并单独报告最近刷新状态。资产变化不进入 Finding Change Feed，也不改变 Finding 修订。资产旧版本可按 `1..revision` 查询；资产列表与普通查找没有通用资产快照或资产变更流；Finding 资产/网络分组通过独立资产修订水位固定关系与摘要。
 
 | REST | MCP | 语义 |
 | --- | --- | --- |
@@ -170,6 +196,8 @@ MCP 提供 `list_alert_changes`、`get_alert_revisions`、`get_data_coverage`、
 所有 REST 路径均以 `/api/v1` 开头并要求认证。`/assets` 支持 `provider/account_id/account_uid/region/resource_type/resource_id/after_id/limit`；`resource_type` 必须是该 provider 声明的类型（主机类型加 `security_group/vpc/subnet/nic`；GCP、华为云不支持 `nic`）。首版不提供名称模糊匹配、IP 过滤或标签索引；未支持的参数报错。列表 `limit` 范围 1–100，后续将 `next_cursor` 作为 `after_id`。列表是当前本地观测，不承诺固定资产快照或完整云资产覆盖。
 
 `/assets/lookup` 与 `get_asset_by_reference` 要求已知 provider、`account_uid`、`resource_type`、`resource_id`，以及该 provider 要求的地域（GCP 允许全局作用域为空）；可选 `account_id` 仅用于查最近刷新状态，必须与资源作用域一致。响应区分 `not_collected/available/stale`，`refresh.status` 单独说明失败或进行中状态，不把刷新失败解释为资源不存在。资产正文省略完整来源载荷，组件证据按精确修订读取。
+
+`/alerts/{id}/asset-context` 与 `/assets/lookup` 始终返回 `scope`，说明本次查询实际使用的 provider、`account_uid`、region、`resource_type`、`resource_id`、`source_api` 与 `api_version`；来源请求本身失败时，`refresh.source_error` 保留结构化错误（provider、kind、SDK 错误码、HTTP 状态、调用的接口）。因此“范围内没有记录”“权限不足”“地域配错”可以分开判断，而不是都落在一句 unavailable 上。
 
 Finding 上下文可用 `revision` 或 `snapshot_sequence` 选择引用所在版本，两者互斥；资产部分始终是当前观测，明确不代表告警发生时状态。匹配条件是 provider、原生账号 UID、地域、原生主机资源 ID 和主机类型；IP、名称、Hash 和标签均不建立身份关系。腾讯云、阿里云告警存在稳定的主机类型 `host`，该类型同时参与匹配；华为、AWS、GCP、Azure 的告警资源类型由各产品自定义，关联告警只按精确原生 ID 或声明的厂商别名（AWS ARN、GCP 完整资源名）匹配。首版上下文使用主资源引用；相关告警检索同时支持明确的附加主机资源引用。作用域缺失、来源不支持、未采集和过期均明确返回。
 

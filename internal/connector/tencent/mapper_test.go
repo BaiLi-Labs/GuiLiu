@@ -22,13 +22,25 @@ func sampleAlert(t *testing.T) json.RawMessage {
 	status := uint64(0)
 	count := uint64(7)
 	a := &csip.AlertInfo{
-		ID:               strPtr("alert-1001"),
-		Name:             strPtr("Reverse shell detected"),
-		Source:           strPtr("CWP"),
-		Level:            &level,
-		Status:           &status,
-		Attacker:         &csip.RoleInfo{IP: strPtr("203.0.113.9"), MD5: strPtr("d41d8cd98f00b204e9800998ecf8427e")},
-		Victim:           &csip.RoleInfo{IP: strPtr("10.0.0.5"), InstanceID: strPtr("ins-abc"), AssetType: i64Ptr(1)},
+		ID:     strPtr("alert-1001"),
+		Name:   strPtr("Reverse shell detected"),
+		Source: strPtr("CWP"),
+		Level:  &level,
+		Status: &status,
+		Attacker: &csip.RoleInfo{
+			IP:      strPtr("203.0.113.9"),
+			Address: strPtr("示例省示例市"),
+			Country: strPtr("示例国家"),
+			MD5:     strPtr("d41d8cd98f00b204e9800998ecf8427e"),
+		},
+		Victim: &csip.RoleInfo{
+			IP:         strPtr("10.0.0.5"),
+			InstanceID: strPtr("ins-abc"),
+			AssetType:  i64Ptr(1),
+			Name:       strPtr("web-prod-01"),
+			Account:    strPtr("1250000000"),
+		},
+		ProcessType:      strPtr("BlockAttackIP"),
 		CreateTime:       strPtr("2026-10-20 08:00:00"),
 		UpdateTime:       strPtr("2026-10-20 09:00:00"),
 		Type:             strPtr("MaliciousProcess"),
@@ -76,6 +88,32 @@ func TestExtraInfoAndUnknownAlertTypesArePreserved(t *testing.T) {
 	}
 }
 
+func TestResourceNameOriginIsExplicit(t *testing.T) {
+	declared, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"a","Victim":{"IP":"10.0.0.6","InstanceID":"ins-x","AssetType":1,"Name":"db-01"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if declared.Resource.Name != "db-01" || declared.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("declared resource = %+v", declared.Resource)
+	}
+
+	fallback, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"b","Victim":{"IP":"10.0.0.7","InstanceID":"ins-y","AssetType":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Resource.Name != "10.0.0.7" || fallback.Resource.Source != model.ResourceSourceIdentifierFallback {
+		t.Fatalf("fallback resource = %+v", fallback.Resource)
+	}
+
+	domain, err := (&Connector{}).Normalize(json.RawMessage(`{"ID":"c","Victim":{"Domain":"example.com","AssetType":2}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if domain.Resource.Name != "example.com" || domain.Resource.Source != model.ResourceSourceIdentifierFallback {
+		t.Fatalf("domain resource = %+v", domain.Resource)
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	c := &Connector{}
 	alert, err := c.Normalize(sampleAlert(t))
@@ -93,6 +131,18 @@ func TestNormalize(t *testing.T) {
 	}
 	if alert.Resource.ID != "ins-abc" || alert.Resource.Type != "host" {
 		t.Fatalf("resource = %+v", alert.Resource)
+	}
+	if alert.Resource.Name != "web-prod-01" || alert.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("resource name = %+v, want the declared asset name", alert.Resource)
+	}
+	if alert.Resource.AccountUID != "1250000000" {
+		t.Fatalf("resource account = %q", alert.Resource.AccountUID)
+	}
+	if alert.SourceLocation != "示例省示例市" || alert.SourceCountry != "示例国家" {
+		t.Fatalf("source location = %q/%q", alert.SourceLocation, alert.SourceCountry)
+	}
+	if alert.ResponseAction != "BlockAttackIP" {
+		t.Fatalf("response action = %q", alert.ResponseAction)
 	}
 	if alert.Product != "Host Security (CWP)" {
 		t.Fatalf("product = %q", alert.Product)

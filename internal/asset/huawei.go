@@ -84,7 +84,14 @@ func HuaweiRaw(cred connector.Credential, a model.Account, timeout time.Duration
 	}
 	ecsHTTP, vpcHTTP := build("ecs"), build("vpc")
 
-	return func(ctx context.Context, action string, params map[string]string) (json.RawMessage, error) {
+	return func(ctx context.Context, action string, params map[string]string) (result json.RawMessage, callErr error) {
+		defer func() {
+			service := "VPC"
+			if action == "ShowServer" {
+				service = "ECS"
+			}
+			callErr = connector.WithSourceAPI("huawei", service+" "+action, callErr)
+		}()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -159,6 +166,7 @@ func huaweiPolicyComponent(raw json.RawMessage, err error) (model.AssetComponent
 	c := model.AssetComponent{Status: "failed", SourceAPI: api, APIVersion: huaweiAPIVersion}
 	if err != nil {
 		c.Reason = errorCode(err, "huawei")
+		c.SourceError = connector.SourceError(connector.WithSourceAPI("huawei", c.SourceAPI, err))
 		return c, nil
 	}
 	group, envelopeErr := huaweiEnvelope(raw, "security_group")

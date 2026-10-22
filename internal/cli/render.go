@@ -155,8 +155,13 @@ func alertAllColumns() []column[view.Alert] {
 			return firstNonEmpty(a.Resource.Name, a.Resource.ID)
 		}},
 		{key: "resource_id", header: "RESOURCE_ID", value: func(a view.Alert) string { return a.Resource.ID }},
+		{key: "resource_account", header: "RESOURCE_ACCOUNT", value: func(a view.Alert) string { return a.Resource.AccountUID }},
+		{key: "resource_source", header: "RESOURCE_SOURCE", value: func(a view.Alert) string { return a.Resource.Source }},
 		{key: "source_ip", header: "SRC", value: func(a view.Alert) string { return a.SourceIP }},
+		{key: "source_location", header: "SRC_LOCATION", max: 28, value: func(a view.Alert) string { return a.SourceLocation }},
+		{key: "source_country", header: "SRC_COUNTRY", value: func(a view.Alert) string { return a.SourceCountry }},
 		{key: "destination_ip", header: "DST", value: func(a view.Alert) string { return a.DestinationIP }},
+		{key: "response_action", header: "RESPONSE", max: 28, value: func(a view.Alert) string { return a.ResponseAction }},
 		{key: "alert_type", header: "TYPE", max: 28, value: func(a view.Alert) string { return a.AlertType }},
 		{key: "rule_id", header: "RULE_ID", value: func(a view.Alert) string { return a.RuleID }},
 		{key: "revision", header: "REV", value: func(a view.Alert) string { return strconv.Itoa(a.Revision) }},
@@ -171,6 +176,12 @@ func alertTableColumns(fields string) ([]column[view.Alert], error) {
 func groupAllColumns() []column[model.AlertGroup] {
 	return []column[model.AlertGroup]{
 		{key: "id", header: "GROUP_ID", value: func(g model.AlertGroup) string { return g.ID }},
+		{key: "asset_count", header: "ASSETS", value: func(g model.AlertGroup) string {
+			if !g.GroupBy.UsesAssetContext() {
+				return "—"
+			}
+			return strconv.Itoa(g.AssetCount)
+		}},
 		{key: "finding_count", header: "COUNT", value: func(g model.AlertGroup) string { return strconv.Itoa(g.FindingCount) }},
 		{key: "max_severity", header: "MAX_SEV", value: func(g model.AlertGroup) string { return g.MaxSeverity.String() }},
 		{key: "title", header: "TITLE", max: 52, value: func(g model.AlertGroup) string { return g.Title }},
@@ -185,7 +196,7 @@ func groupAllColumns() []column[model.AlertGroup] {
 }
 
 func groupTableColumns(fields string) ([]column[model.AlertGroup], error) {
-	defaults := []string{"finding_count", "max_severity", "title", "resource", "source_ip", "last_seen_at", "id"}
+	defaults := []string{"finding_count", "asset_count", "max_severity", "title", "resource", "source_ip", "last_seen_at", "id"}
 	return selectColumns(groupAllColumns(), defaults, fields)
 }
 
@@ -315,8 +326,13 @@ func renderAlertDetail(w io.Writer, a view.Alert) error {
 		{"resource", firstNonEmpty(a.Resource.Name, a.Resource.ID)},
 		{"resource_type", a.Resource.Type},
 		{"resource_id", a.Resource.ID},
+		{"resource_account", a.Resource.AccountUID},
+		{"resource_source", a.Resource.Source},
 		{"source_ip", a.SourceIP},
+		{"source_location", a.SourceLocation},
+		{"source_country", a.SourceCountry},
 		{"destination_ip", a.DestinationIP},
+		{"response_action", a.ResponseAction},
 		{"alert_type", a.AlertType},
 		{"rule_id", a.RuleID},
 		{"finding_kind", a.FindingKind},
@@ -447,8 +463,10 @@ func renderAssetLookup(w io.Writer, result assetLookupResponse) error {
 			return err
 		}
 	}
+	renderAssetScope(w, result.Scope)
 	if result.Refresh != nil {
 		fmt.Fprintf(w, "\nrefresh %s at %s\n", clean(result.Refresh.Status), shortTimeValue(result.Refresh.AttemptedAt))
+		renderSourceError(w, result.Refresh.SourceError)
 	}
 	if len(result.Limitations) > 0 {
 		fmt.Fprintf(w, "\nlimitations: %s\n", joinLimited(result.Limitations, 5))
@@ -468,6 +486,7 @@ func renderAssetContext(w io.Writer, context query.AssetContext) error {
 	if err := renderDetail(w, pairs); err != nil {
 		return err
 	}
+	renderAssetScope(w, context.Scope)
 	if context.Asset != nil {
 		fmt.Fprintln(w)
 		if err := renderAssetDetail(w, *context.Asset); err != nil {
@@ -476,11 +495,46 @@ func renderAssetContext(w io.Writer, context query.AssetContext) error {
 	}
 	if context.Refresh != nil {
 		fmt.Fprintf(w, "\nrefresh %s at %s\n", clean(context.Refresh.Status), shortTimeValue(context.Refresh.AttemptedAt))
+		renderSourceError(w, context.Refresh.SourceError)
 	}
 	if len(context.Limitations) > 0 {
 		fmt.Fprintf(w, "\nlimitations: %s\n", joinLimited(context.Limitations, 5))
 	}
 	return nil
+}
+
+func renderAssetScope(w io.Writer, scope *query.AssetScope) {
+	if scope == nil {
+		return
+	}
+	pairs := [][2]string{
+		{"provider", scope.Provider},
+		{"account_uid", scope.AccountUID},
+		{"region", scope.Region},
+		{"resource_type", scope.ResourceType},
+		{"resource_id", scope.ResourceID},
+		{"source_api", scope.SourceAPI},
+		{"api_version", scope.APIVersion},
+	}
+	fmt.Fprintln(w, "\nattempted scope")
+	_ = renderDetail(w, pairs)
+}
+
+func renderSourceError(w io.Writer, sourceError *model.SourceError) {
+	if sourceError == nil {
+		return
+	}
+	pairs := [][2]string{
+		{"provider", sourceError.Provider},
+		{"kind", sourceError.Kind},
+		{"code", sourceError.Code},
+	}
+	if sourceError.HTTPStatus > 0 {
+		pairs = append(pairs, [2]string{"http_status", strconv.Itoa(sourceError.HTTPStatus)})
+	}
+	pairs = append(pairs, [2]string{"source_api", sourceError.SourceAPI})
+	fmt.Fprintln(w, "source_error")
+	_ = renderDetail(w, pairs)
 }
 
 func printCoverage(w io.Writer, coverage *model.Coverage) {

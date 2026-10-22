@@ -40,8 +40,8 @@ func TestTypeAssetGroupsUseExactFieldsAndKeepMissingSources(t *testing.T) {
 	add("no-product", func(a *model.AlertRecord) { a.Product = "" })
 	add("outside-window", func(a *model.AlertRecord) { a.EventTime = base.Add(time.Hour) })
 	start, end := base.Add(-time.Hour), base
-	f := model.AlertFilter{Start: &start, End: &end, Limit: 50}
-	groups, total, err := st.ListAlertGroups(ctx, f) // Default is type_asset.
+	f := model.AlertFilter{GroupBy: model.GroupByTypeAsset, Start: &start, End: &end, Limit: 50}
+	groups, total, err := st.ListAlertGroups(ctx, f) // Type and asset is an explicit statistical view.
 	if err != nil || total != 10 {
 		t.Fatalf("total=%d groups=%+v err=%v", total, groups, err)
 	}

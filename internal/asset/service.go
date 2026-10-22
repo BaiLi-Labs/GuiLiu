@@ -54,20 +54,27 @@ type RefreshResult struct {
 }
 
 // errorCode maps a source failure to a stable, non-secret reason. Provider
-// classification is used only to distinguish authorization problems.
+// classification uses official SDK fields; messages never establish source facts.
 func errorCode(err error, provider string) string {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return "timeout"
 	}
-	if provider != "" && connector.AuthError(connector.Classify(provider, err)) {
-		return "permission_denied"
-	}
 	if errors.Is(err, ErrNotVisible) {
 		return "not_found_or_not_visible"
 	}
-	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "notfound") || strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") {
-		return "not_found_or_not_visible"
+	if detail := connector.SourceError(connector.Classify(provider, err)); detail != nil {
+		switch connector.ErrorKind(detail.Kind) {
+		case connector.KindAuth:
+			return "authentication_failed"
+		case connector.KindPermission:
+			return "permission_denied"
+		case connector.KindDenied:
+			return "access_denied"
+		case connector.KindNotFound:
+			return "not_found_or_not_visible"
+		case connector.KindThrottled:
+			return "throttled"
+		}
 	}
 	// Never expose SDK error messages, request signatures, or response payloads.
 	return "source_request_failed"
@@ -169,6 +176,7 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 					component, policyErr := client.ReadPolicies(ctx, *a, id)
 					if policyErr != nil {
 						component = model.AssetComponent{Status: "failed", Reason: errorCode(policyErr, p.ID), SourceAPI: p.PolicyAPI, APIVersion: p.APIVersion}
+						component.SourceError = connector.SourceError(connector.WithSourceAPI(p.ID, p.PolicyAPI, policyErr))
 					}
 					value.Components["policies"] = component
 				}
@@ -186,9 +194,15 @@ func (s *Service) Refresh(ctx context.Context, accountID, kind, id string) (*Ref
 		attempt.Status = "available"
 		if err != nil {
 			attempt.Status = errorCode(err, p.ID)
+			// An authorized read that simply returned no record is not a source
+			// request failure. record the status and keep the attempted scope,
+			// but do not fabricate an SDK error without a code.
+			if !errors.Is(err, ErrNotVisible) {
+				attempt.SourceError = connector.SourceError(connector.Classify(p.ID, err))
+			}
 		} else {
 			for key, c := range value.Components {
-				if (strings.HasPrefix(key, "security_group:") || key == "policies" || key == "network_interfaces") && c.Status != "available" {
+				if (strings.HasPrefix(key, "security_group:") || strings.HasPrefix(key, "network_interface:") || strings.HasPrefix(key, "public_ip:") || key == "policies" || key == "network_interfaces") && c.Status != "available" {
 					attempt.Status = "partial"
 				}
 			}
@@ -232,4 +246,8 @@ func (s *Service) saveObservation(ctx context.Context, value *model.Asset) error
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 	return s.Store.SaveAsset(persist, value)
+}
+
+func failedComponent(err error, provider, api, apiVersion string) model.AssetComponent {
+	return model.AssetComponent{Status: "failed", Reason: errorCode(err, provider), SourceAPI: api, APIVersion: apiVersion, SourceError: connector.SourceError(connector.WithSourceAPI(provider, api, err))}
 }

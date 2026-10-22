@@ -48,7 +48,8 @@ func TencentCall(cred connector.Credential, region string) Call {
 		p.RateLimitExceededMaxRetries = 0
 		clients[service] = common.NewCommonClient(c, region, p).WithHttpTransport(boundedTransport{http.DefaultTransport})
 	}
-	return func(ctx context.Context, service, action string, params map[string]any) (json.RawMessage, error) {
+	return func(ctx context.Context, service, action string, params map[string]any) (result json.RawMessage, callErr error) {
+		defer func() { callErr = connector.WithSourceAPI("tencent", strings.ToUpper(service)+" "+action, callErr) }()
 		client, ok := clients[service]
 		if !ok {
 			return nil, fmt.Errorf("unsupported asset service")
@@ -220,6 +221,7 @@ func readTencent(ctx context.Context, a model.Account, id string, call Call, lim
 		if err != nil {
 			c.Status = "failed"
 			c.Reason = errorCode(err, "tencent")
+			c.SourceError = connector.SourceError(connector.WithSourceAPI("tencent", c.SourceAPI, err))
 			out.Components[key] = c
 			continue
 		}
@@ -241,7 +243,7 @@ func readTencent(ctx context.Context, a model.Account, id string, call Call, lim
 		"Limit":   MaxNICs,
 	})
 	if nicErr != nil {
-		out.Components["network_interfaces"] = model.AssetComponent{Status: "failed", Reason: errorCode(nicErr, "tencent"), SourceAPI: "VPC DescribeNetworkInterfaces", APIVersion: tencentAPIVersion}
+		out.Components["network_interfaces"] = model.AssetComponent{Status: "failed", Reason: errorCode(nicErr, "tencent"), SourceError: connector.SourceError(connector.WithSourceAPI("tencent", "VPC DescribeNetworkInterfaces", nicErr)), SourceAPI: "VPC DescribeNetworkInterfaces", APIVersion: tencentAPIVersion}
 		return out, nil
 	}
 	var nicEnvelope struct {

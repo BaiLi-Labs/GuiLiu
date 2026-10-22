@@ -58,20 +58,21 @@ type Coverage struct {
 }
 
 type AccountCoverage struct {
-	AccountID     string            `json:"account_id"`
-	Provider      string            `json:"provider"`
-	Name          string            `json:"name"`
-	Enabled       bool              `json:"enabled"`
-	Scope         map[string]string `json:"scope"`
-	API           string            `json:"api"`
-	APIVersion    string            `json:"api_version"`
-	TimeBasis     string            `json:"time_basis"`
-	Status        string            `json:"status"`
-	Complete      bool              `json:"complete"`
-	CoverageStart *time.Time        `json:"coverage_start"`
-	Watermark     *time.Time        `json:"watermark"`
-	LastSuccessAt *time.Time        `json:"last_success_at"`
-	FailedRecords int               `json:"failed_records"`
-	LastError     string            `json:"last_error,omitempty"`
-	Limitations   []string          `json:"limitations"`
+	AccountID       string            `json:"account_id"`
+	Provider        string            `json:"provider"`
+	Name            string            `json:"name"`
+	Enabled         bool              `json:"enabled"`
+	Scope           map[string]string `json:"scope"`
+	API             string            `json:"api"`
+	APIVersion      string            `json:"api_version"`
+	TimeBasis       string            `json:"time_basis"`
+	Status          string            `json:"status"`
+	Complete        bool              `json:"complete"`
+	CoverageStart   *time.Time        `json:"coverage_start"`
+	Watermark       *time.Time        `json:"watermark"`
+	LastSuccessAt   *time.Time        `json:"last_success_at"`
+	FailedRecords   int               `json:"failed_records"`
+	LastError       string            `json:"last_error,omitempty"`
+	LastSourceError *SourceError      `json:"last_source_error,omitempty"`
+	Limitations     []string          `json:"limitations"`
 }

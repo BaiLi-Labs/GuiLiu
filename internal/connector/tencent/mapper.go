@@ -54,18 +54,23 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 
 	if a.Attacker != nil {
 		alert.SourceIP = connector.FirstNonEmpty(connector.Str(a.Attacker.IP), connector.Str(a.Attacker.OriginIP))
+		alert.SourceLocation = connector.Str(a.Attacker.Address)
+		alert.SourceCountry = connector.Str(a.Attacker.Country)
 	}
 	if alert.SourceIP == "" && a.ExtraInfo != nil {
 		alert.SourceIP = connector.Str(a.ExtraInfo.SourceIP)
 	}
 	if a.Victim != nil {
 		alert.DestinationIP = connector.Str(a.Victim.IP)
-		alert.Resource = model.Resource{
-			ID:   connector.Str(a.Victim.InstanceID),
-			Name: connector.FirstNonEmpty(connector.Str(a.Victim.Domain), connector.Str(a.Victim.IP), connector.Str(a.Victim.InstanceID)),
-			Type: assetType(connector.Int64(a.Victim.AssetType)),
-		}
+		alert.Resource = connector.NamedResource(
+			connector.Str(a.Victim.InstanceID),
+			assetType(connector.Int64(a.Victim.AssetType)),
+			connector.Str(a.Victim.Name),
+			connector.Str(a.Victim.Domain), connector.Str(a.Victim.IP), connector.Str(a.Victim.InstanceID),
+		)
+		alert.Resource.AccountUID = connector.Str(a.Victim.Account)
 	}
+	alert.ResponseAction = connector.Str(a.ProcessType)
 
 	if a.ExtraInfo != nil {
 		alert.RuleID = connector.Str(a.ExtraInfo.StrategyID)

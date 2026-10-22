@@ -21,7 +21,7 @@ import (
 
 const (
 	providerID      = "gcp"
-	mapperVersion   = "gcp-scc/v4"
+	mapperVersion   = "gcp-scc/v5"
 	defaultPageSize = 100
 	defaultQPS      = 5
 )
@@ -146,19 +146,11 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "SCC ListFindings REST", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		kind := connector.KindPermanent
-		if resp.StatusCode == 429 {
-			kind = connector.KindThrottled
-		} else if resp.StatusCode >= 500 {
-			kind = connector.KindTransient
-		} else if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			kind = connector.KindAuth
-		}
-		return connector.Page{}, &connector.Error{Provider: providerID, Kind: kind, Message: fmt.Sprintf("SCC HTTP %d", resp.StatusCode)}
+		return connector.Page{}, connector.HTTPError(providerID, "SCC ListFindings REST", resp)
 	}
 	payload, err := connector.ReadSourceBody(resp.Body)
 	if err != nil {
@@ -212,9 +204,12 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		}
 		alert := normalizeFinding(result.Finding, raw)
 		if resource := result.Resource; resource != nil {
-			alert.Resource.ID = connector.FirstNonEmpty(resource.GetName(), alert.Resource.ID)
-			alert.Resource.Name = connector.FirstNonEmpty(resource.GetDisplayName(), alert.Resource.Name)
-			alert.Resource.Type = connector.FirstNonEmpty(resource.GetType(), alert.Resource.Type)
+			alert.Resource = connector.NamedResource(
+				connector.FirstNonEmpty(resource.GetName(), alert.Resource.ID),
+				connector.FirstNonEmpty(resource.GetType(), alert.Resource.Type),
+				resource.GetDisplayName(),
+				alert.Resource.Name,
+			)
 			alert.Region = connector.FirstNonEmpty(resource.GetLocation(), alert.Region)
 			alert.CloudAccountUID = connector.FirstNonEmpty(resource.GetProjectName(), alert.CloudAccountUID)
 			var resourceContext struct {

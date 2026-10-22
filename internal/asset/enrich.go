@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
@@ -86,6 +87,7 @@ func (s *Service) enrichNetworks(ctx context.Context, a model.Account, p Provide
 			attempt.Status = "available"
 			if fetchErr != nil {
 				attempt.Status = errorCode(fetchErr, p.ID)
+				attempt.SourceError = connector.SourceError(connector.Classify(p.ID, fetchErr))
 			} else if items[ref.ResourceID] == nil {
 				attempt.Status = "not_found_or_not_visible"
 			} else {

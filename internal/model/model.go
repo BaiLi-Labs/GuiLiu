@@ -124,12 +124,28 @@ func ParseAlertStatus(v string) (AlertStatus, bool) {
 	return s, s.Valid()
 }
 
+// ResourceNameSource records how Resource.Name was chosen. A name is never
+// inferred from alert text: it is either declared by the vendor for that asset,
+// or an identifier used only because the vendor declared no name.
+const (
+	ResourceSourceVendorDeclared     = "vendor_declared"
+	ResourceSourceIdentifierFallback = "identifier_fallback"
+)
+
 // Resource describes the affected cloud asset. One alert has one primary
 // resource; additional context belongs in Observables/OCSF resources.
 type Resource struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
 	Type string `json:"type,omitempty"`
+	// AccountUID is the cloud account that owns this resource when the vendor
+	// declares it independently of the alert's account. Empty means the vendor
+	// did not separate the two.
+	AccountUID string `json:"account_uid,omitempty"`
+	// Source records how Name was selected: vendor_declared when the vendor
+	// supplied a human-readable asset name, identifier_fallback when Name is a
+	// domain, IP address or native ID used only as a last resort.
+	Source string `json:"source,omitempty"`
 }
 
 // Observable is a searchable indicator extracted from a vendor alert.
@@ -180,15 +196,22 @@ type Alert struct {
 	Resources        []Resource             `json:"resources,omitempty"`
 	SourceIP         string                 `json:"source_ip,omitempty"`
 	DestinationIP    string                 `json:"destination_ip,omitempty"`
-	Actor            string                 `json:"actor,omitempty"`
-	Tactic           string                 `json:"tactic,omitempty"`
-	Technique        string                 `json:"technique,omitempty"`
-	Observables      []Observable           `json:"observables,omitempty"`
-	Evidences        []Evidence             `json:"evidences,omitempty"`
-	Unmapped         map[string]any         `json:"unmapped,omitempty"`
-	Raw              json.RawMessage        `json:"raw,omitempty"`
-	OCSF             json.RawMessage        `json:"ocsf,omitempty"`
-	MapperVersion    string                 `json:"mapper_version,omitempty"`
+	// SourceLocation and SourceCountry are vendor-declared text about the actor;
+	// they are never geolocated, normalized or inferred from SourceIP.
+	// ResponseAction is the vendor-declared handling of this record, for example
+	// BlockAttackIP. It is source evidence, not a GuiLiu verdict or status.
+	SourceLocation string          `json:"source_location,omitempty"`
+	SourceCountry  string          `json:"source_country,omitempty"`
+	ResponseAction string          `json:"response_action,omitempty"`
+	Actor          string          `json:"actor,omitempty"`
+	Tactic         string          `json:"tactic,omitempty"`
+	Technique      string          `json:"technique,omitempty"`
+	Observables    []Observable    `json:"observables,omitempty"`
+	Evidences      []Evidence      `json:"evidences,omitempty"`
+	Unmapped       map[string]any  `json:"unmapped,omitempty"`
+	Raw            json.RawMessage `json:"raw,omitempty"`
+	OCSF           json.RawMessage `json:"ocsf,omitempty"`
+	MapperVersion  string          `json:"mapper_version,omitempty"`
 }
 
 // AlertRevision is a material change to an alert's vendor payload or mapping.
@@ -261,18 +284,19 @@ type SyncState struct {
 	CursorEnd     time.Time `json:"cursor_end,omitempty"`
 	// Pending* resume an interrupted window from the last successful page.
 	// They are cleared only after the whole window has been committed.
-	PendingStart        time.Time  `json:"pending_start,omitempty"`
-	PendingEnd          time.Time  `json:"pending_end,omitempty"`
-	PendingToken        string     `json:"pending_token,omitempty"`
-	FailedRecords       int        `json:"failed_records"`
-	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
-	LastAttemptAt       *time.Time `json:"last_attempt_at,omitempty"`
-	LastError           string     `json:"last_error,omitempty"`
-	LastErrorAt         *time.Time `json:"last_error_at,omitempty"`
-	LastDurationMS      int64      `json:"last_duration_ms"`
-	ItemsLastRun        int        `json:"items_last_run"`
-	ConsecutiveFailures int        `json:"consecutive_failures"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	PendingStart        time.Time    `json:"pending_start,omitempty"`
+	PendingEnd          time.Time    `json:"pending_end,omitempty"`
+	PendingToken        string       `json:"pending_token,omitempty"`
+	FailedRecords       int          `json:"failed_records"`
+	LastSuccessAt       *time.Time   `json:"last_success_at,omitempty"`
+	LastAttemptAt       *time.Time   `json:"last_attempt_at,omitempty"`
+	LastError           string       `json:"last_error,omitempty"`
+	LastSourceError     *SourceError `json:"last_source_error,omitempty"`
+	LastErrorAt         *time.Time   `json:"last_error_at,omitempty"`
+	LastDurationMS      int64        `json:"last_duration_ms"`
+	ItemsLastRun        int          `json:"items_last_run"`
+	ConsecutiveFailures int          `json:"consecutive_failures"`
+	UpdatedAt           time.Time    `json:"updated_at"`
 }
 
 // Healthy reports whether the last sync succeeded recently.
@@ -316,51 +340,54 @@ type IngestFailure struct {
 
 // SyncRun is one execution of the ingest loop for an account.
 type SyncRun struct {
-	ID         string     `json:"id"`
-	AccountID  string     `json:"account_id"`
-	Provider   string     `json:"provider,omitempty"`
-	Trigger    string     `json:"trigger"`
-	Status     string     `json:"status"` // running | success | partial | failed
-	StartedAt  time.Time  `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	Pages      int        `json:"pages"`
-	Fetched    int        `json:"fetched"`
-	Created    int        `json:"created"`
-	Updated    int        `json:"updated"`
-	Failed     int        `json:"failed"`
-	Error      string     `json:"error,omitempty"`
-	DurationMS int64      `json:"duration_ms"`
+	ID          string       `json:"id"`
+	AccountID   string       `json:"account_id"`
+	Provider    string       `json:"provider,omitempty"`
+	Trigger     string       `json:"trigger"`
+	Status      string       `json:"status"` // running | success | partial | failed
+	StartedAt   time.Time    `json:"started_at"`
+	FinishedAt  *time.Time   `json:"finished_at,omitempty"`
+	Pages       int          `json:"pages"`
+	Fetched     int          `json:"fetched"`
+	Created     int          `json:"created"`
+	Updated     int          `json:"updated"`
+	Failed      int          `json:"failed"`
+	Error       string       `json:"error,omitempty"`
+	SourceError *SourceError `json:"source_error,omitempty"`
+	DurationMS  int64        `json:"duration_ms"`
 }
 
 // AlertFilter is shared by REST, MCP and the store.
 type AlertFilter struct {
-	AccountUID       string
-	Region           string
-	ExactResourceID  string
-	ExactResourceIDs []string
-	ResourceType     string
-	TimeField        string
-	Provider         string
-	AccountID        string
-	Severities       []Severity
-	Statuses         []AlertStatus
-	Keyword          string
-	IP               string
-	ObservableType   *int
-	ObservableValue  string
-	RuleID           string
-	FindingKind      string
-	VendorStatus     string
-	SnapshotSequence *int64
-	AfterID          string
-	Resource         string
-	Start            *time.Time
-	End              *time.Time
-	Sort             string
-	GroupBy          AlertGroupBy
-	GroupKey         map[string]string
-	Limit            int
-	Offset           int
+	AccountUID            string
+	Region                string
+	ExactResourceID       string
+	ExactResourceIDs      []string
+	ResourceType          string
+	TimeField             string
+	Provider              string
+	AccountID             string
+	Severities            []Severity
+	Statuses              []AlertStatus
+	Keyword               string
+	IP                    string
+	ObservableType        *int
+	ObservableValue       string
+	RuleID                string
+	FindingKind           string
+	VendorStatus          string
+	SnapshotSequence      *int64
+	AssetSnapshotSequence *int64
+	VendorTitle           string
+	AfterID               string
+	Resource              string
+	Start                 *time.Time
+	End                   *time.Time
+	Sort                  string
+	GroupBy               AlertGroupBy
+	GroupKey              map[string]string
+	Limit                 int
+	Offset                int
 }
 
 // AlertGroupBy is a read-only alert grouping strategy. Grouping never changes
@@ -368,10 +395,15 @@ type AlertFilter struct {
 type AlertGroupBy string
 
 const (
-	GroupByTypeAsset AlertGroupBy = "type_asset"
-	GroupBySignature AlertGroupBy = "signature"
-	GroupByAsset     AlertGroupBy = "asset"
-	GroupBySource    AlertGroupBy = "source"
+	GroupByTypeAsset     AlertGroupBy = "type_asset"
+	GroupBySignature     AlertGroupBy = "signature"
+	GroupByAsset         AlertGroupBy = "asset"
+	GroupBySource        AlertGroupBy = "source"
+	GroupByNameAsset     AlertGroupBy = "name_asset"
+	GroupByVPC           AlertGroupBy = "vpc"
+	GroupBySubnet        AlertGroupBy = "subnet"
+	GroupBySecurityGroup AlertGroupBy = "security_group"
+	GroupByNIC           AlertGroupBy = "nic"
 )
 
 func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
@@ -384,6 +416,8 @@ func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
 		return GroupByAsset, true
 	case GroupBySource:
 		return GroupBySource, true
+	case GroupByNameAsset, GroupByVPC, GroupBySubnet, GroupBySecurityGroup, GroupByNIC:
+		return AlertGroupBy(strings.ToLower(strings.TrimSpace(v))), true
 	default:
 		return "", false
 	}
@@ -392,20 +426,64 @@ func ParseAlertGroupBy(v string) (AlertGroupBy, bool) {
 // AlertGroup is one query-time grouping result. Key is the exact, explainable
 // grouping key; members remain available through the normal alerts query.
 type AlertGroup struct {
-	ID            string            `json:"id"`
-	GroupBy       AlertGroupBy      `json:"group_by"`
-	Key           map[string]string `json:"key"`
-	Title         string            `json:"title"`
-	FindingCount  int               `json:"finding_count"`
-	RevisionCount int               `json:"revision_count"`
-	MaxSeverity   Severity          `json:"max_severity"` // Maximum vendor-mapped severity among members.
-	FirstSeenAt   *time.Time        `json:"first_seen_at"`
-	LastSeenAt    *time.Time        `json:"last_seen_at"`
-	Providers     []string          `json:"providers,omitempty"`
-	ResourceID    string            `json:"resource_id,omitempty"`
-	ResourceName  string            `json:"resource_name,omitempty"`
-	SourceIP      string            `json:"source_ip,omitempty"`
-	AlertType     string            `json:"alert_type,omitempty"`
+	RelationEvidence []GroupRelationEvidence `json:"relation_evidence,omitempty"`
+	AssetCount       int                     `json:"asset_count"`
+	Assets           []GroupAsset            `json:"assets,omitempty"`
+	TopTitles        []Count                 `json:"top_titles,omitempty"`
+	MissingFields    []string                `json:"missing_fields,omitempty"`
+	ID               string                  `json:"id"`
+	GroupBy          AlertGroupBy            `json:"group_by"`
+	Key              map[string]string       `json:"key"`
+	Title            string                  `json:"title"`
+	FindingCount     int                     `json:"finding_count"`
+	RevisionCount    int                     `json:"revision_count"`
+	MaxSeverity      Severity                `json:"max_severity"` // Maximum vendor-mapped severity among members.
+	FirstSeenAt      *time.Time              `json:"first_seen_at"`
+	LastSeenAt       *time.Time              `json:"last_seen_at"`
+	Providers        []string                `json:"providers,omitempty"`
+	ResourceID       string                  `json:"resource_id,omitempty"`
+	ResourceName     string                  `json:"resource_name,omitempty"`
+	SourceIP         string                  `json:"source_ip,omitempty"`
+	AlertType        string                  `json:"alert_type,omitempty"`
+}
+
+// GroupRelationEvidence pins the exact observation that declares one network edge.
+// A NIC-derived edge retains both its host revision and the declaring NIC revision.
+type GroupRelationEvidence struct {
+	HostAssetID    string         `json:"host_asset_id"`
+	HostRevision   int            `json:"host_revision"`
+	SourceAssetID  string         `json:"source_asset_id"`
+	SourceRevision int            `json:"source_revision"`
+	Reference      AssetReference `json:"reference"`
+}
+
+// GroupAsset is a bounded observation summary; evidence remains on its revision.
+type GroupAsset struct {
+	Synthetic        bool             `json:"synthetic"`
+	ID               string           `json:"id"`
+	ResourceID       string           `json:"resource_id"`
+	Name             string           `json:"name,omitempty"`
+	Revision         int              `json:"revision"`
+	ObservedAt       time.Time        `json:"observed_at"`
+	VPCID            string           `json:"vpc_id,omitempty"`
+	SubnetID         string           `json:"subnet_id,omitempty"`
+	SecurityGroupIDs []string         `json:"security_group_ids"`
+	References       []AssetReference `json:"references,omitempty"`
+}
+
+type GroupingSummary struct {
+	FindingCount             int `json:"finding_count"`
+	AssetContextFindingCount int `json:"asset_context_finding_count"`
+	UngroupedFindingCount    int `json:"ungrouped_finding_count"`
+	MembershipCount          int `json:"membership_count"`
+}
+
+func (g AlertGroupBy) UsesAssetContext() bool {
+	return g == GroupByAsset || g == GroupByNameAsset || g.IsNetwork()
+}
+
+func (g AlertGroupBy) IsNetwork() bool {
+	return g == GroupByVPC || g == GroupBySubnet || g == GroupBySecurityGroup || g == GroupByNIC
 }
 
 // GroupID is stable for a group_by strategy and canonical key, independent of

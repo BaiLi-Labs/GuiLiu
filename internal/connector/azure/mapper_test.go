@@ -39,6 +39,12 @@ func TestNormalizeAlert(t *testing.T) {
 		alert.Resource.Type != "Microsoft.Compute/virtualMachines" {
 		t.Fatalf("resource = %+v", alert.Resource)
 	}
+	if alert.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("compromised entity is a declared name: %+v", alert.Resource)
+	}
+	if alert.Resource.AccountUID == "" {
+		t.Fatalf("resource subscription was not projected: %+v", alert.Resource)
+	}
 	if alert.SourceIP != "" || alert.Actor != "" {
 		t.Fatalf("generic IP/affected host must not imply source or actor: %+v", alert)
 	}

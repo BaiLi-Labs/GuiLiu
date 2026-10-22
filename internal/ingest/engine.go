@@ -223,6 +223,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		if err != nil {
 			run.Status = "failed"
 			run.Error = err.Error()
+			run.SourceError = connector.SourceError(err)
 			if connector.Throttled(err) {
 				run.Status = "throttled"
 			}
@@ -251,6 +252,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	conn, err := e.newConnector(ctx, acct)
 	if err != nil {
 		state.LastError = err.Error()
+		state.LastSourceError = connector.SourceError(err)
 		state.LastErrorAt = &attempted
 		state.ConsecutiveFailures++
 		e.store.SaveSyncState(ctx, state)
@@ -273,6 +275,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		state.PendingToken = ""
 		state.LastSuccessAt = ptrNow(e.now())
 		state.LastError = ""
+		state.LastSourceError = nil
 		state.LastErrorAt = nil
 		state.ConsecutiveFailures = 0
 		state.ItemsLastRun = 0
@@ -290,6 +293,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	pages, fetched, created, updated, failed := 0, 0, 0, 0, 0
 	fail := func(err error) (*model.SyncRun, error) {
 		state.LastError = err.Error()
+		state.LastSourceError = connector.SourceError(err)
 		state.LastErrorAt = ptrNow(e.now())
 		state.ConsecutiveFailures++
 		state.LastDurationMS = e.now().Sub(started).Milliseconds()
@@ -351,6 +355,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 		}
 		state.PendingStart, state.PendingEnd, state.PendingToken = start, end, page.NextToken
 		state.LastError, state.LastErrorAt, state.ConsecutiveFailures = "", nil, 0
+		state.LastSourceError = nil
 		state.LastDurationMS = e.now().Sub(started).Milliseconds()
 		state.ItemsLastRun = fetched
 		if err := e.store.SaveSyncState(ctx, state); err != nil {
@@ -370,6 +375,7 @@ func (e *Engine) syncAccount(ctx context.Context, acct model.Account, trigger st
 	state.PendingStart, state.PendingEnd, state.PendingToken = time.Time{}, time.Time{}, ""
 	state.LastSuccessAt = &ended
 	state.LastError, state.LastErrorAt, state.ConsecutiveFailures = "", nil, 0
+	state.LastSourceError = nil
 	state.LastDurationMS = ended.Sub(started).Milliseconds()
 	state.ItemsLastRun = fetched
 	if err := e.store.SaveSyncState(ctx, state); err != nil {

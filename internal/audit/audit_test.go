@@ -17,9 +17,9 @@ import (
 )
 
 func TestAuditValuesExcludeCredentialsEvidenceAndBoundResults(t *testing.T) {
-	params := Parameters(map[string]any{"provider": "tencent", "ip": "203.0.113.9", "keyword": "SECRET_SEARCH_TEXT", "q": "password=SECRET_PASSWORD", "resource_id": "glk_SYNTHETIC_PRIVATE_TOKEN", "access_key_secret": "CLOUD_SECRET", "password": "PASSWORD_SECRET", "group_key": map[string]string{"title": "PRIVATE_TITLE"}, "limit": 200})
+	params := Parameters(map[string]any{"provider": "tencent", "ip": "203.0.113.9", "keyword": "SECRET_SEARCH_TEXT", "vendor_title": "PRIVATE_VENDOR_TITLE", "asset_snapshot_sequence": 7, "q": "password=SECRET_PASSWORD", "resource_id": "glk_SYNTHETIC_PRIVATE_TOKEN", "access_key_secret": "CLOUD_SECRET", "password": "PASSWORD_SECRET", "group_key": map[string]string{"title": "PRIVATE_TITLE"}, "limit": 200})
 	raw, _ := json.Marshal(params)
-	for _, secret := range []string{"SECRET_SEARCH_TEXT", "SECRET_PASSWORD", "SYNTHETIC_PRIVATE_TOKEN", "CLOUD_SECRET", "PASSWORD_SECRET", "PRIVATE_TITLE"} {
+	for _, secret := range []string{"PRIVATE_VENDOR_TITLE", "SECRET_SEARCH_TEXT", "SECRET_PASSWORD", "SYNTHETIC_PRIVATE_TOKEN", "CLOUD_SECRET", "PASSWORD_SECRET", "PRIVATE_TITLE"} {
 		if bytes.Contains(raw, []byte(secret)) {
 			t.Fatal("parameter leaked", secret)
 		}

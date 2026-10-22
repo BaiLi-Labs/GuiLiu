@@ -18,7 +18,7 @@ import (
 
 const (
 	providerID      = "tencent"
-	mapperVersion   = "tencent-csip/v4"
+	mapperVersion   = "tencent-csip/v5"
 	defaultEndpoint = "csip.tencentcloudapi.com"
 	// The official limit is 3 requests/second. Use 2 QPS for headroom: a fixed
 	// interval at exactly 3 QPS still allows four calls in a sliding second.
@@ -148,7 +148,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 
 	payload, err := c.fetchJSON(ctx, req)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "CSIP DescribeAlertList", err)
 	}
 	var resp struct {
 		TotalCount int               `json:"TotalCount"`

@@ -72,6 +72,22 @@ func TestQueryJSONIsExactRESTBodyAndUsesAgentWindow(t *testing.T) {
 	}
 }
 
+func TestQueryFieldsExposeResourceAndSourceFacts(t *testing.T) {
+	body := `{"alerts":[{"id":"a1","provider":"tencent","title":"One","severity":"high","status":"open","event_time":"2026-10-21T00:00:00Z","resource":{"id":"ins-1","name":"web-01","type":"host","account_uid":"1250000000","source":"vendor_declared"},"source_country":"中国","response_action":"BlockAttackIP","revision":1}],"total":1,"limit":1,"offset":0,"snapshot_sequence":1,"has_more":false,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"}}`
+	code, stdout, stderr := runCLI(t, []string{"alerts", "--since", "24h", "--fields", "resource,resource_source,resource_account,source_country,response_action"}, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	for _, want := range []string{"RESOURCE_SOURCE", "vendor_declared", "1250000000", "中国", "BlockAttackIP"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("missing %q in output:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestQueryAllFollowsOffsetAndPinsSnapshot(t *testing.T) {
 	firstWindow := "2026-10-20T00:00:00Z|2026-10-21T00:00:00Z"
 	requests := 0
@@ -313,12 +329,15 @@ func TestQueryGroupsFollowsOffsetAndPinsSnapshot(t *testing.T) {
 		query := r.URL.Query()
 		switch query.Get("offset") {
 		case "0":
-			_, _ = w.Write([]byte(`{"groups":[{"id":"g1","group_by":"type_asset","key":{"provider":"tencent"},"title":"One","finding_count":2,"revision_count":1,"max_severity":"high","last_seen_at":"2026-10-21T00:00:00Z"},{"id":"g2","group_by":"type_asset","key":{"provider":"tencent"},"title":"Two","finding_count":1,"revision_count":0,"max_severity":"low","last_seen_at":"2026-10-20T00:00:00Z"}],"total":3,"limit":2,"offset":0,"snapshot_sequence":5,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"},"group_by":"type_asset"}`))
+			_, _ = w.Write([]byte(`{"groups":[{"id":"g1","group_by":"type_asset","key":{"provider":"tencent"},"title":"One","finding_count":2,"revision_count":1,"max_severity":"high","last_seen_at":"2026-10-21T00:00:00Z"},{"id":"g2","group_by":"type_asset","key":{"provider":"tencent"},"title":"Two","finding_count":1,"revision_count":0,"max_severity":"low","last_seen_at":"2026-10-20T00:00:00Z"}],"total":3,"limit":2,"offset":0,"snapshot_sequence":5,"asset_snapshot_sequence":0,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"},"group_by":"type_asset"}`))
 		case "2":
+			if query.Get("asset_snapshot_sequence") != "0" {
+				t.Errorf("asset watermark missing: %s", query.Get("asset_snapshot_sequence"))
+			}
 			if query.Get("snapshot_sequence") != "5" {
 				t.Errorf("snapshot = %q", query.Get("snapshot_sequence"))
 			}
-			_, _ = w.Write([]byte(`{"groups":[{"id":"g3","group_by":"type_asset","key":{"provider":"tencent"},"title":"Three","finding_count":1,"revision_count":0,"max_severity":"medium","last_seen_at":"2026-10-19T00:00:00Z"}],"total":3,"limit":2,"offset":2,"snapshot_sequence":5,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"},"group_by":"type_asset"}`))
+			_, _ = w.Write([]byte(`{"groups":[{"id":"g3","group_by":"type_asset","key":{"provider":"tencent"},"title":"Three","finding_count":1,"revision_count":0,"max_severity":"medium","last_seen_at":"2026-10-19T00:00:00Z"}],"total":3,"limit":2,"offset":2,"snapshot_sequence":5,"asset_snapshot_sequence":0,"window":{"start":"2026-10-20T00:00:00Z","end":"2026-10-21T00:00:00Z"},"group_by":"type_asset"}`))
 		default:
 			t.Errorf("unexpected offset %q", query.Get("offset"))
 		}
@@ -399,5 +418,19 @@ func TestQueryAssetsFollowNextCursor(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "as2") {
 		t.Fatalf("second asset missing: %s", lines[1])
+	}
+}
+
+func TestExpandNetworkGroupPreservesExactKeyTitleAndWatermarks(t *testing.T) {
+	key := `{"provider":"tencent","account_uid":"synthetic","region":"region","resource_type":"security_group","resource_id":"sg-synthetic"}`
+	code, _, stderr := runCLI(t, []string{"alerts", "--group-by", "security_group", "--group-key", key, "--snapshot-sequence", "10", "--asset-snapshot-sequence", "0", "--vendor-title", " Exact title ", "--json"}, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("group_key") != key || q.Get("vendor_title") != " Exact title " || q.Get("asset_snapshot_sequence") != "0" || q.Get("snapshot_sequence") != "10" {
+			t.Errorf("changed group selection: %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(alertFixture))
+	})
+	if code != 0 {
+		t.Fatal(stderr)
 	}
 }

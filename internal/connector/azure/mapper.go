@@ -28,11 +28,20 @@ func normalizeAlert(raw json.RawMessage) (model.Alert, error) {
 	firstSeen := firstTime(p.StartTimeUTC)
 	lastSeen := firstTime(p.EndTimeUTC)
 	resourceID := azureResourceID(p)
-	resourceName := firstNonEmpty(connector.Str(p.CompromisedEntity), nameFromResourceID(resourceID))
 	resourceType := resourceTypeFromID(resourceID)
 	if resourceType == "" {
 		resourceType = "azure_entity"
 	}
+	resource := connector.NamedResource(
+		resourceID,
+		resourceType,
+		connector.Str(p.CompromisedEntity),
+		nameFromResourceID(resourceID),
+	)
+	// The subscription inside the resource ID is the account that owns the
+	// affected resource; it can differ from the subscription that received the
+	// alert in cross-subscription scenarios.
+	resource.AccountUID = subscriptionFromID(resourceID)
 	hostname, sourceIP, destinationIP, fileName, fileHash := entities(p.Entities)
 	subscriptionID := firstNonEmpty(subscriptionFromID(connector.Str(a.ID)), subscriptionFromID(resourceID), extendedProperty(p, "subscriptionId", "subscription_id"))
 	region := firstNonEmpty(locationFromID(connector.Str(a.ID)), locationFromID(resourceID))
@@ -66,16 +75,12 @@ func normalizeAlert(raw json.RawMessage) (model.Alert, error) {
 		AlertType:        connector.Str(p.AlertType),
 		Region:           region,
 		CloudAccountUID:  subscriptionID,
-		Resource: model.Resource{
-			ID:   resourceID,
-			Name: resourceName,
-			Type: resourceType,
-		},
-		SourceIP:      sourceIP,
-		DestinationIP: destinationIP,
-		Tactic:        tactic,
-		Technique:     strings.Join(techniques, ","),
-		Raw:           append(json.RawMessage(nil), raw...),
+		Resource:         resource,
+		SourceIP:         sourceIP,
+		DestinationIP:    destinationIP,
+		Tactic:           tactic,
+		Technique:        strings.Join(techniques, ","),
+		Raw:              append(json.RawMessage(nil), raw...),
 	}
 	if a.SystemData != nil {
 		alert.SourceCreatedAt = firstTime(a.SystemData.CreatedAt)

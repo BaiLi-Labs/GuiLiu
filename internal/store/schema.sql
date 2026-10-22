@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS sync_states (
     last_success_at      INTEGER NOT NULL DEFAULT 0,
     last_attempt_at      INTEGER NOT NULL DEFAULT 0,
     last_error           TEXT NOT NULL DEFAULT '',
+    source_error TEXT NOT NULL DEFAULT 'null',
     last_error_at        INTEGER NOT NULL DEFAULT 0,
     last_duration_ms     INTEGER NOT NULL DEFAULT 0,
     items_last_run       INTEGER NOT NULL DEFAULT 0,
@@ -130,7 +131,8 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     updated     INTEGER NOT NULL DEFAULT 0,
     failed      INTEGER NOT NULL DEFAULT 0,
     error       TEXT NOT NULL DEFAULT '',
-    duration_ms INTEGER NOT NULL DEFAULT 0
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    source_error TEXT NOT NULL DEFAULT 'null'
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_runs_account ON sync_runs(account_id, started_at DESC);
@@ -222,9 +224,22 @@ CREATE TABLE IF NOT EXISTS asset_refreshes (
  region TEXT NOT NULL,
  resource_id TEXT NOT NULL,
  status TEXT NOT NULL,
+    source_error TEXT NOT NULL DEFAULT 'null',
  attempted_at INTEGER NOT NULL,
  PRIMARY KEY(account_id, region, resource_id)
 );
+
+-- A durable watermark for query-time asset joins, independent of Finding changes.
+CREATE TABLE IF NOT EXISTS asset_revision_sequences (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+ asset_id TEXT NOT NULL,
+ revision INTEGER NOT NULL,
+ UNIQUE(asset_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_revision_watermark ON asset_revision_sequences(asset_id, sequence);
+INSERT INTO asset_revision_sequences(asset_id,revision)
+ SELECT r.asset_id,r.revision FROM asset_revisions r
+ WHERE NOT EXISTS(SELECT 1 FROM asset_revision_sequences s WHERE s.asset_id=r.asset_id AND s.revision=r.revision) ORDER BY r.asset_id,r.revision;
 
 -- Access audit is separate from Findings and their change sequence.
 CREATE TABLE IF NOT EXISTS audit_events (

@@ -66,11 +66,12 @@ func normalizeFinding(f map[string]any, raw json.RawMessage) (model.Alert, error
 
 	for _, value := range sliceAt(f, "resources") {
 		if r, ok := value.(map[string]any); ok {
-			alert.Resources = append(alert.Resources, model.Resource{
-				ID:   stringAt(r, "uid"),
-				Name: stringAt(r, "name"),
-				Type: connector.FirstNonEmpty(stringAt(r, "type"), "resource"),
-			})
+			alert.Resources = append(alert.Resources, connector.NamedResource(
+				stringAt(r, "uid"),
+				connector.FirstNonEmpty(stringAt(r, "type"), "resource"),
+				stringAt(r, "name"),
+				stringAt(r, "uid"),
+			))
 		}
 	}
 	if len(alert.Resources) > 0 {

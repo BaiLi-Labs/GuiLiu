@@ -56,7 +56,8 @@ func AwsRaw(ctx context.Context, cred connector.Credential, a model.Account) (aw
 		return nil, err
 	}
 	client := ec2.NewFromConfig(cfg)
-	return func(ctx context.Context, action string, ids []string) (json.RawMessage, error) {
+	return func(ctx context.Context, action string, ids []string) (result json.RawMessage, callErr error) {
+		defer func() { callErr = connector.WithSourceAPI("aws", "EC2 "+action, callErr) }()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -136,6 +137,7 @@ func awsPolicyComponent(raw json.RawMessage, err error, id string) (model.AssetC
 	c := model.AssetComponent{Status: "failed", SourceAPI: api, APIVersion: awsAPIVersion}
 	if err != nil {
 		c.Reason = errorCode(err, "aws")
+		c.SourceError = connector.SourceError(connector.WithSourceAPI("aws", c.SourceAPI, err))
 		return c, nil
 	}
 	group, findErr := awsSecurityGroup(raw, id)

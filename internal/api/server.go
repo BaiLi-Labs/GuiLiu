@@ -284,7 +284,9 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 	if connector.AuthError(err) {
 		status = http.StatusUnprocessableEntity
 	}
-	writeError(w, status, "connector_error", err.Error())
+	writeJSON(w, status, map[string]any{"error": map[string]any{
+		"code": "connector_error", "message": err.Error(), "source_error": connector.SourceError(err),
+	}})
 }
 
 func metaVersion() string {

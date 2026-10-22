@@ -1,3 +1,7 @@
+export interface SourceError {
+  provider: string; kind: string; code?: string; http_status?: number; source_api?: string;
+}
+
 export type Severity = 'critical' | 'fatal' | 'high' | 'medium' | 'low' | 'informational' | 'unknown';
 export type AlertStatus = 'open' | 'acknowledged' | 'suppressed' | 'closed';
 
@@ -11,6 +15,7 @@ export interface SyncState {
   last_success_at?: string;
   last_attempt_at?: string;
   last_error?: string;
+  last_source_error?: SourceError;
   last_error_at?: string;
   last_duration_ms?: number;
   items_last_run?: number;
@@ -113,6 +118,8 @@ export interface Resource {
   id?: string;
   name?: string;
   type?: string;
+  account_uid?: string;
+  source?: 'vendor_declared' | 'identifier_fallback';
 }
 
 export interface Observable {
@@ -127,16 +134,22 @@ export interface Evidence {
   data?: unknown;
 }
 
-export type AlertGroupBy = 'type_asset' | 'signature' | 'asset' | 'source';
+export type AlertGroupBy = 'asset' | 'name_asset' | 'vpc' | 'subnet' | 'security_group' | 'nic' | 'type_asset' | 'signature' | 'source';
 
 export interface QueryWindow {
  time_field?: string;
+ asset_snapshot_sequence?: number;
  snapshot_sequence?: number;
   start?: string;
   end?: string;
 }
 
 export interface AlertGroup {
+  relation_evidence?: {host_asset_id:string;host_revision:number;source_asset_id:string;source_revision:number;reference:import('./components/ResourceLinks').AssetReference}[];
+  asset_count?: number;
+  assets?: { id: string; resource_id: string; name?: string; synthetic?: boolean; revision: number; observed_at: string; vpc_id?: string; subnet_id?: string; security_group_ids: string[]; references?: import('./components/ResourceLinks').AssetReference[] }[];
+  top_titles?: { key: string; count: number }[];
+  missing_fields?: string[];
   id: string;
   group_by: AlertGroupBy;
   key: Record<string, string>;
@@ -154,6 +167,8 @@ export interface AlertGroup {
 }
 
 export interface AlertGroupList {
+ summary?: { finding_count: number; asset_context_finding_count: number; ungrouped_finding_count: number; membership_count: number };
+ asset_snapshot_sequence?: number;
  snapshot_sequence?: number;
  coverage?: Coverage;
   groups: AlertGroup[];
@@ -221,6 +236,9 @@ export interface Alert {
   resources?: Resource[];
   source_ip?: string;
   destination_ip?: string;
+  source_location?: string;
+  source_country?: string;
+  response_action?: string;
   tactic?: string;
   technique?: string;
   observables?: Observable[];
@@ -233,6 +251,7 @@ export interface Alert {
 }
 
 export interface AlertList {
+ asset_snapshot_sequence?: number;
  snapshot_sequence?: number;
  coverage?: Coverage;
   alerts: Alert[];
@@ -296,6 +315,7 @@ export interface SyncRun {
   failed?: number;
   duration_ms?: number;
   error?: string;
+  source_error?: SourceError;
 }
 
 export interface APIKey {
@@ -327,5 +347,5 @@ export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp' | 'audi
 export interface Coverage {
  complete: boolean;
  boundary: string;
- accounts: Array<{account_id: string;provider: string;name: string;status: string;complete: boolean;api: string;api_version: string;scope: Record<string,string>;time_basis: string;coverage_start: string | null;watermark: string | null;failed_records: number;limitations: string[]}>;
+ accounts: Array<{account_id: string;provider: string;name: string;status: string;complete: boolean;api: string;api_version: string;scope: Record<string,string>;time_basis: string;coverage_start: string | null;watermark: string | null;failed_records: number;limitations: string[];last_source_error?: SourceError}>;
 }

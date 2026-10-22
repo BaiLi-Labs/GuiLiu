@@ -18,6 +18,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
+	tcerrors "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 )
 
 func networkService(t *testing.T, call Call) (*Service, model.Account) {
@@ -214,7 +215,7 @@ func TestIndependentNetworkRevisionCacheAndPermissionFailure(t *testing.T) {
 	call := func(ctx context.Context, service, action string, params map[string]any) (json.RawMessage, error) {
 		calls++
 		if fail {
-			return nil, errors.New("AuthFailure: DO_NOT_LEAK")
+			return nil, tcerrors.NewTencentCloudSDKError("UnauthorizedOperation", "DO_NOT_LEAK", "synthetic-request")
 		}
 		raw, err := SyntheticCall()(ctx, service, action, params)
 		if changed && action == "DescribeVpcs" {

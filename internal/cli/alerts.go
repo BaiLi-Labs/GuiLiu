@@ -37,6 +37,8 @@ type alertFilterFlags struct {
 	observableValue string
 	observableType  int
 	snapshot        int64
+	assetSnapshot   int64
+	vendorTitle     string
 	afterID         string
 	limit           int
 	offset          int
@@ -62,6 +64,7 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 		f.defaultSince = "7d"
 	}
 	f.snapshot = -1
+	f.assetSnapshot = -1
 	f.maxItems = query.AgentDefaultMaxItems
 	if opts.paging {
 		f.limit = 20
@@ -76,6 +79,7 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 	fs.String(&f.ip, "ip", "", "Exact source, destination or observable IP")
 	fs.String(&f.resource, "resource", "", "Asset ID (exact) or asset name (substring)")
 	fs.String(&f.timeField, "time-field", "", "event_time (default), source_updated_at or ingested_at")
+	fs.String(&f.vendorTitle, "vendor-title", "", "Exact source-reported finding title (statistical equality)")
 	fs.String(&f.ruleID, "rule-id", "", "Exact native rule ID, scoped by provider and product")
 	fs.String(&f.findingKind, "finding-kind", "", "detection, vulnerability, compliance, incident or other")
 	fs.String(&f.vendorStatus, "vendor-status", "", "Exact source status, independent of local annotation")
@@ -88,20 +92,21 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 		if !opts.groupBy {
 			fs.String(&f.afterID, "after-id", "", "Continue an ID-sorted snapshot using next_cursor")
 		}
+		fs.Int64(&f.assetSnapshot, "asset-snapshot-sequence", -1, "Reuse the returned asset watermark for stable network groups")
 		fs.Int64(&f.snapshot, "snapshot-sequence", -1, "Reuse a returned snapshot sequence for stable paging")
 		fs.Bool(&f.all, "all", false, "Follow pages until exhausted or --max-items")
 		fs.Int(&f.maxItems, "max-items", query.AgentDefaultMaxItems, "Maximum records emitted with --all")
 	}
 	groupDefault := ""
-	groupUsage := "Expand a group returned by the groups command: type_asset, signature, asset or source"
+	groupUsage := "Expand a group returned by the groups command: asset, name_asset, vpc, subnet, security_group, nic, type_asset, signature or source"
 	if opts.groupBy {
-		groupDefault = "type_asset"
-		groupUsage = "Exact-field grouping: type_asset (default), signature, asset or source"
+		groupDefault = "asset"
+		groupUsage = "Exact-field grouping: asset (default), name_asset, vpc, subnet, security_group, nic, type_asset, signature or source"
 	}
 	if opts.groupBy || opts.expandGroup {
 		fs.String(&f.groupBy, "group-by", groupDefault, groupUsage)
 	}
-	if opts.groupBy {
+	if opts.groupBy || opts.expandGroup {
 		fs.String(&f.groupKey, "group-key", "", `Group key as a JSON object, e.g. '{"provider":"tencent",...}'`)
 	}
 	fs.String(&f.since, "since", f.defaultSince, "Relative window, e.g. 24h or 7d (bounded to 90 days)")
@@ -130,6 +135,9 @@ func (f *alertFilterFlags) values(now time.Time) (url.Values, error) {
 	}
 	if f.afterID != "" && f.offset != 0 {
 		return nil, fmt.Errorf("use --after-id or --offset, not both")
+	}
+	if f.assetSnapshot < -1 {
+		return nil, fmt.Errorf("invalid asset_snapshot_sequence")
 	}
 	if f.snapshot < -1 {
 		return nil, fmt.Errorf("invalid snapshot_sequence")
@@ -168,6 +176,10 @@ func (f *alertFilterFlags) values(now time.Time) (url.Values, error) {
 	setValue(values, "resource", f.resource)
 	setValue(values, "sort", f.sort)
 	setValue(values, "time_field", f.timeField)
+	setValue(values, "vendor_title", f.vendorTitle)
+	if f.assetSnapshot >= 0 {
+		values.Set("asset_snapshot_sequence", strconv.FormatInt(f.assetSnapshot, 10))
+	}
 	setValue(values, "rule_id", f.ruleID)
 	setValue(values, "finding_kind", f.findingKind)
 	setValue(values, "vendor_status", f.vendorStatus)
@@ -211,15 +223,16 @@ func validatePaging(out *outputOptions, all bool, afterID string, limit, maxItem
 }
 
 type alertListResponse struct {
-	Alerts           []view.Alert     `json:"alerts"`
-	Total            int              `json:"total"`
-	Limit            int              `json:"limit"`
-	Offset           int              `json:"offset"`
-	SnapshotSequence *int64           `json:"snapshot_sequence"`
-	NextCursor       string           `json:"next_cursor"`
-	HasMore          bool             `json:"has_more"`
-	Window           view.QueryWindow `json:"window"`
-	Coverage         *model.Coverage  `json:"coverage"`
+	Alerts                []view.Alert     `json:"alerts"`
+	Total                 int              `json:"total"`
+	Limit                 int              `json:"limit"`
+	Offset                int              `json:"offset"`
+	AssetSnapshotSequence *int64           `json:"asset_snapshot_sequence"`
+	SnapshotSequence      *int64           `json:"snapshot_sequence"`
+	NextCursor            string           `json:"next_cursor"`
+	HasMore               bool             `json:"has_more"`
+	Window                view.QueryWindow `json:"window"`
+	Coverage              *model.Coverage  `json:"coverage"`
 }
 
 func newAlertsCommand(g *globalOptions) (*flagSet, runFunc) {
@@ -265,6 +278,9 @@ func runAlerts(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 		last = page
 		f.pinWindow(page.Window.Start, page.Window.End)
 		f.pinSnapshot(page.SnapshotSequence)
+		if page.AssetSnapshotSequence != nil {
+			f.assetSnapshot = *page.AssetSnapshotSequence
+		}
 		if out.JSON {
 			return emitJSON(stdout, body, out.Pretty)
 		}
@@ -303,6 +319,9 @@ func runAlerts(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	printWindow(stderr, last.Window)
 	if last.SnapshotSequence != nil {
 		fmt.Fprintf(stderr, ", snapshot %d", *last.SnapshotSequence)
+	}
+	if last.AssetSnapshotSequence != nil {
+		fmt.Fprintf(stderr, ", asset snapshot %d", *last.AssetSnapshotSequence)
 	}
 	printCoverage(stderr, last.Coverage)
 	if f.all {
@@ -388,14 +407,15 @@ func newAlertCommand(g *globalOptions) (*flagSet, runFunc) {
 }
 
 type groupListResponse struct {
-	Groups           []model.AlertGroup `json:"groups"`
-	Total            int                `json:"total"`
-	Limit            int                `json:"limit"`
-	Offset           int                `json:"offset"`
-	SnapshotSequence *int64             `json:"snapshot_sequence"`
-	Window           view.QueryWindow   `json:"window"`
-	GroupBy          string             `json:"group_by"`
-	Coverage         *model.Coverage    `json:"coverage"`
+	Groups                []model.AlertGroup `json:"groups"`
+	Total                 int                `json:"total"`
+	Limit                 int                `json:"limit"`
+	Offset                int                `json:"offset"`
+	AssetSnapshotSequence *int64             `json:"asset_snapshot_sequence"`
+	SnapshotSequence      *int64             `json:"snapshot_sequence"`
+	Window                view.QueryWindow   `json:"window"`
+	GroupBy               string             `json:"group_by"`
+	Coverage              *model.Coverage    `json:"coverage"`
 }
 
 func newGroupsCommand(g *globalOptions) (*flagSet, runFunc) {
@@ -441,6 +461,9 @@ func runGroups(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 		last = page
 		f.pinWindow(page.Window.Start, page.Window.End)
 		f.pinSnapshot(page.SnapshotSequence)
+		if page.AssetSnapshotSequence != nil {
+			f.assetSnapshot = *page.AssetSnapshotSequence
+		}
 		if out.JSON {
 			return emitJSON(stdout, body, out.Pretty)
 		}
@@ -480,6 +503,9 @@ func runGroups(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	printWindow(stderr, last.Window)
 	if last.SnapshotSequence != nil {
 		fmt.Fprintf(stderr, ", snapshot %d", *last.SnapshotSequence)
+	}
+	if last.AssetSnapshotSequence != nil {
+		fmt.Fprintf(stderr, ", asset snapshot %d", *last.AssetSnapshotSequence)
 	}
 	printCoverage(stderr, last.Coverage)
 	if f.all {
@@ -592,10 +618,11 @@ func newRevisionsCommand(g *globalOptions) (*flagSet, runFunc) {
 }
 
 type statsResponse struct {
-	SnapshotSequence *int64           `json:"snapshot_sequence"`
-	Window           view.QueryWindow `json:"window"`
-	Statistics       statsView        `json:"statistics"`
-	Coverage         *model.Coverage  `json:"coverage"`
+	AssetSnapshotSequence *int64           `json:"asset_snapshot_sequence"`
+	SnapshotSequence      *int64           `json:"snapshot_sequence"`
+	Window                view.QueryWindow `json:"window"`
+	Statistics            statsView        `json:"statistics"`
+	Coverage              *model.Coverage  `json:"coverage"`
 }
 
 type statsView struct {

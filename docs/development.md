@@ -441,7 +441,7 @@ internal/secret/             AES-256-GCM 凭据加密
 | POST | `/api/v1/sync` | 异步同步全部账号（admin） |
 | GET | `/api/v1/sync-runs` | 同步运行记录 |
 | GET | `/api/v1/alerts` | 告警查询；传 `group_by` + `group_key` 时返回分组成员 |
-| GET | `/api/v1/alerts/groups` | 查询时告警分组（type_asset / signature / asset / source） |
+| GET | `/api/v1/alerts/groups` | 查询时告警分组（asset / name_asset / vpc / subnet / security_group / nic / type_asset / signature / source） |
 | GET | `/api/v1/alerts/{id}` | 详情（含 OCSF 与 raw） |
 | GET | `/api/v1/alerts/{id}/raw` | 厂商原始 JSON |
 | GET | `/api/v1/alerts/{id}/revisions` | 告警版本历史（仅实质变化） |
@@ -455,9 +455,11 @@ internal/secret/             AES-256-GCM 凭据加密
 
 | `group_by` | 界面名称 | 精确匹配字段 | 缺失时单条展示的字段 |
 | --- | --- | --- | --- |
-| `type_asset`（默认） | 按类型与资产 | provider、account_id、region、product、alert_type、resource_id | product、alert_type、resource_id |
+| `type_asset` | 按类型与资产 | provider、account_id、region、product、alert_type、resource_id | product、alert_type、resource_id |
 | `signature` | 按类型、资产与源 IP | provider、account_id、account_uid、region、product、rule_id、resource_id、source_ip | account_uid、product、rule_id、resource_id、source_ip |
-| `asset` | 按资产 | provider、account_id、region、resource_id | resource_id |
+| `asset`（默认） | 按资产 | provider、account_uid、region、resource_type、resource_id；已采集主机使用明确原生身份 | 完整资源身份 |
+| `name_asset` | 按厂商告警名称与资产 | 资产身份、product、原始标题（完全相等） | 资产身份、product、原始标题 |
+| `vpc` / `subnet` / `security_group` / `nic` | 按网络资源 | 主机显式引用的网络资源完整身份，可跟随一层已保存网卡引用 | 明确的已保存主机网络引用 |
 | `source` | 按源 IP 与类型 | source_ip、alert_type | source_ip、alert_type |
 
 字符串按原值精确匹配，区分大小写，不做正则、相似度、攻击关联或误报判断。`source` 视图允许跨厂商、跨账号汇总同一源 IP 与类型；`signature` 使用原生规则 ID，缺失时不以类型或标题替代，`type_asset` 和 `asset` 包含地域。默认分组不要求源 IP。
@@ -476,9 +478,9 @@ curl -sG "http://127.0.0.1:8080/api/v1/alerts" \
   -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-`count` 是当前查询条件下存储的告警记录条数，不是攻击次数或厂商告警内部的事件次数；`max_severity` 只取成员中厂商映射等级的最大值。分组不删除、不抑制任何成员，也不改变原始数据或平台状态。
+`finding_count` 是当前查询条件下存储的独立告警记录条数，不是攻击次数或厂商告警内部的事件次数；`max_severity` 只取成员中厂商映射等级的最大值。分组不删除、不抑制任何成员，也不改变原始数据或平台状态。
 
-列表和分组返回绝对时间范围 `window`。翻页、展开分组时复用它，并保留原查询条件；Web 控制台会自动复用，点击「查询」可重新计算相对时间范围。这只固定查询时间边界：窗口内的迟到告警或已有记录更新仍会改变结果，不是数据库快照。
+列表和分组返回绝对时间范围 `window`。翻页、展开分组时复用它，并保留原查询条件；Web 控制台会自动复用，点击「查询」可重新计算相对时间范围。Finding 的 `snapshot_sequence` 固定来源事实；资产和网络分组还必须复用 `asset_snapshot_sequence`，以固定关系与摘要。缺少资产水位的资产/网络成员展开会报错。本地标注仍读取当前值。网络关系不证明流量路径、规则生效或事件发生时配置，详见[当前数据契约](security-data-access.md#finding-grouping)。
 
 SQLite 使用覆盖分组字段的时间索引，常规页面在一次聚合中同时计算总组数和分页数据；越界空页另行统计总组数。升级首次启动会自动创建索引，需要额外磁盘空间和建索引时间。未引入预聚合表、后台聚合任务或缓存。
 
@@ -554,7 +556,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 | --- | --- |
 | `list_cloud_accounts` | 云账号与同步健康（不含凭据） |
 | `list_alerts` | 跨云告警查询与筛选 |
-| `list_alert_groups` | 查询时按 type_asset（默认）/ signature / asset / source 精确分组 |
+| `list_alert_groups` | 查询时按 asset（默认）/ name_asset / vpc / subnet / security_group / nic 等精确分组 |
 | `get_alert_group` | 展开分组内的原始告警成员 |
 | `get_alert` | 单条告警 + 完整 OCSF + 原始 JSON |
 | `get_alert_evidence` | 证据、可观测对象、原始载荷 |

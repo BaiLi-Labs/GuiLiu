@@ -191,6 +191,7 @@ type assetLookupResponse struct {
 	Status      string              `json:"status"`
 	Asset       *model.Asset        `json:"asset,omitempty"`
 	Refresh     *model.AssetRefresh `json:"refresh,omitempty"`
+	Scope       *query.AssetScope   `json:"scope,omitempty"`
 	Limitations []string            `json:"limitations"`
 }
 

@@ -165,6 +165,9 @@ func (s *SQLite) SaveAsset(ctx context.Context, a *model.Asset) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO asset_revisions(asset_id,revision,record) VALUES(?,?,?)`, a.ID, a.Revision, stored); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO asset_revision_sequences(asset_id,revision) VALUES(?,?)`, a.ID, a.Revision); err != nil {
+			return err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO assets(id,account_id,provider,account_uid,region,resource_id,revision,content_hash,record) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,revision=excluded.revision,content_hash=excluded.content_hash,record=excluded.record`, a.ID, a.AccountID, a.Provider, a.AccountUID, a.Region, a.ResourceID, a.Revision, hash, stored)
 	if err != nil {
@@ -230,7 +233,7 @@ func (s *SQLite) ListAssets(ctx context.Context, f model.AssetFilter) ([]model.A
 }
 
 func (s *SQLite) BeginAssetRefresh(ctx context.Context, a model.AssetRefresh, cooldown time.Duration) (bool, error) {
-	r, err := s.db.ExecContext(ctx, `INSERT INTO asset_refreshes(account_id,region,resource_id,status,attempted_at) VALUES(?,?,?,'refreshing',?) ON CONFLICT(account_id,region,resource_id) DO UPDATE SET status='refreshing',attempted_at=excluded.attempted_at WHERE asset_refreshes.attempted_at<=?`, a.AccountID, a.Region, a.ResourceID, millis(a.AttemptedAt), millis(a.AttemptedAt.Add(-cooldown)))
+	r, err := s.db.ExecContext(ctx, `INSERT INTO asset_refreshes(account_id,region,resource_id,status,attempted_at) VALUES(?,?,?,'refreshing',?) ON CONFLICT(account_id,region,resource_id) DO UPDATE SET status='refreshing',source_error='null',attempted_at=excluded.attempted_at WHERE asset_refreshes.attempted_at<=?`, a.AccountID, a.Region, a.ResourceID, millis(a.AttemptedAt), millis(a.AttemptedAt.Add(-cooldown)))
 	if err != nil {
 		return false, err
 	}
@@ -238,15 +241,22 @@ func (s *SQLite) BeginAssetRefresh(ctx context.Context, a model.AssetRefresh, co
 	return n > 0, err
 }
 func (s *SQLite) FinishAssetRefresh(ctx context.Context, a model.AssetRefresh) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE asset_refreshes SET status=? WHERE account_id=? AND region=? AND resource_id=? AND attempted_at=?`, a.Status, a.AccountID, a.Region, a.ResourceID, millis(a.AttemptedAt))
+	_, err := s.db.ExecContext(ctx, `UPDATE asset_refreshes SET status=?,source_error=? WHERE account_id=? AND region=? AND resource_id=? AND attempted_at=?`, a.Status, sourceErrorJSON(a.SourceError), a.AccountID, a.Region, a.ResourceID, millis(a.AttemptedAt))
 	return err
 }
 func (s *SQLite) GetAssetRefresh(ctx context.Context, accountID, region, resourceID string) (*model.AssetRefresh, error) {
 	a := &model.AssetRefresh{AccountID: accountID, Region: region, ResourceID: resourceID}
 	var at int64
-	err := s.db.QueryRowContext(ctx, `SELECT status,attempted_at FROM asset_refreshes WHERE account_id=? AND region=? AND resource_id=?`, accountID, region, resourceID).Scan(&a.Status, &at)
+	var sourceError string
+	err := s.db.QueryRowContext(ctx, `SELECT status,attempted_at,source_error FROM asset_refreshes WHERE account_id=? AND region=? AND resource_id=?`, accountID, region, resourceID).Scan(&a.Status, &at, &sourceError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(sourceError), &a.SourceError); err != nil {
+		return nil, err
 	}
 	a.AttemptedAt = fromMillis(at)
 	return a, err

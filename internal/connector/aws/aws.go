@@ -145,7 +145,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	}
 	resp, err := c.client.GetFindingsV2(ctx, input)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "Security Hub GetFindingsV2", err)
 	}
 	records := make([]connector.RawAlert, 0, len(resp.Findings))
 	for _, finding := range resp.Findings {

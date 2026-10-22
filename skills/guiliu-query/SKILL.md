@@ -52,7 +52,15 @@ last 24 hours, and the window is capped at 90 days. Pass `--since 24h`,
 ```bash
 guiliu query alerts --since 24h --severity high,critical --limit 20 --json \
   | jq -c '.alerts[] | {id,severity,title,event_time,resource:.resource.name,source_ip}'
+guiliu query alerts --since 72h --limit 20 \
+  --fields event_time,title,resource,resource_source,source_ip,source_country,response_action
 ```
+
+`resource.name` is the name the source declared for that asset; `resource.source`
+says whether it is `vendor_declared` or an `identifier_fallback` (domain, IP or
+native ID). A fallback name is not an asset name, so do not quote it as one.
+`source_location` / `source_country` and `response_action` are the source's own
+statements (for example `BlockAttackIP`); they are not platform verdicts.
 
 ### 2. Batch/export with bounded context
 
@@ -141,6 +149,13 @@ guiliu query component "$ASSET_ID" --revision 2 --component runtime | jq .
 `region`, `resource_type`, `resource_id`). IP or name matches are not identity
 links.
 
+`context` and `lookup` always return `scope` (provider, region, resource type,
+native ID, source API and API version): one failed refresh no longer means an
+unknown reason. `refresh.source_error` is present only when the source request
+itself failed; `not_found_or_not_visible` with an empty error means an
+authorized read returned no record in that exact scope, not a permission
+problem.
+
 ### 8. Source mapping and ingestion failures
 
 ```bash
@@ -163,3 +178,9 @@ guiliu query failures --account "$ACCOUNT_ID" --json
   Do not infer attack success, false positives or asset identity from them.
 - Use `--limit` and `--max-items`; avoid unbounded output.
 - Do not pass the API key on the command line or write it into a skill file.
+
+### Asset and network grouping
+
+Use `groups --group-by asset` (default), `name_asset` (exact source title, not a rule), `vpc`, `subnet`, `security_group`, or `nic`. Network groups reflect explicit saved primary-host references, not traffic paths or effective policy. Check page `summary`: unique Finding count differs from overlapping memberships; missing context is not absence of cloud resources. Group asset/title samples are limited to 5.
+
+For paging or expansion preserve **both** `--snapshot-sequence` and `--asset-snapshot-sequence` plus absolute start/end and filters. Expand with `alerts --group-by security_group --group-key '<returned key>' ...`; add `--vendor-title` only for exact source-title filtering. Preserve title whitespace and case. Queries never implicitly refresh cloud assets. Current asset observations are not event-time configuration; use returned asset IDs/revisions for exact evidence.

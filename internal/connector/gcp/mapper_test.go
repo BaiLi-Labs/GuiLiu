@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/securitycenter/apiv1/securitycenterpb"
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -58,6 +59,9 @@ func TestNormalizeGCPFinding(t *testing.T) {
 	}
 	if alert.Resource.Name != "vm-1" || alert.Resource.Type != "instances" {
 		t.Fatalf("resource = %+v", alert.Resource)
+	}
+	if alert.Resource.Source != model.ResourceSourceIdentifierFallback {
+		t.Fatalf("a resource path segment is an identifier, not a declared name: %+v", alert.Resource)
 	}
 	if alert.CloudAccountUID != "proj-1" || alert.Region != "us-central1-a" {
 		t.Fatalf("account/region = %s / %s", alert.CloudAccountUID, alert.Region)

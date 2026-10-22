@@ -89,7 +89,23 @@ func (s *SQLite) migrate() error {
 		return fmt.Errorf("database schema %d is unsupported; use a new database for the development data contract (schema 5)", version)
 	}
 	_, err := s.db.Exec(schemaSQL)
-	return err
+	if err != nil {
+		return err
+	}
+	// Additive operational diagnostics preserve existing development data.
+	// These columns do not change source records or either query watermark.
+	for _, table := range []string{"sync_states", "sync_runs", "asset_refreshes"} {
+		var exists int
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name='source_error'", table).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			if _, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN source_error TEXT NOT NULL DEFAULT 'null'"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *SQLite) Close() error { return s.db.Close() }
@@ -503,6 +519,7 @@ func (s *SQLite) GetAlert(ctx context.Context, id string) (*model.AlertRecord, e
 
 func (s *SQLite) ListAlerts(ctx context.Context, f model.AlertFilter) ([]model.AlertRecord, int, error) {
 	where, args := buildAlertWhere(f)
+	args = withContextArgs(f, args)
 	prefix := snapshotPrefix(f)
 	countQuery := prefix + `SELECT COUNT(*) FROM alerts` + where
 	var total int
@@ -563,9 +580,14 @@ func (s *SQLite) ListAlerts(ctx context.Context, f model.AlertFilter) ([]model.A
 func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]model.AlertGroup, int, error) {
 	groupBy := f.GroupBy
 	if groupBy == "" {
-		groupBy = model.GroupByTypeAsset
+		groupBy = model.GroupByAsset
+	}
+	f.GroupBy = groupBy
+	if groupBy.UsesAssetContext() {
+		return s.listContextGroups(ctx, f)
 	}
 	where, args := buildAlertWhere(f)
+	args = withContextArgs(f, args)
 
 	var keyCols, groupCols string
 	switch groupBy {
@@ -601,13 +623,13 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 		offset = 0
 	}
 	// Window counting shares this aggregation with the page instead of running
-	// GROUP BY twice. No raw payload, evidence or title is read for grouping.
+	// GROUP BY twice. The representative title is display metadata only; raw payload and evidence are not read.
 	revisionWhere := "r.alert_id=alerts.id"
 	if f.SnapshotSequence != nil {
 		revisionWhere += fmt.Sprintf(" AND r.sequence<=%d", *f.SnapshotSequence)
 	}
 	selectCols := keyCols + `, COUNT(*), MAX(severity_id), COALESCE(MIN(NULLIF(first_seen_at,0)),0), MAX(last_seen_at),
-		MIN(resource_name), GROUP_CONCAT(DISTINCT provider), COUNT(*) OVER (), SUM(COALESCE((SELECT MAX(r.revision)-1 FROM alert_revisions r WHERE ` + revisionWhere + `),revision-1))`
+		MIN(resource_name), MIN(title), GROUP_CONCAT(DISTINCT provider), COUNT(*) OVER (), SUM(COALESCE((SELECT MAX(r.revision)-1 FROM alert_revisions r WHERE ` + revisionWhere + `),revision-1))`
 	query := snapshotPrefix(f) + `SELECT ` + selectCols + ` FROM alerts` + where +
 		` GROUP BY ` + groupCols +
 		` ORDER BY MAX(severity_id) DESC, COUNT(*) DESC, MAX(last_seen_at) DESC, ` + groupCols +
@@ -625,14 +647,14 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 		var singleton string
 		var maxSeverity int
 		var firstSeen, lastSeen int64
-		var resourceName, providers string
+		var resourceName, sourceTitle, providers string
 		var alertType string
 		var count int
 		switch groupBy {
 		case model.GroupByTypeAsset:
 			var provider, accountID, region, product, resourceID string
 			if err := rows.Scan(&provider, &accountID, &region, &product, &alertType, &resourceID, &singleton,
-				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &providers, &total, &group.RevisionCount); err != nil {
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &sourceTitle, &providers, &total, &group.RevisionCount); err != nil {
 				return nil, 0, err
 			}
 			group.Key = map[string]string{
@@ -643,7 +665,7 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 		case model.GroupBySignature:
 			var provider, accountID, accountUID, region, product, resourceID, sourceIP string
 			if err := rows.Scan(&provider, &accountID, &accountUID, &region, &product, &alertType, &resourceID, &sourceIP, &singleton,
-				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &providers, &total, &group.RevisionCount); err != nil {
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &sourceTitle, &providers, &total, &group.RevisionCount); err != nil {
 				return nil, 0, err
 			}
 			group.Key = map[string]string{
@@ -654,7 +676,7 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 		case model.GroupByAsset:
 			var provider, accountID, region, resourceID string
 			if err := rows.Scan(&provider, &accountID, &region, &resourceID, &singleton,
-				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &providers, &total, &group.RevisionCount); err != nil {
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &sourceTitle, &providers, &total, &group.RevisionCount); err != nil {
 				return nil, 0, err
 			}
 			group.Key = map[string]string{
@@ -664,7 +686,7 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 		case model.GroupBySource:
 			var sourceIP string
 			if err := rows.Scan(&sourceIP, &alertType, &singleton,
-				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &providers, &total, &group.RevisionCount); err != nil {
+				&count, &maxSeverity, &firstSeen, &lastSeen, &resourceName, &sourceTitle, &providers, &total, &group.RevisionCount); err != nil {
 				return nil, 0, err
 			}
 			group.Key = map[string]string{"source_ip": sourceIP, "alert_type": alertType}
@@ -674,6 +696,22 @@ func (s *SQLite) ListAlertGroups(ctx context.Context, f model.AlertFilter) ([]mo
 			group.Key["singleton"] = singleton
 		}
 		group.Title = groupTitle(groupBy, group.Key, resourceName, alertType)
+		if singleton != "" {
+			group.Title = firstNonEmpty(resourceName, group.ResourceID, group.SourceIP, "未归并告警") + " · " + sourceTitle
+			group.TopTitles = []model.Count{{Key: sourceTitle, Count: 1}}
+			required := []string{"product", "alert_type", "resource_id"}
+			if groupBy == model.GroupBySignature {
+				required = []string{"account_uid", "product", "rule_id", "resource_id", "source_ip"}
+			}
+			if groupBy == model.GroupBySource {
+				required = []string{"source_ip", "alert_type"}
+			}
+			for _, key := range required {
+				if group.Key[key] == "" {
+					group.MissingFields = append(group.MissingFields, key)
+				}
+			}
+		}
 		group.ID = model.GroupID(groupBy, group.Key)
 		group.FindingCount = count
 		group.MaxSeverity = model.Severity(maxSeverity)
@@ -755,6 +793,7 @@ func (s *SQLite) UpdateAlertStatus(ctx context.Context, id string, status model.
 
 func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.AlertStats, error) {
 	where, args := buildAlertWhere(f)
+	args = withContextArgs(f, args)
 	stats := &model.AlertStats{
 		BySeverity: map[string]int{},
 		ByProvider: map[string]int{},
@@ -808,7 +847,7 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, `
+	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`
 		SELECT strftime('%Y-%m-%d', event_time/1000, 'unixepoch') AS day, COUNT(*)
 		FROM alerts`+where+`
 		GROUP BY day ORDER BY day ASC`, args...)
@@ -832,7 +871,7 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 	} else {
 		topWhere += " AND resource_id <> ''"
 	}
-	rows, err = s.db.QueryContext(ctx, `
+	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`
 		SELECT resource_id, MAX(resource_name), COUNT(*) AS c
 		FROM alerts`+topWhere+`
 		GROUP BY resource_id ORDER BY c DESC LIMIT 10`, args...)
@@ -971,6 +1010,10 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 		clauses = append(clauses, "id > ?")
 		args = append(args, f.AfterID)
 	}
+	if f.VendorTitle != "" {
+		clauses = append(clauses, "title=?")
+		args = append(args, f.VendorTitle)
+	}
 	if f.RuleID != "" {
 		clauses = append(clauses, "rule_id=?")
 		args = append(args, f.RuleID)
@@ -1036,6 +1079,9 @@ func buildAlertWhere(f model.AlertFilter) (string, []any) {
 }
 
 func buildGroupWhere(f model.AlertFilter) (string, []any) {
+	if f.GroupBy.UsesAssetContext() {
+		return contextGroupWhere(f)
+	}
 	if id := f.GroupKey["singleton"]; id != "" {
 		return "id = ?", []any{id}
 	}
@@ -1093,20 +1139,26 @@ func likePattern(s string) string {
 func (s *SQLite) GetSyncState(ctx context.Context, accountID string) (*model.SyncState, error) {
 	var st model.SyncState
 	var cursor, coverageStart, pendingStart, pendingEnd, lastSuccess, lastAttempt, lastErrorAt, updated int64
+	var sourceError string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT account_id, coverage_start, cursor_end, pending_start, pending_end, pending_token,
 		       last_success_at, last_attempt_at, last_error, last_error_at,
-		       last_duration_ms, items_last_run, consecutive_failures, updated_at
+		       last_duration_ms, items_last_run, consecutive_failures, updated_at, source_error
 		FROM sync_states WHERE account_id=?`, accountID).
 		Scan(&st.AccountID, &coverageStart, &cursor, &pendingStart, &pendingEnd, &st.PendingToken,
 			&lastSuccess, &lastAttempt, &st.LastError, &lastErrorAt,
-			&st.LastDurationMS, &st.ItemsLastRun, &st.ConsecutiveFailures, &updated)
+			&st.LastDurationMS, &st.ItemsLastRun, &st.ConsecutiveFailures, &updated, &sourceError)
 	if errors.Is(err, sql.ErrNoRows) {
 		st.AccountID = accountID
 		err = nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if sourceError != "" {
+		if err := json.Unmarshal([]byte(sourceError), &st.LastSourceError); err != nil {
+			return nil, err
+		}
 	}
 	st.CoverageStart = fromMillis(coverageStart)
 	st.CursorEnd = fromMillis(cursor)
@@ -1127,8 +1179,8 @@ func (s *SQLite) SaveSyncState(ctx context.Context, st *model.SyncState) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO sync_states (account_id, coverage_start, cursor_end, pending_start, pending_end, pending_token,
 			last_success_at, last_attempt_at, last_error, last_error_at,
-			last_duration_ms, items_last_run, consecutive_failures, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			last_duration_ms, items_last_run, consecutive_failures, updated_at, source_error)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(account_id) DO UPDATE SET
 			coverage_start=excluded.coverage_start,
 			cursor_end=excluded.cursor_end,
@@ -1138,6 +1190,7 @@ func (s *SQLite) SaveSyncState(ctx context.Context, st *model.SyncState) error {
 			last_success_at=excluded.last_success_at,
 			last_attempt_at=excluded.last_attempt_at,
 			last_error=excluded.last_error,
+			source_error=excluded.source_error,
 			last_error_at=excluded.last_error_at,
 			last_duration_ms=excluded.last_duration_ms,
 			items_last_run=excluded.items_last_run,
@@ -1145,7 +1198,7 @@ func (s *SQLite) SaveSyncState(ctx context.Context, st *model.SyncState) error {
 			updated_at=excluded.updated_at`,
 		st.AccountID, millis(st.CoverageStart), millis(st.CursorEnd), millis(st.PendingStart), millis(st.PendingEnd), st.PendingToken,
 		millisPtr(st.LastSuccessAt), millisPtr(st.LastAttemptAt),
-		st.LastError, millisPtr(st.LastErrorAt), st.LastDurationMS, st.ItemsLastRun, st.ConsecutiveFailures, millis(st.UpdatedAt))
+		st.LastError, millisPtr(st.LastErrorAt), st.LastDurationMS, st.ItemsLastRun, st.ConsecutiveFailures, millis(st.UpdatedAt), sourceErrorJSON(st.LastSourceError))
 	return err
 }
 
@@ -1174,9 +1227,9 @@ func (s *SQLite) FinishSyncRun(ctx context.Context, run *model.SyncRun) error {
 		finished = *run.FinishedAt
 	}
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE sync_runs SET status=?, finished_at=?, pages=?, fetched=?, created=?, updated=?, failed=?, error=?, duration_ms=?
+		UPDATE sync_runs SET status=?, finished_at=?, pages=?, fetched=?, created=?, updated=?, failed=?, error=?, duration_ms=?, source_error=?
 		WHERE id=?`,
-		run.Status, millis(finished), run.Pages, run.Fetched, run.Created, run.Updated, run.Failed, run.Error, run.DurationMS, run.ID)
+		run.Status, millis(finished), run.Pages, run.Fetched, run.Created, run.Updated, run.Failed, run.Error, run.DurationMS, sourceErrorJSON(run.SourceError), run.ID)
 	return err
 }
 
@@ -1185,7 +1238,7 @@ func (s *SQLite) ListSyncRuns(ctx context.Context, accountID string, limit int) 
 		limit = 20
 	}
 	query := `SELECT id, account_id, provider, trigger, status, started_at, finished_at,
-		pages, fetched, created, updated, failed, error, duration_ms FROM sync_runs`
+		pages, fetched, created, updated, failed, error, duration_ms, source_error FROM sync_runs`
 	args := []any{}
 	if accountID != "" {
 		query += ` WHERE account_id=?`
@@ -1203,8 +1256,12 @@ func (s *SQLite) ListSyncRuns(ctx context.Context, accountID string, limit int) 
 	for rows.Next() {
 		var r model.SyncRun
 		var started, finished int64
+		var sourceError string
 		if err := rows.Scan(&r.ID, &r.AccountID, &r.Provider, &r.Trigger, &r.Status, &started, &finished,
-			&r.Pages, &r.Fetched, &r.Created, &r.Updated, &r.Failed, &r.Error, &r.DurationMS); err != nil {
+			&r.Pages, &r.Fetched, &r.Created, &r.Updated, &r.Failed, &r.Error, &r.DurationMS, &sourceError); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(sourceError), &r.SourceError); err != nil {
 			return nil, err
 		}
 		r.StartedAt = fromMillis(started)
@@ -1270,6 +1327,13 @@ func isUniqueViolation(err error) bool {
 // Snapshot sequences freeze membership and field values across pagination,
 // even while an older finding is updated or a late record is ingested.
 func snapshotPrefix(f model.AlertFilter) string {
+	if f.GroupBy.UsesAssetContext() {
+		return contextPrefix(f)
+	}
+	return findingSnapshotPrefix(f)
+}
+
+func findingSnapshotPrefix(f model.AlertFilter) string {
 	if f.SnapshotSequence == nil {
 		return ""
 	}
@@ -1291,4 +1355,9 @@ func (s *SQLite) SnapshotSequence(ctx context.Context) (int64, error) {
 	var seq int64
 	err := s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0) FROM alert_revisions").Scan(&seq)
 	return seq, err
+}
+
+func sourceErrorJSON(value *model.SourceError) string {
+	data, _ := json.Marshal(value) // A SourceError contains only strings and an integer.
+	return string(data)
 }

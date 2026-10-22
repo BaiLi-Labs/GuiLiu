@@ -14,8 +14,9 @@ const storage = new Map();
 const events = new Map();
 const rootAttributes = new Map();
 let responseText = '';
+let responseStatus = 200;
 const browser = {
-  fetch: async () => ({ ok: true, text: async () => responseText }),
+  fetch: async () => ({ ok: responseStatus < 400, status: responseStatus, statusText: '', text: async () => responseText }),
   localStorage: {
     getItem: (key) => storage.get(key) ?? null,
     setItem: (key, value) => storage.set(key, value),
@@ -201,9 +202,9 @@ test('shareable alert links retain filters, pagination, Unicode, and selection',
 });
 
 test('malformed shared URLs have safe pagination and group defaults', () => {
-  assert.equal(readAlertRoute('').groupBy, 'type_asset');
+  assert.equal(readAlertRoute('').groupBy, 'asset');
   assert.equal(readAlertRoute('group_by=signature').groupBy, 'signature');
-  assert.equal(readAlertRoute('group_by=invalid').groupBy, 'type_asset');
+  assert.equal(readAlertRoute('group_by=invalid').groupBy, 'asset');
   assert.equal(readAlertRoute('offset=-20&range=bad&group_key=invalid').offset, 0);
   assert.equal(readAlertRoute('offset=Infinity').offset, 0);
   assert.equal(readAlertRoute('group_key=%7B%7D').groupKey, null);
@@ -347,4 +348,84 @@ test('connector-provided Chinese form labels and help are translated', () => {
     if (/[\u3400-\u9fff]/.test(match[1]) && !i18n.en[match[1]]) missing.push(`mock: ${match[1]}`);
   }
   assert.deepEqual(missing, []);
+});
+
+test('network grouping routes preserve both watermarks and exact source titles', () => {
+  for (const mode of ['asset', 'name_asset', 'vpc', 'subnet', 'security_group', 'nic']) {
+    const route = readAlertRoute(new URLSearchParams({ view:'groups', group_by:mode, snapshot_sequence:'123', asset_snapshot_sequence:'0', vendor_title:' Exact title ', start:'2026-10-01T00:00:00Z',end:'2026-10-02T00:00:00Z' }).toString());
+    assert.equal(route.groupBy, mode);
+    const page = queryFor(route.filters, 20, route.window);
+    assert.equal(page.get('snapshot_sequence'), '123');
+    assert.equal(page.get('asset_snapshot_sequence'), '0');
+    assert.equal(page.get('vendor_title'), ' Exact title ');
+  }
+  assert.equal(readAlertRoute('asset_snapshot_sequence=-1').window.asset_snapshot_sequence, undefined);
+  assert.equal(readAlertRoute('asset_snapshot_sequence=1.5').window.asset_snapshot_sequence, undefined);
+});
+
+test('group summary distinguishes source title statistics, evidence revisions and missing observations', () => {
+  const { FindingGroupSummary } = load('src/components/FindingGroupSummary.tsx');
+  const group = { id:'group',key:{},group_by:'asset',title:'Synthetic host',finding_count:5,asset_count:1,top_titles:[{key:'vendor <script> title',count:3}],assets:[{id:'asset',resource_id:'ins-synthetic',name:'Synthetic host',revision:2,observed_at:'2026-10-22T00:00:00Z',security_group_ids:[],references:[{provider:'tencent',account_id:'connection',account_uid:'100000000001',region:'ap-guangzhou',resource_type:'security_group',resource_id:'sg-synthetic',relation:'attached_security_group',source_component:'instance',source_path:'/SecurityGroupIds/0'}]}] };
+  i18n.setLocale('en-US');
+  let html = renderToStaticMarkup(React.createElement(FindingGroupSummary, {group,isAdmin:false,onMembers:()=>{}}));
+  for (const text of ['Source finding titles','Observed hosts','Revision','sg-synthetic','ins-synthetic','do not prove traffic paths','vendor &lt;script&gt; title','View all members']) assert.ok(html.includes(text),text);
+  assert.ok(!html.includes('<script>'));
+  html = renderToStaticMarkup(React.createElement(FindingGroupSummary, {group:{...group,assets:[]},isAdmin:false,onMembers:()=>{}}));
+  assert.ok(html.includes('No matching saved asset observation'));
+  i18n.setLocale('zh-CN');
+  html = renderToStaticMarkup(React.createElement(FindingGroupSummary,{group,isAdmin:false,onMembers:()=>{}}));
+  assert.ok(html.includes('不代表告警发生时配置'));
+});
+
+test('group coverage exposes unique, observed, missing and overlapping counts separately', () => {
+  const { GroupingCoverage } = load('src/components/FindingGroupSummary.tsx');
+  i18n.setLocale('en-US');
+  const html = renderToStaticMarkup(React.createElement(GroupingCoverage,{summary:{finding_count:7,asset_context_finding_count:2,ungrouped_finding_count:5,membership_count:9}}));
+  for(const text of ['Unique Findings','With asset observations','Missing grouping fields','Group memberships (may overlap)','group counts must not be added']) assert.ok(html.includes(text),text);
+  for(const value of [7,2,5,9]) assert.ok(html.includes(String(value)),value);
+});
+
+test('network relationship proof points to the declaring immutable asset revision', () => {
+  const { relationEvidencePath } = load('src/components/FindingGroupSummary.tsx');
+  const edge = {source_asset_id:'nic-observation',source_revision:3,reference:{source_component:'details'}};
+  assert.equal(relationEvidencePath(edge),'/api/v1/assets/nic-observation/revisions/3/components/details/raw');
+  assert.notEqual(relationEvidencePath(edge),relationEvidencePath({...edge,source_revision:4}));
+});
+
+test('source failures distinguish invalid credentials, explicit authorization and ambiguous denial in both languages', () => {
+  const { SourceFailure } = load('src/components/SourceFailure.tsx');
+  i18n.setLocale('zh-CN');
+  const value = {provider:'tencent',kind:'permission',code:'UnauthorizedOperation',source_api:'VPC DescribeSecurityGroupPolicies'};
+  let html = renderToStaticMarkup(React.createElement(SourceFailure,{value}));
+  assert.match(html,/来源未授权本次查询/);
+  assert.match(html,/VPC DescribeSecurityGroupPolicies/);
+  assert.match(html,/UnauthorizedOperation/);
+  html = renderToStaticMarkup(React.createElement(SourceFailure,{value:{...value,kind:'auth',code:'AuthFailure.SignatureFailure'}}));
+  assert.match(html,/来源认证失败/);
+  assert.doesNotMatch(html,/只读授权/);
+  html = renderToStaticMarkup(React.createElement(SourceFailure,{value:{provider:'huawei',kind:'access_denied',code:'Ecs.0003',http_status:403}}));
+  assert.match(html,/服务开通或账号状态/);
+  assert.match(html,/HTTP 403/);
+  i18n.setLocale('en-US');
+  html = renderToStaticMarkup(React.createElement(SourceFailure,{value}));
+  assert.match(html,/not authorized/);
+  assert.equal(renderToStaticMarkup(React.createElement(SourceFailure,{})),'');
+  i18n.setLocale('zh-CN');
+});
+
+test('API errors retain structured SDK diagnostics without confusing cloud refusal with platform authorization', async () => {
+  const { api, ApiError } = load('src/api.ts');
+  const detail = {provider:'tencent',kind:'permission',code:'UnauthorizedOperation',source_api:'CSIP DescribeAlertList'};
+  responseStatus = 422;
+  responseText = JSON.stringify({error:{code:'connector_error',message:'source authorization failed',source_error:detail}});
+  try {
+    await assert.rejects(api('/accounts/synthetic/check',{method:'POST'}), err => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.code,'connector_error');
+      assert.equal(err.status,422);
+      assert.equal(err.sourceError.code,detail.code);
+      assert.equal(err.sourceError.source_api,detail.source_api);
+      return true;
+    });
+  } finally { responseStatus=200; responseText=''; }
 });

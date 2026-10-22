@@ -58,10 +58,12 @@ func normalizeAlert(a *secmastermodel.ListAlertRsp, raw json.RawMessage) model.A
 	}
 	if a.ResourceList != nil {
 		for _, r := range *a.ResourceList {
-			alert.Resources = append(alert.Resources, model.Resource{
-				ID: connector.Str(r.Id), Name: connector.Str(r.Name),
-				Type: connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource"),
-			})
+			alert.Resources = append(alert.Resources, connector.NamedResource(
+				connector.Str(r.Id),
+				connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource"),
+				connector.Str(r.Name),
+				connector.Str(r.Id),
+			))
 		}
 	}
 	if len(alert.Resources) > 0 {

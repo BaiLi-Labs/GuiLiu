@@ -20,7 +20,7 @@ import (
 
 const (
 	providerID      = "aliyun"
-	mapperVersion   = "aliyun-sas/v4"
+	mapperVersion   = "aliyun-sas/v5"
 	defaultEndpoint = "sas.aliyuncs.com"
 	defaultQPS      = 5
 	defaultPageSize = 100
@@ -164,7 +164,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	}
 	payload, err := c.fetchJSON(req, runtime)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "SAS DescribeSuspEvents", err)
 	}
 	var resp struct {
 		TotalCount int               `json:"TotalCount"`

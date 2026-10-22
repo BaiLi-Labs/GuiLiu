@@ -4,6 +4,32 @@
 
 ## [Unreleased]
 
+### 新增与调整
+
+- 告警的受影响资产名优先取来源为该资产声明的名称（腾讯 `Victim.Name`、阿里 `InstanceName`、华为/AWS 资源 `name`、GCP `displayName`、Azure `compromisedEntity`），没有声明时才回退到域名、IP 或原生 ID；新增 `resource.source` 区分 `vendor_declared` 与 `identifier_fallback`。告警标题、描述和本地标签不会被当作资产名。
+- 腾讯新增结构化投影：`resource.account_uid`（`Victim.Account`）、`source_location` / `source_country`（`Attacker.Address` / `Attacker.Country`）、`response_action`（`ProcessType`）；Azure 补受影响资源所属订阅。六家 mapper 升级到 v5，历史记录可用 `guiliu replay -apply` 重放。
+- `/alerts/{id}/asset-context` 与 `/assets/lookup` 始终返回 `scope`（provider、账号、地域、资源类型、原生 ID、来源 API 与版本）。来源请求本身失败时保留 `refresh.source_error`；`not_found_or_not_visible` 且无 `source_error` 表示授权查询在该范围内确实没有记录，便于区分“查不到”“权限不足”和“地域配错”。
+
+## [0.3.1-dev] - 2026-10-22（开发中，未发布）
+
+### 新增与调整
+
+- 来源访问失败改为读取官方 SDK 的结构化错误码与 HTTP 状态，区分认证失败、明确授权拒绝及原因未确认的访问拒绝；记录实际请求 API，不再按错误描述关键词判断权限。
+- 资产刷新、失败组件、同步状态、运行历史与 coverage 提供持久的 `source_error` / `last_source_error`，Web、REST、MCP 可读取相同诊断；连接测试明确只验证告警查询。
+- Azure 网卡 / 公网 IP 权限失败时保留已查询的主机事实，安全组规则失败时保留来源声明的安全组引用；网络关系改为指向正确的原始网卡组件与字段位置。
+- 聚合默认按完整资源身份展示资产摘要，先查看厂商告警名称分布与网络引用，再展开全部成员或精确名称下的成员；每组资产和名称摘要最多 5 项。
+- 新增 `name_asset`、`vpc`、`subnet`、`security_group`、`nic` 客观分组；只使用来源明确的主机和网卡引用，保留字段缺失的独立记录，不推断流量路径、规则生效或攻击关系。
+- 同组 Finding 去重计数，独立返回主机数、唯一 Finding 总量、缺失关联数量和可重复的跨组成员数。
+- 持久资产修订水位 `asset_snapshot_sequence` 与 Finding 快照共同固定分页和成员集合。资产刷新不会改变已固定的分组；资产列表仍为实时本地观测，不提供通用资产变化流。
+- Web、REST、MCP 与查询 CLI 使用同一后端分组契约；CLI 支持传递两个水位、分组成员键和精确厂商告警名称。
+- 不完整规则分组明确缺失字段；名称查询保持来源大小写与空白，审计仅保存名称指纹。
+
+### 验证边界
+
+- 权限识别新增官方 SDK 错误对象与合成 API 响应测试，覆盖六云分类、局部失败、脱敏、重启与恢复、REST/MCP 一致性；未使用真实受限账号验证。详见 `docs/source-errors.md`。
+- 新增网络分组通过六云合成数据的 REST/MCP/CLI 一致性测试，以及多网卡、多安全组、缺失身份、修订与分页回归验证；不扩大先前披露的真实账号验证范围。
+- 查询只复用已保存的数据。来源返回未查到或不可见时保留缺口，不将其解释为资源不存在或无网络配置。
+
 ## [0.3.0-dev] - 2026-10-21（开发中，未发布）
 
 ### 新增

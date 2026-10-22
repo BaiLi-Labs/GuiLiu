@@ -21,7 +21,7 @@ import (
 
 const (
 	providerID      = "huawei"
-	mapperVersion   = "huawei-secmaster/v4"
+	mapperVersion   = "huawei-secmaster/v5"
 	defaultRegion   = "cn-north-4"
 	defaultPageSize = 100
 	defaultQPS      = 2
@@ -171,7 +171,7 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	}
 	payload, err := c.fetchJSON(req)
 	if err != nil {
-		return connector.Page{}, connector.Classify(providerID, err)
+		return connector.Page{}, connector.WithSourceAPI(providerID, "SecMaster ListAlerts", err)
 	}
 	var resp struct {
 		Total   int               `json:"total"`

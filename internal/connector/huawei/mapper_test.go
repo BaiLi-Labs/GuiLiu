@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
 func TestNormalizeHuaweiAlert(t *testing.T) {
@@ -45,6 +47,9 @@ func TestNormalizeHuaweiAlert(t *testing.T) {
 	}
 	if alert.Resource.ID != "ecs-1" || alert.Resource.Name != "web-01" || alert.Resource.Type != "ecs" {
 		t.Fatalf("resource = %+v", alert.Resource)
+	}
+	if alert.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("resource name must be marked as vendor declared: %+v", alert.Resource)
 	}
 	if alert.CloudAccountUID != "domain-1" || alert.Region != "cn-north-4" {
 		t.Fatalf("account/region = %s / %s", alert.CloudAccountUID, alert.Region)

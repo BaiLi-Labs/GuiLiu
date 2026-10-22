@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func (tr handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func setup(t *testing.T, devMode bool) (*testServer, store.Store, *auth.Service) {
+func setup(t *testing.T, devMode bool, register ...func(*connector.Registry)) (*testServer, store.Store, *auth.Service) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "api.db"))
 	if err != nil {
@@ -78,6 +79,9 @@ func setup(t *testing.T, devMode bool) (*testServer, store.Store, *auth.Service)
 	}
 	if err := reg.Register(descGCP, fakeFactory); err != nil {
 		t.Fatal(err)
+	}
+	for _, apply := range register {
+		apply(reg)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := &config.Config{Listen: ":0", Auth: config.AuthConfig{DevMode: devMode}}
@@ -265,18 +269,20 @@ func TestDefaultGroupsAndMemberTimeWindow(t *testing.T) {
 	q := url.Values{"start": {start.Format(time.RFC3339Nano)}, "end": {end.Format(time.RFC3339Nano)}}
 	resp, body := do(t, client, http.MethodGet, ts.URL+"/api/v1/alerts/groups?"+q.Encode(), "", "")
 	var result struct {
-		Total   int                `json:"total"`
-		GroupBy model.AlertGroupBy `json:"group_by"`
-		Groups  []model.AlertGroup `json:"groups"`
-		Window  view.QueryWindow   `json:"window"`
+		AssetSnapshot int64              `json:"asset_snapshot_sequence"`
+		Total         int                `json:"total"`
+		GroupBy       model.AlertGroupBy `json:"group_by"`
+		Groups        []model.AlertGroup `json:"groups"`
+		Window        view.QueryWindow   `json:"window"`
 	}
-	if resp.StatusCode != 200 || json.Unmarshal(body, &result) != nil || result.Total != 1 || len(result.Groups) != 1 || result.Groups[0].FindingCount != 2 || result.GroupBy != model.GroupByTypeAsset {
+	if resp.StatusCode != 200 || json.Unmarshal(body, &result) != nil || result.Total != 1 || len(result.Groups) != 1 || result.Groups[0].FindingCount != 2 || result.GroupBy != model.GroupByAsset {
 		t.Fatalf("default groups=%d %s", resp.StatusCode, body)
 	}
 	if result.Window.Start != q.Get("start") || result.Window.End != q.Get("end") {
 		t.Fatalf("subsecond window changed: %+v", result.Window)
 	}
 	key, _ := json.Marshal(result.Groups[0].Key)
+	q.Set("asset_snapshot_sequence", strconv.FormatInt(result.AssetSnapshot, 10))
 	q.Set("group_by", string(result.GroupBy))
 	q.Set("group_key", string(key))
 	q.Set("start", result.Window.Start)

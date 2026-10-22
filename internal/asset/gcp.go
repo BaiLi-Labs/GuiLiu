@@ -104,13 +104,15 @@ func GcpRaw(ctx context.Context, cred connector.Credential) (gcpRaw, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, action string, params map[string]string) (json.RawMessage, error) {
+	return func(ctx context.Context, action string, params map[string]string) (result json.RawMessage, callErr error) {
+		defer func() {
+			callErr = connector.WithSourceAPI("gcp", map[string]string{"Instance": "Compute Instances.Get", "Network": "Compute Networks.Get", "Subnetwork": "Compute Subnetworks.Get", "Firewall": "Compute Firewalls.Get"}[action], callErr)
+		}()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		recorder := &gcpRecorder{}
 		ctx = context.WithValue(ctx, gcpRawKey{}, recorder)
-		var callErr error
 		switch action {
 		case "Instance":
 			_, callErr = service.Instances.Get(params["project"], params["zone"], params["name"]).Context(ctx).Do()

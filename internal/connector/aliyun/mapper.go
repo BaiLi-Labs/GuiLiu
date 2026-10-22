@@ -37,17 +37,26 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 	firstSeen, lastSeen := alertTimes(&a)
 	eventTime := firstSeen
 
-	resource := model.Resource{
-		ID:   connector.FirstNonEmpty(connector.Str(a.InstanceId), connector.Str(a.Uuid)),
-		Name: connector.FirstNonEmpty(connector.Str(a.InstanceName), connector.Str(a.ContainerImageName), connector.Str(a.K8sClusterName), connector.Str(a.Uuid)),
-		Type: resourceType(&a),
-	}
+	resource := connector.NamedResource(
+		connector.FirstNonEmpty(connector.Str(a.InstanceId), connector.Str(a.Uuid)),
+		resourceType(&a),
+		connector.Str(a.InstanceName),
+		connector.Str(a.InstanceId), connector.Str(a.Uuid),
+	)
 	if connector.Str(a.ContainerId) != "" {
-		resource.ID = connector.Str(a.ContainerId)
-		resource.Name = connector.FirstNonEmpty(connector.Str(a.K8sPodName), connector.Str(a.ContainerImageName), resource.ID)
+		resource = connector.NamedResource(
+			connector.Str(a.ContainerId),
+			"container",
+			"",
+			connector.Str(a.K8sPodName), connector.Str(a.ContainerImageName), connector.Str(a.ContainerId),
+		)
 	} else if resource.Type == "kubernetes_cluster" {
-		resource.ID = connector.Str(a.K8sClusterId)
-		resource.Name = connector.FirstNonEmpty(connector.Str(a.K8sClusterName), resource.ID)
+		resource = connector.NamedResource(
+			connector.Str(a.K8sClusterId),
+			"kubernetes_cluster",
+			connector.Str(a.K8sClusterName),
+			connector.Str(a.K8sClusterId),
+		)
 	}
 
 	sourceIP := extractSourceIP(a.Details)

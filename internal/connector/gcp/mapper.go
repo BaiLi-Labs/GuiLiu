@@ -247,7 +247,8 @@ func resourceFromName(name string) model.Resource {
 	if len(parts) >= 2 {
 		resourceType = parts[len(parts)-2]
 	}
-	return model.Resource{ID: name, Name: resourceName, Type: resourceType}
+	// The trailing path segment is an identifier, not a declared display name.
+	return connector.NamedResource(name, resourceType, "", resourceName)
 }
 
 func regionFromResource(name string) string {

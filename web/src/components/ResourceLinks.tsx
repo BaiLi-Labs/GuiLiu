@@ -1,3 +1,5 @@
+import { SourceFailure } from "./SourceFailure";
+import type { SourceError } from "../types";
 import { useEffect, useRef, useState } from 'react';
 import { api, jsonBody, sourceText } from '../api';
 import { useI18n } from '../i18n';
@@ -10,9 +12,9 @@ export interface AssetReference {
   resource_type: string; resource_id: string; relation: string;
   source_component: string; source_path: string; lookup_url?: string;
 }
-interface Lookup { status: string; asset?: Asset; refresh?: { status: string; attempted_at: string } }
+interface Lookup { status: string; asset?: Asset; refresh?: { status: string; attempted_at: string; source_error?: SourceError } }
 const resourceLabels: Record<string, string> = { vpc: 'VPC', subnet: '子网', security_group: '安全组', nic: '网卡', cvm: '云主机', ecs: '云主机', ec2: '云主机', gce: '云主机', vm: '云主机' };
-const statusLabels: Record<string, string> = { available: '已有本地观测', stale: '本地观测已过期', not_collected: '尚未采集', partial: '部分组件未取得', permission_denied: '来源权限不足', timeout: '来源请求超时', source_request_failed: '来源请求失败', not_found_or_not_visible: '该范围内未查到或无权查看', storage_failed: '保存资产失败', cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新' };
+const statusLabels: Record<string, string> = { available: '已有本地观测', stale: '本地观测已过期', not_collected: '尚未采集', partial: '部分组件未取得', permission_denied: '来源权限不足', authentication_failed: '来源认证失败', access_denied: '来源拒绝访问（原因待确认）', throttled: '来源请求受限', timeout: '来源请求超时', source_request_failed: '来源请求失败', not_found_or_not_visible: '该范围内未查到或无权查看', storage_failed: '保存资产失败', cached: '已复用缓存或近期刷新结果', refreshing: '正在刷新' };
 
 export function resourceLookupPath(ref: AssetReference): string {
   return `/assets/lookup?${new URLSearchParams({ provider: ref.provider, account_id: ref.account_id, account_uid: ref.account_uid, region: ref.region, resource_type: ref.resource_type, resource_id: ref.resource_id })}`;
@@ -99,6 +101,7 @@ function ResourceDetail({ reference, isAdmin, depth }: { reference: AssetReferen
         {Object.entries(value.asset.components).map(([key, component]) => <details className="disclosure" key={key}>
           <summary>{t(key === 'policies' ? '安全组策略' : '资源详情')} · {component.source_api}</summary>
           <p className="text-xs">{t(statusLabels[component.status] || component.status)} {component.reason || ''} · {formatTime(component.observed_at)}</p>
+          <SourceFailure value={component.source_error} />
           {component.raw_url ? <><button className="btn btn-sm" onClick={() => readEvidence(key, component.raw_url!)}>{t('读取原始证据')}</button>
             {evidence[key] ? <pre className="code mt-2">{evidence[key]}</pre> : null}</> : null}
         </details>)}
@@ -107,7 +110,8 @@ function ResourceDetail({ reference, isAdmin, depth }: { reference: AssetReferen
       </> : null}
       {value?.refresh ? <p className="text-xs">{t('最近刷新')}：{t(statusLabels[value.refresh.status] || value.refresh.status)} · {formatTime(value.refresh.attempted_at)}</p> : null}
       <p className="break-all text-xs text-[var(--muted)]">{t('引用来源')}：{reference.source_component}{reference.source_path}</p>
-      {notice ? <p role="status" className="text-xs">{t(statusLabels[notice] || notice)}</p> : null}
+      <SourceFailure value={value?.refresh?.source_error} />
+    {notice ? <p role="status" className="text-xs">{t(statusLabels[notice] || notice)}</p> : null}
       {isAdmin ? <><button className="btn btn-sm" disabled={busy} onClick={refresh}>{t('刷新此网络资源')}</button>
         <p className="text-xs text-[var(--muted)]">{t('显式刷新单个网络资源最多请求 2 次云 API，5 分钟内复用结果。')}</p></> : null}
     </div>

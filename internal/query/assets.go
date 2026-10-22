@@ -55,10 +55,40 @@ func AssetView(a model.Asset) model.Asset {
 
 var ErrInvalidAssetReference = errors.New("invalid asset reference")
 
+// AssetScope records exactly which identity and source API were attempted, so
+// an unavailable context can be told apart from a permission or region mistake
+// without guessing. It never claims that a cloud read succeeded.
+type AssetScope struct {
+	Provider     string `json:"provider"`
+	AccountUID   string `json:"account_uid,omitempty"`
+	Region       string `json:"region,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
+	SourceAPI    string `json:"source_api,omitempty"`
+	APIVersion   string `json:"api_version,omitempty"`
+}
+
+func scopeFor(p asset.Provider, accountUID, region, resourceType, resourceID string) *AssetScope {
+	scope := &AssetScope{
+		Provider:     p.ID,
+		AccountUID:   accountUID,
+		Region:       region,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+	}
+	// Only the host read has a declared API in the provider descriptor. Naming
+	// the host API for a NIC, VPC or security-group lookup would be wrong.
+	if resourceType == "" || resourceType == p.HostType {
+		scope.SourceAPI, scope.APIVersion = p.HostAPI, p.APIVersion
+	}
+	return scope
+}
+
 type AssetLookup struct {
 	Status      string              `json:"status"`
 	Asset       *model.Asset        `json:"asset,omitempty"`
 	Refresh     *model.AssetRefresh `json:"refresh,omitempty"`
+	Scope       *AssetScope         `json:"scope,omitempty"`
 	Limitations []string            `json:"limitations"`
 }
 
@@ -70,7 +100,11 @@ func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*Ass
 	if !p.Supports(f.ResourceType) {
 		return nil, fmt.Errorf("%w: unsupported resource_type for provider", ErrInvalidAssetReference)
 	}
-	out := &AssetLookup{Status: "not_collected", Limitations: []string{"local_observations_only", "not_event_time_state", "no_network_reachability_inference"}}
+	out := &AssetLookup{
+		Status:      "not_collected",
+		Scope:       scopeFor(p, f.AccountUID, f.Region, f.ResourceType, f.ResourceID),
+		Limitations: []string{"local_observations_only", "not_event_time_state", "no_network_reachability_inference"},
+	}
 	if f.AccountID != "" {
 		connection, err := st.GetAccount(ctx, f.AccountID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -95,6 +129,9 @@ func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*Ass
 		return nil, err
 	}
 	if len(items) == 0 {
+		if status := failedRefreshStatus(out.Refresh); status != "" {
+			out.Status = status
+		}
 		return out, nil
 	}
 	if len(items) != 1 {
@@ -118,6 +155,7 @@ type AssetContext struct {
 	RefreshAccountID string              `json:"refresh_account_id,omitempty"`
 	ResourceID       string              `json:"resource_id,omitempty"`
 	Refresh          *model.AssetRefresh `json:"refresh,omitempty"`
+	Scope            *AssetScope         `json:"scope,omitempty"`
 	MatchedOn        []string            `json:"matched_on,omitempty"`
 	Limitations      []string            `json:"limitations"`
 }
@@ -136,6 +174,7 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 	}
 	out.ResourceID = hostID
 	out.RefreshAccountID = a.AccountID
+	out.Scope = scopeFor(p, a.AccountUID, a.Region, p.HostType, hostID)
 	if a.AccountUID == "" || (p.RequiresRegion && a.Region == "") {
 		out.Reason = "resource_scope_incomplete"
 		return out, nil
@@ -151,6 +190,9 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 	out.Refresh = attempt
 	if len(items) == 0 {
 		out.Reason = "not_collected"
+		if status := failedRefreshStatus(attempt); status != "" {
+			out.Reason = status
+		}
 		return out, nil
 	}
 	if len(items) != 1 || items[0].ResourceType != p.HostType {
@@ -165,6 +207,18 @@ func ContextForAlert(ctx context.Context, st store.Store, a *model.AlertRecord) 
 	}
 	out.MatchedOn = []string{"provider", "account_uid", "region", "native_resource_id", "host_resource_type"}
 	return out, nil
+}
+
+func failedRefreshStatus(attempt *model.AssetRefresh) string {
+	if attempt == nil {
+		return ""
+	}
+	switch attempt.Status {
+	case "authentication_failed", "permission_denied", "access_denied", "not_found_or_not_visible", "source_request_failed", "timeout", "throttled", "storage_failed", "refreshing":
+		return attempt.Status
+	default:
+		return ""
+	}
 }
 
 func AssetList(ctx context.Context, st store.Store, f model.AssetFilter) (map[string]any, error) {

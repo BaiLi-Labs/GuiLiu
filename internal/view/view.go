@@ -34,9 +34,16 @@ func WindowFromFilter(f model.AlertFilter) QueryWindow {
 }
 
 type Resource struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
-	Type string `json:"type,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Type       string `json:"type,omitempty"`
+	AccountUID string `json:"account_uid,omitempty"`
+	// Source is vendor_declared or identifier_fallback; see model.Resource.
+	Source string `json:"source,omitempty"`
+}
+
+func ResourceFromModel(r model.Resource) Resource {
+	return Resource{ID: r.ID, Name: r.Name, Type: r.Type, AccountUID: r.AccountUID, Source: r.Source}
 }
 
 type Alert struct {
@@ -83,6 +90,9 @@ type Alert struct {
 	Resources        []Resource      `json:"resources,omitempty"`
 	SourceIP         string          `json:"source_ip,omitempty"`
 	DestinationIP    string          `json:"destination_ip,omitempty"`
+	SourceLocation   string          `json:"source_location,omitempty"`
+	SourceCountry    string          `json:"source_country,omitempty"`
+	ResponseAction   string          `json:"response_action,omitempty"`
 	Actor            string          `json:"actor,omitempty"`
 	Tactic           string          `json:"tactic,omitempty"`
 	Technique        string          `json:"technique,omitempty"`
@@ -132,9 +142,12 @@ func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 		FirstSeenAt:      timeutil.Format(rec.FirstSeenAt),
 		LastSeenAt:       timeutil.Format(rec.LastSeenAt),
 		Region:           rec.Region,
-		Resource:         Resource{ID: rec.Resource.ID, Name: rec.Resource.Name, Type: rec.Resource.Type},
+		Resource:         ResourceFromModel(rec.Resource),
 		SourceIP:         rec.SourceIP,
 		DestinationIP:    rec.DestinationIP,
+		SourceLocation:   rec.SourceLocation,
+		SourceCountry:    rec.SourceCountry,
+		ResponseAction:   rec.ResponseAction,
 		Actor:            rec.Actor,
 		Tactic:           rec.Tactic,
 		Technique:        rec.Technique,
@@ -165,27 +178,28 @@ func AlertFromRecord(rec *model.AlertRecord, includePayload bool) Alert {
 		a.OCSF = rec.OCSF
 		a.Raw = rec.Raw
 		for _, r := range rec.Resources {
-			a.Resources = append(a.Resources, Resource{ID: r.ID, Name: r.Name, Type: r.Type})
+			a.Resources = append(a.Resources, ResourceFromModel(r))
 		}
 	}
 	return a
 }
 
 type SyncState struct {
-	CoverageStart       string `json:"coverage_start,omitempty"`
-	Status              string `json:"status"`
-	FailedRecords       int    `json:"failed_records"`
-	CursorEnd           string `json:"cursor_end,omitempty"`
-	Pending             bool   `json:"pending"`
-	PendingCount        int    `json:"pending_count,omitempty"`
-	LastSuccessAt       string `json:"last_success_at,omitempty"`
-	LastAttemptAt       string `json:"last_attempt_at,omitempty"`
-	LastError           string `json:"last_error,omitempty"`
-	LastErrorAt         string `json:"last_error_at,omitempty"`
-	LastDurationMS      int64  `json:"last_duration_ms"`
-	ItemsLastRun        int    `json:"items_last_run"`
-	ConsecutiveFailures int    `json:"consecutive_failures"`
-	Healthy             bool   `json:"healthy"`
+	CoverageStart       string             `json:"coverage_start,omitempty"`
+	Status              string             `json:"status"`
+	FailedRecords       int                `json:"failed_records"`
+	CursorEnd           string             `json:"cursor_end,omitempty"`
+	Pending             bool               `json:"pending"`
+	PendingCount        int                `json:"pending_count,omitempty"`
+	LastSuccessAt       string             `json:"last_success_at,omitempty"`
+	LastAttemptAt       string             `json:"last_attempt_at,omitempty"`
+	LastError           string             `json:"last_error,omitempty"`
+	LastSourceError     *model.SourceError `json:"last_source_error,omitempty"`
+	LastErrorAt         string             `json:"last_error_at,omitempty"`
+	LastDurationMS      int64              `json:"last_duration_ms"`
+	ItemsLastRun        int                `json:"items_last_run"`
+	ConsecutiveFailures int                `json:"consecutive_failures"`
+	Healthy             bool               `json:"healthy"`
 }
 
 func SyncStateFromModel(s *model.SyncState, maxAge ...time.Duration) SyncState {
@@ -206,6 +220,7 @@ func SyncStateFromModel(s *model.SyncState, maxAge ...time.Duration) SyncState {
 		LastSuccessAt:       ptrFormat(s.LastSuccessAt),
 		LastAttemptAt:       ptrFormat(s.LastAttemptAt),
 		LastError:           s.LastError,
+		LastSourceError:     s.LastSourceError,
 		LastErrorAt:         ptrFormat(s.LastErrorAt),
 		LastDurationMS:      s.LastDurationMS,
 		ItemsLastRun:        s.ItemsLastRun,
@@ -248,38 +263,40 @@ func AccountFromModel(a *model.Account) Account {
 }
 
 type SyncRun struct {
-	ID         string `json:"id"`
-	AccountID  string `json:"account_id"`
-	Provider   string `json:"provider,omitempty"`
-	Trigger    string `json:"trigger"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at,omitempty"`
-	Pages      int    `json:"pages"`
-	Fetched    int    `json:"fetched"`
-	Created    int    `json:"created"`
-	Updated    int    `json:"updated"`
-	Failed     int    `json:"failed"`
-	Error      string `json:"error,omitempty"`
-	DurationMS int64  `json:"duration_ms"`
+	ID          string             `json:"id"`
+	AccountID   string             `json:"account_id"`
+	Provider    string             `json:"provider,omitempty"`
+	Trigger     string             `json:"trigger"`
+	Status      string             `json:"status"`
+	StartedAt   string             `json:"started_at"`
+	FinishedAt  string             `json:"finished_at,omitempty"`
+	Pages       int                `json:"pages"`
+	Fetched     int                `json:"fetched"`
+	Created     int                `json:"created"`
+	Updated     int                `json:"updated"`
+	Failed      int                `json:"failed"`
+	Error       string             `json:"error,omitempty"`
+	SourceError *model.SourceError `json:"source_error,omitempty"`
+	DurationMS  int64              `json:"duration_ms"`
 }
 
 func SyncRunFromModel(r *model.SyncRun) SyncRun {
 	return SyncRun{
-		ID:         r.ID,
-		AccountID:  r.AccountID,
-		Provider:   r.Provider,
-		Trigger:    r.Trigger,
-		Status:     r.Status,
-		StartedAt:  timeutil.Format(r.StartedAt),
-		FinishedAt: ptrFormat(r.FinishedAt),
-		Pages:      r.Pages,
-		Fetched:    r.Fetched,
-		Created:    r.Created,
-		Updated:    r.Updated,
-		Failed:     r.Failed,
-		Error:      r.Error,
-		DurationMS: r.DurationMS,
+		ID:          r.ID,
+		AccountID:   r.AccountID,
+		Provider:    r.Provider,
+		Trigger:     r.Trigger,
+		Status:      r.Status,
+		StartedAt:   timeutil.Format(r.StartedAt),
+		FinishedAt:  ptrFormat(r.FinishedAt),
+		Pages:       r.Pages,
+		Fetched:     r.Fetched,
+		Created:     r.Created,
+		Updated:     r.Updated,
+		Failed:      r.Failed,
+		Error:       r.Error,
+		SourceError: r.SourceError,
+		DurationMS:  r.DurationMS,
 	}
 }
 

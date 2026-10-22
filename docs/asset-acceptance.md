@@ -50,7 +50,7 @@ Web 使用同一 REST 接口，未做浏览器视觉回归。
 7. **四入口一致性**
    - 对同一资产分别用 Web、REST、MCP、`guiliu query asset/lookup/findings/component` 读取，比较资源身份、字段值、组件原始字节和分页结果。
 8. **缺口与失败表达**
-   - 无权限：期望 `permission_denied` 或 `partial`，不能静默成功。
+   - 明确授权拒绝：期望 `permission_denied` 或带组件失败的 `partial`；凭据认证失败为 `authentication_failed`，原因不明确的访问拒绝为 `access_denied`。核对 `source_error` 的 SDK 原错误码和实际 API，不能静默成功。参见 [来源错误契约](source-errors.md)。
    - 不存在的资源 ID：期望 `not_found_or_not_visible`，不能解释为已删除。
    - 缓存：5 分钟内重复刷新期望 `cached`，不产生新的云请求。
    - 过期：超过本地观测时效期望 `stale`。

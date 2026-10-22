@@ -30,6 +30,7 @@ GCP 的 category 同样开放；FindingClass 在本次 v2 SDK 中有 THREAT、VU
 ## 数据保留与展示
 
 - 列表展示常用字段；详情保留原始 JSON 与统一 OCSF，并新增“字段与证据”：全部资产、可观测对象、厂商证据、可展开的全部已保存厂商字段。厂商字段名和值不翻译、不重写。
+- 受影响资产的展示名优先使用厂商为该资产声明的名称（腾讯 `Victim.Name` 等），没有声明时才回退到域名、IP 或原生 ID；`resource.source` 记录是 `vendor_declared` 还是 `identifier_fallback`。告警标题和描述不会成为资产名。
 - 通用查询只索引明确映射的字段与 observables。能在详情查看不等于每个嵌套字段都支持搜索；未引入任意 JSON 查询或每种厂商字段的专用列。
 - 腾讯直接读取 SDK 签名请求的 Raw JSON 响应，阿里/华为读取 SDK 签名请求的响应流，GCP 读取 REST JSON；均在解码到类型模型前提取完整单条对象。AWS 保留 OCSF document，Azure 保留原始 JSON 条目。未知字段和数值精度不经结构体裁剪；历史原始字节由修订 raw_url 提供并用 SHA-256 校验。
 - 华为 Raw 新格式保留 ListAlertDetail 外层元数据和 data_object；GCP 保留 ListFindingsResult 的 finding 与 resource。历史未知字段若从未保存，不能靠重放恢复；开发阶段使用新数据库，不提供旧库迁移。
@@ -45,6 +46,7 @@ GCP 的 category 同样开放；FindingClass 在本次 v2 SDK 中有 THREAT、VU
 6. Azure 普通 IP 实体保持中性 entity.ip，不推断为源地址；受影响主机不推断为 Actor，也不把主机名伪造为资产 ID。阿里资产公网/私网 IP 保持中性可观测对象；来源只认精确字段标签，不扫描文本推测方向。
 7. Azure 技术与子技术、GCP 多个主技术全部保留；只有技术而没有战术时，详情仍展示。
 8. 腾讯/阿里序列化失败不再静默 continue；腾讯/阿里/华为在仍有总数时收到空页会失败而非完成窗口，缺失实体也不会静默丢弃。
+9. 六家 mapper 升级到 v5：资产展示名纳入厂商声明的名称并标注 `resource.source`；腾讯新增 `Victim.Account`、`Attacker.Address/Country`、`ProcessType` 的结构化投影（`resource.account_uid`、`source_location`、`source_country`、`response_action`），Azure 补资源所属订阅。
 
 映射版本已升级。历史归一字段可通过 guiliu replay 重放修正；旧记录中没有保存的信息需要重新拉取，重放不会主动补拉。
 

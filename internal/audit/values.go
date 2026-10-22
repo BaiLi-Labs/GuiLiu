@@ -36,7 +36,7 @@ func fingerprint(v any) any {
 	return map[string]any{"redacted": true, "sha256": fmt.Sprintf("%x", sha256.Sum256(raw)), "bytes": len(raw)}
 }
 
-var parameterKeys = strings.Fields("provider account_id account_uid region resource_id resource_type resource asset_id alert_id rule_id product severity status vendor_status finding_kind time_field start end since range limit offset after_id cursor snapshot_sequence revision before_revision before_sequence group_by group_key src_ip dst_ip source_ip destination_ip ip asset alert_type observable_type observable_value sort component username enabled expires_in_days request_id user_id api_key_id surface operation tool outcome q keyword")
+var parameterKeys = strings.Fields("provider account_id account_uid region resource_id resource_type resource asset_id alert_id rule_id product severity status vendor_status finding_kind time_field start end since range limit offset after_id cursor asset_snapshot_sequence vendor_title snapshot_sequence revision before_revision before_sequence group_by group_key src_ip dst_ip source_ip destination_ip ip asset alert_type observable_type observable_value sort component username enabled expires_in_days request_id user_id api_key_id surface operation tool outcome q keyword")
 
 func object(v reflect.Value) reflect.Value {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
@@ -113,7 +113,7 @@ func Parameters(input any) map[string]any {
 		if !v.IsValid() {
 			continue
 		}
-		if key == "q" || key == "keyword" || key == "group_key" {
+		if key == "q" || key == "keyword" || key == "vendor_title" || key == "group_key" {
 			out[key] = fingerprint(v.Interface())
 			continue
 		}
@@ -140,7 +140,7 @@ func bounded(v map[string]any, max int) map[string]any {
 func Summary(input any) map[string]any {
 	out := map[string]any{}
 	root := reflect.ValueOf(input)
-	for _, key := range strings.Fields("id alert_id asset_id revision sequence raw_hash total has_more snapshot_sequence next_cursor status cache_seconds") {
+	for _, key := range strings.Fields("id alert_id asset_id revision sequence raw_hash total has_more asset_snapshot_sequence snapshot_sequence next_cursor status cache_seconds") {
 		if value := scalar(field(root, key)); value != nil {
 			out[key] = value
 		}

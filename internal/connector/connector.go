@@ -117,20 +117,25 @@ type Factory func(cfg AccountConfig) (Connector, error)
 type ErrorKind string
 
 const (
-	KindAuth      ErrorKind = "auth"
-	KindThrottled ErrorKind = "throttled"
-	KindTransient ErrorKind = "transient"
-	KindPermanent ErrorKind = "permanent"
-	KindConfig    ErrorKind = "config"
+	KindAuth       ErrorKind = "auth"
+	KindPermission ErrorKind = "permission"
+	KindDenied     ErrorKind = "access_denied"
+	KindNotFound   ErrorKind = "not_found"
+	KindThrottled  ErrorKind = "throttled"
+	KindTransient  ErrorKind = "transient"
+	KindPermanent  ErrorKind = "permanent"
+	KindConfig     ErrorKind = "config"
 )
 
 // Error is a classified connector failure.
 type Error struct {
-	Provider string
-	Kind     ErrorKind
-	Code     string
-	Message  string
-	Err      error
+	Provider   string
+	Kind       ErrorKind
+	Code       string
+	Message    string
+	Err        error
+	HTTPStatus int
+	SourceAPI  string
 }
 
 func (e *Error) Error() string {
@@ -141,9 +146,12 @@ func (e *Error) Error() string {
 	if e.Code != "" {
 		parts = append(parts, e.Code)
 	}
+	if e.SourceAPI != "" {
+		parts = append(parts, e.SourceAPI)
+	}
 	msg := e.Message
-	if msg == "" && e.Err != nil {
-		msg = e.Err.Error()
+	if msg == "" {
+		msg = errorSummary(e.Kind)
 	}
 	if msg != "" {
 		parts = append(parts, msg)
@@ -174,7 +182,7 @@ func Retryable(err error) bool {
 func AuthError(err error) bool {
 	var ce *Error
 	if errors.As(err, &ce) {
-		return ce.Kind == KindAuth
+		return ce.Kind == KindAuth || ce.Kind == KindPermission || ce.Kind == KindDenied
 	}
 	return false
 }
@@ -196,40 +204,12 @@ func InvalidCursor(err error) bool {
 		return false
 	}
 	s := strings.ToLower(err.Error())
+	var ce *Error
+	if errors.As(err, &ce) {
+		s = strings.ToLower(ce.Code)
+	}
 	return containsAny(s, "nexttoken", "page token", "page_token", "pagetoken", "paginationtoken", "continuation token", "skiptoken", "nextlink") &&
 		containsAny(s, "invalid", "expired")
-}
-
-// Classify wraps an SDK error. Cloud SDKs expose wildly different error types,
-// so classification is based on the canonical error codes and substrings they
-// all include.
-func Classify(provider string, err error) error {
-	if err == nil {
-		return nil
-	}
-	var existing *Error
-	if errors.As(err, &existing) {
-		return err
-	}
-	msg := err.Error()
-	lower := strings.ToLower(msg)
-
-	kind := KindPermanent
-	code := ""
-	switch {
-	case containsAny(lower, "requestlimitexceeded", "throttling", "too many requests", "limit exceeded", "qps", "flowcontrol", "resourceexhausted", "resource exhausted", "slowdown", "rate exceeded"):
-		kind, code = KindThrottled, "throttled"
-	case containsAny(lower, "authfailure", "unauthorized", "invalidaccesskey", "signature", "forbidden", "access denied", "permission", "not authorized", "unauthenticated", "invalidclienttokenid", "expiredtoken", "unrecognizedclient"):
-		kind, code = KindAuth, "auth"
-	case containsAny(lower, "timeout", "timed out", "deadline exceeded", "connection reset", "connection refused", "temporarily unavailable", "unavailable", "eof", "server error", "internal error"):
-		kind, code = KindTransient, "transient"
-	}
-	var ne net.Error
-	if errors.As(err, &ne) {
-		kind, code = KindTransient, "network"
-	}
-
-	return &Error{Provider: provider, Kind: kind, Code: code, Err: err}
 }
 
 // ConfigError builds a configuration error.

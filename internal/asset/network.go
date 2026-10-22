@@ -184,6 +184,7 @@ func policyComponent(raw json.RawMessage, err error, api, apiVersion, provider s
 	c := model.AssetComponent{Status: "failed", SourceAPI: api, APIVersion: apiVersion}
 	if err != nil {
 		c.Reason = errorCode(err, provider)
+		c.SourceError = connector.SourceError(connector.WithSourceAPI(provider, c.SourceAPI, err))
 		return c
 	}
 	var response struct{ SecurityGroupPolicySet json.RawMessage }

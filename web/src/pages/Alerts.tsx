@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Layers, List, RotateCcw, Search } from 'lucide-react';
 import { api, sourceText } from '../api';
 import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
 import { AlertFields } from '../components/AlertFields';
+import { FindingGroupSummary, GroupingCoverage } from '../components/FindingGroupSummary';
 import { AssetContextPanel } from '../components/AssetContext';
 import {
   CopyButton,
@@ -50,8 +51,9 @@ interface Filters {
   finding_kind: string;
   vendor_status: string;
   time_field: string;
+  vendor_title: string;
 }
-const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '', observable_type: '', observable_value: '', rule_id: '', finding_kind: '', vendor_status: '', time_field: 'event_time' };
+const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '', observable_type: '', observable_value: '', rule_id: '', finding_kind: '', vendor_status: '', time_field: 'event_time', vendor_title: '' };
 const filterKeys = Object.keys(EMPTY) as Array<keyof Filters>;
 
 export function readAlertRoute(query: string) {
@@ -60,8 +62,11 @@ export function readAlertRoute(query: string) {
   for (const key of filterKeys) if (params.has(key)) filters[key] = params.get(key)!;
   if (!RANGE_OPTIONS.some((option) => option.value === filters.range)) filters.range = EMPTY.range;
   const by = params.get('group_by');
-  const groupBy: AlertGroupBy = by === 'signature' || by === 'asset' || by === 'source' ? by : 'type_asset';
+  const modes = ['asset','name_asset','vpc','subnet','security_group','nic','type_asset','signature','source'];
+  const groupBy: AlertGroupBy = modes.includes(by || '') ? by as AlertGroupBy : 'asset';
   const window: QueryWindow = {};
+  const assetSequence = params.get('asset_snapshot_sequence');
+  if (assetSequence !== null && Number.isSafeInteger(Number(assetSequence)) && Number(assetSequence)>=0) window.asset_snapshot_sequence=Number(assetSequence);
   const sequence = params.get("snapshot_sequence");
   if (sequence !== null && Number.isSafeInteger(Number(sequence)) && Number(sequence)>=0) window.snapshot_sequence=Number(sequence);
   for (const key of ['start', 'end'] as const) {
@@ -102,6 +107,8 @@ export function queryFor(filters: Filters, offset: number, window: QueryWindow =
   const params = new URLSearchParams({ limit: '20', offset: String(offset) });
   for (const key of ['provider', 'severity', 'status', 'q', 'ip', 'observable_type', 'observable_value', 'rule_id', 'finding_kind', 'vendor_status', 'time_field'] as const)
     if (filters[key].trim()) params.set(key, filters[key].trim());
+  if(filters.vendor_title) params.set("vendor_title",filters.vendor_title);
+  if(window.asset_snapshot_sequence!==undefined) params.set("asset_snapshot_sequence",String(window.asset_snapshot_sequence));
   if(window.snapshot_sequence!==undefined) params.set("snapshot_sequence",String(window.snapshot_sequence));
   const end = window.end || new Date().toISOString();
   const start = window.start || rangeStart(filters.range, end);
@@ -120,6 +127,7 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const responseWindow = useRef<{ filters: string; window: QueryWindow } | null>(null);
   const limit = 20;
   const filterIdentity = JSON.stringify(route.filters);
@@ -143,7 +151,7 @@ export function Alerts() {
       .then((result) => {
         if (!alive) return;
         if (result.window)
-          responseWindow.current = { filters: filterIdentity + windowIdentity, window: {...result.window,snapshot_sequence:result.snapshot_sequence} };
+          responseWindow.current = { filters: filterIdentity + windowIdentity, window: {...result.window,snapshot_sequence:result.snapshot_sequence,asset_snapshot_sequence:result.asset_snapshot_sequence} };
         if ('groups' in result) setGroups(result);
         else setData(result);
       })
@@ -166,6 +174,7 @@ export function Alerts() {
       if (snapshot.window.start) params.start = snapshot.window.start;
       if (snapshot.window.end) params.end = snapshot.window.end;
       if(snapshot.window.snapshot_sequence!==undefined) params.snapshot_sequence=String(snapshot.window.snapshot_sequence);
+        if(snapshot.window.asset_snapshot_sequence!==undefined) params.asset_snapshot_sequence=String(snapshot.window.asset_snapshot_sequence);
     }
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === '') delete params[key];
@@ -174,7 +183,7 @@ export function Alerts() {
     go('alerts', params);
   }
   function apply() {
-    navigate({ ...filters, offset: null, group_key: null, alert: null, start: null, end: null, snapshot_sequence:null });
+    navigate({ ...filters, offset: null, group_key: null, alert: null, start: null, end: null, snapshot_sequence:null,asset_snapshot_sequence:null });
     setReload((value) => value + 1);
   }
   function reset() {
@@ -182,8 +191,8 @@ export function Alerts() {
     setFilters(EMPTY);
     setReload((value) => value + 1);
   }
-  function showGroup(group: AlertGroup) {
-    navigate({ view: null, group_by: group.group_by, group_key: JSON.stringify(group.key), offset: null });
+  function showGroup(group: AlertGroup, title?: string) {
+    navigate({ view: null, group_by: group.group_by, group_key: JSON.stringify(group.key), vendor_title:title || null, offset: null });
   }
   const total = route.view === 'groups' ? groups?.total || 0 : data?.total || 0;
   const current = Math.floor(route.offset / limit) + 1;
@@ -198,7 +207,7 @@ export function Alerts() {
           <button
             aria-pressed={route.view === 'raw'}
             className={route.view === 'raw' ? 'selected' : ''}
-            onClick={() => navigate({ view: null, group_key: null, offset: null })}
+            onClick={() => navigate({ view: null, group_key: null, vendor_title:null, offset: null })}
           >
             <List className="h-4 w-4" />
             {t('原始告警')}
@@ -206,7 +215,7 @@ export function Alerts() {
           <button
             aria-pressed={route.view === 'groups'}
             className={route.view === 'groups' ? 'selected' : ''}
-            onClick={() => navigate({ view: 'groups', group_key: null, offset: null })}
+            onClick={() => navigate({ view: 'groups', group_key: null, vendor_title:null, offset: null })}
           >
             <Layers className="h-4 w-4" />
             {t('聚合视图')}
@@ -217,9 +226,15 @@ export function Alerts() {
             aria-label={t('分组方式')}
             className="field"
             value={route.groupBy}
-            onChange={(event) => navigate({ group_by: event.target.value, offset: null })}
+            onChange={(event) => navigate({ group_by: event.target.value, group_key:null, offset: null })}
           >
-            <option value="type_asset">{t('按类型与资产')}</option>
+            <option value="asset">{t('按资产')}</option>
+              <option value="name_asset">{t('按厂商告警名称与资产')}</option>
+              <option value="vpc">{t('按 VPC')}</option>
+              <option value="subnet">{t('按子网')}</option>
+              <option value="security_group">{t('按安全组')}</option>
+              <option value="nic">{t('按网卡')}</option>
+              <option value="type_asset">{t('按类型与资产')}</option>
             <option value="signature">{t('按规则、资产与源 IP')}</option>
             <option value="asset">{t('按资产')}</option>
             <option value="source">{t('按源 IP 与类型')}</option>
@@ -342,14 +357,14 @@ export function Alerts() {
         <div className="flex items-center gap-3 text-sm">
           <button
             className="btn btn-sm"
-            onClick={() => navigate({ view: 'groups', group_key: null, offset: null })}
+            onClick={() => navigate({ view: 'groups', group_key: null, vendor_title:null, offset: null })}
           >
             <ChevronLeft className="h-4 w-4" />
             {t('返回分组')}
           </button>
           <span>{t('分组成员')}</span>
           <span className="truncate text-xs text-[var(--muted)]">
-            {route.groupKey.resource_id || route.groupKey.source_ip || route.groupKey.alert_type}
+            {[route.groupKey.resource_id || route.groupKey.source_ip || route.groupKey.alert_type, route.filters.vendor_title].filter(Boolean).join(' · ')}
           </span>
         </div>
       ) : null}
@@ -370,6 +385,7 @@ export function Alerts() {
         </span>
         <span>{t('第 {current} / {pages} 页', { current, pages })}</span>
       </div>
+      {route.view === 'groups' && !loading && !error && groups?.summary ? <GroupingCoverage summary={groups.summary} /> : null}
       <div className="table-wrap">
         {loading ? (
           <SkeletonRows count={10} />
@@ -389,7 +405,8 @@ export function Alerts() {
             <thead>
               <tr>
                 <th>{t('告警分组')}</th>
-                <th>{t('告警条数')}</th>
+                <th>{t('独立告警')}</th>
+                  <th>{t('已观测主机')}</th>
                 <th title={t('取组内厂商告警的最高等级')}>{t('组内最高等级')}</th>
                 <th>{t('云厂商')}</th>
                 <th>{t('最近')}</th>
@@ -397,21 +414,18 @@ export function Alerts() {
             </thead>
             <tbody>
               {groups?.groups.map((group) => (
-                <tr key={group.id}>
+                <Fragment key={group.id}>
+                <tr>
                   <td>
-                    <button
-                      className="cell-title text-left font-medium hover:text-[var(--accent)]"
-                      onClick={() => showGroup(group)}
-                    >
+                    <button className="cell-title inline-flex items-center gap-2 text-left font-medium hover:text-[var(--accent)]" aria-expanded={expandedGroup === group.id} aria-controls={`group-summary-${group.id}`} onClick={() => setExpandedGroup(expandedGroup === group.id ? null : group.id)}>
+                      <ChevronRight aria-hidden="true" className={`h-4 w-4 shrink-0 ${expandedGroup === group.id ? 'rotate-90' : ''}`} />
                       {groupTitle(group)}
                     </button>
-                    <div className="cell-sub">
-                      {group.key.singleton
-                        ? t('字段不完整')
-                        : [group.alert_type, group.source_ip].filter(Boolean).join(' · ')}
-                    </div>
+                    <div className="cell-sub break-all">{[group.key.region, group.resource_id, group.alert_type, group.source_ip].filter(Boolean).join(' · ')}</div>
+                    {group.missing_fields?.length ? <p className="text-xs text-[var(--muted)]">{t('缺少分组依据')}：{group.missing_fields.map(field => t(({rule_id:'规则 ID',account_uid:'真实云账号 UID',resource_id:'资源 ID',source_ip:'源 IP',product:'厂商产品',alert_type:'厂商告警类型',saved_host_network_reference:'已保存的主机网络引用',explicit_scoped_resource_reference:'完整作用域下的资源引用'} as Record<string,string>)[field] || field)).join('、')}</p> : null}
                   </td>
                   <td className="tabular-nums">{fmtNum(group.finding_count)}</td>
+                  <td className="tabular-nums">{!['asset','name_asset','vpc','subnet','security_group','nic'].includes(group.group_by) ? '—' : fmtNum(group.asset_count || 0)}</td>
                   <td>
                     <SeverityBadge severity={group.max_severity} />
                   </td>
@@ -429,6 +443,12 @@ export function Alerts() {
                     {formatDate(group.last_seen_at || undefined)}
                   </td>
                 </tr>
+                {expandedGroup === group.id ? <tr>
+                  <td colSpan={6} className="bg-[var(--bg)] p-4">
+                    <div id={`group-summary-${group.id}`}><FindingGroupSummary group={group} isAdmin={isAdmin} onMembers={title => showGroup(group, title)} /></div>
+                  </td>
+                </tr> : null}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -675,9 +695,13 @@ function AlertDrawer({
                   <dt>{t('资产')}</dt>
                   <dd>
                     {detail.resource?.name || '—'}
+                    {detail.resource?.source === 'identifier_fallback' ? (
+                      <div className="text-xs text-[var(--muted)]">{t('名称回退到标识符，厂商未声明资产名')}</div>
+                    ) : null}
                     {detail.resource?.id ? (
                       <div className="mt-1 break-all font-mono text-xs text-[var(--muted)]">
                         {detail.resource.id}
+                        {detail.resource.account_uid ? ` · ${detail.resource.account_uid}` : ''}
                       </div>
                     ) : null}
                   </dd>
@@ -685,6 +709,18 @@ function AlertDrawer({
                   <dd className="font-mono">{detail.source_ip || '—'}</dd>
                   <dt>{t('目标 IP')}</dt>
                   <dd className="font-mono">{detail.destination_ip || '—'}</dd>
+                  {detail.source_location || detail.source_country ? (
+                    <>
+                      <dt>{t('来源位置')}</dt>
+                      <dd>{[detail.source_country, detail.source_location].filter(Boolean).join(' · ') || '—'}</dd>
+                    </>
+                  ) : null}
+                  {detail.response_action ? (
+                    <>
+                      <dt>{t('处置动作')}</dt>
+                      <dd className="font-mono text-xs">{detail.response_action}</dd>
+                    </>
+                  ) : null}
                   <dt>{t('云 / 账号')}</dt>
                   <dd>
                     {providerShort(detail.provider)} · {detail.account_name || detail.account_id}

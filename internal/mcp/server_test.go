@@ -180,13 +180,14 @@ func TestDefaultGroupsAndMemberTimeWindow(t *testing.T) {
 	payload := result.(map[string]any)
 	groups := payload["groups"].([]model.AlertGroup)
 	window := payload["window"].(view.QueryWindow)
-	if payload["total"] != 1 || payload["group_by"] != model.GroupByTypeAsset || len(groups) != 1 || groups[0].FindingCount != 2 || window.Start != args["start"] || window.End != args["end"] {
+	if payload["total"] != 1 || payload["group_by"] != model.GroupByAsset || len(groups) != 1 || groups[0].FindingCount != 2 || window.Start != args["start"] || window.End != args["end"] {
 		t.Fatalf("default groups=%+v", payload)
 	}
 	key := make(map[string]any, len(groups[0].Key))
 	for k, v := range groups[0].Key {
 		key[k] = v
 	}
+	args["asset_snapshot_sequence"] = *payload["asset_snapshot_sequence"].(*int64)
 	args["group_by"], args["group_key"] = string(groups[0].GroupBy), key
 	args["start"], args["end"] = window.Start, window.End
 	result, err = srv.toolGetAlertGroup(context.Background(), args)

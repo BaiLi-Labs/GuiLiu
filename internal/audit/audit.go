@@ -89,7 +89,7 @@ func FindingQuery(ctx context.Context, f model.AlertFilter) {
 	if s == nil {
 		return
 	}
-	values := map[string]any{"provider": f.Provider, "account_id": f.AccountID, "account_uid": f.AccountUID, "region": f.Region, "resource_id": f.ExactResourceID, "resource_type": f.ResourceType, "resource": f.Resource, "severity": f.Severities, "status": f.Statuses, "keyword": f.Keyword, "ip": f.IP, "observable_type": f.ObservableType, "observable_value": f.ObservableValue, "rule_id": f.RuleID, "finding_kind": f.FindingKind, "vendor_status": f.VendorStatus, "after_id": f.AfterID, "sort": f.Sort, "group_by": f.GroupBy, "group_key": f.GroupKey, "limit": f.Limit, "offset": f.Offset, "snapshot_sequence": f.SnapshotSequence}
+	values := map[string]any{"provider": f.Provider, "account_id": f.AccountID, "account_uid": f.AccountUID, "region": f.Region, "resource_id": f.ExactResourceID, "resource_type": f.ResourceType, "resource": f.Resource, "severity": f.Severities, "status": f.Statuses, "keyword": f.Keyword, "ip": f.IP, "observable_type": f.ObservableType, "observable_value": f.ObservableValue, "rule_id": f.RuleID, "finding_kind": f.FindingKind, "vendor_status": f.VendorStatus, "after_id": f.AfterID, "sort": f.Sort, "group_by": f.GroupBy, "group_key": f.GroupKey, "limit": f.Limit, "offset": f.Offset, "asset_snapshot_sequence": f.AssetSnapshotSequence, "vendor_title": f.VendorTitle, "snapshot_sequence": f.SnapshotSequence}
 	if f.Start != nil {
 		values["start"] = f.Start.UTC().Format(time.RFC3339Nano)
 	}

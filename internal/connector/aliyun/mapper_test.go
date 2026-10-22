@@ -77,6 +77,9 @@ func TestNormalize(t *testing.T) {
 	if alert.Resource.ID != "i-bp1xxxx" || alert.Resource.Type != "host" {
 		t.Fatalf("resource = %+v", alert.Resource)
 	}
+	if alert.Resource.Source != model.ResourceSourceVendorDeclared {
+		t.Fatalf("resource name must be marked as vendor declared: %+v", alert.Resource)
+	}
 	if alert.Tactic != "TA0001" {
 		t.Fatalf("tactic = %q", alert.Tactic)
 	}

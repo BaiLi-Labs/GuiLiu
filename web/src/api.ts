@@ -1,12 +1,14 @@
-import type { Me } from './types';
+import type { Me, SourceError } from './types';
 
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  sourceError?: SourceError;
+  constructor(status: number, message: string, code?: string, sourceError?: SourceError) {
     super(message);
     this.status = status;
     this.code = code;
+    this.sourceError = sourceError;
   }
 }
 
@@ -48,7 +50,7 @@ async function request<T>(path: string, opts: Options = {}, responseType: 'json'
       conflict: '账号名称已存在',
     };
     const message = messages[body?.error?.code] || body?.error?.message || `${res.status} ${res.statusText}`;
-    throw new ApiError(res.status, message, body?.error?.code);
+    throw new ApiError(res.status, message, body?.error?.code, body?.error?.source_error);
   }
   return (responseType === 'text' ? text : body) as T;
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
+	tcerrors "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 )
 
 func TestTencentSourceBytesMappingAndPartialPolicies(t *testing.T) {
@@ -41,7 +42,7 @@ func TestTencentSourceBytesMappingAndPartialPolicies(t *testing.T) {
 		if action != "DescribeSecurityGroupPolicies" || params["SecurityGroupId"] != "sg-synthetic" {
 			t.Fatal(action, params)
 		}
-		return nil, errors.New("AuthFailure: SECRET_DO_NOT_EXPOSE")
+		return nil, tcerrors.NewTencentCloudSDKError("UnauthorizedOperation", "SECRET_DO_NOT_EXPOSE", "synthetic-request")
 	}
 	value, err := ReadTencent(context.Background(), a, "ins-mock0001", call, connector.NewLimiter(100000))
 	if err != nil {
@@ -114,6 +115,48 @@ func TestTencentRequestBudgetAndUnknownFields(t *testing.T) {
 	}
 }
 
+func TestAuthorizedEmptyReadIsNotASourceError(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "missing.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cipher, err := secret.Load(base64.StdEncoding.EncodeToString(make([]byte, 32)), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := credential.Encrypt(cipher, connector.Credential{AccessKeyID: "synthetic-key", AccessKeySecret: "synthetic-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := model.Account{ID: "c", Name: "synthetic", Provider: "tencent", AccountUID: "123", Region: "ap-guangzhou", Enabled: true, CredentialEncrypted: blob}
+	if err := st.CreateAccount(ctx, &a); err != nil {
+		t.Fatal(err)
+	}
+	s := New(st, cipher, false)
+	s.limiter = connector.NewLimiter(100000)
+	s.Factory = func(connector.Credential, string) Call {
+		return func(context.Context, string, string, map[string]any) (json.RawMessage, error) {
+			return json.RawMessage(`{"InstanceSet":[]}`), nil
+		}
+	}
+	result, err := s.Refresh(ctx, a.ID, "cvm", "ins-missing0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "not_found_or_not_visible" {
+		t.Fatalf("status = %q", result.Status)
+	}
+	attempt, err := st.GetAssetRefresh(ctx, a.ID, a.Region, "ins-missing0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.SourceError != nil {
+		t.Fatalf("an authorized read that returned no record is not a source error: %+v", attempt.SourceError)
+	}
+}
+
 func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "assets.db")
@@ -145,7 +188,7 @@ func TestRefreshCacheFailureAndDurableIndependentRevisions(t *testing.T) {
 		return func(ctx context.Context, service, action string, params map[string]any) (json.RawMessage, error) {
 			calls++
 			if fail {
-				return nil, errors.New("AuthFailure: synthetic-secret")
+				return nil, tcerrors.NewTencentCloudSDKError("UnauthorizedOperation", "synthetic-secret", "synthetic-request")
 			}
 			if service == "cvm" {
 				raw := SyntheticInstance

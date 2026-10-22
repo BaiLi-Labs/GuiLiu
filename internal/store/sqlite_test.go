@@ -72,6 +72,7 @@ func TestAlertGroupsKeepOriginalMembers(t *testing.T) {
 		a := testAlert("grouped " + id)
 		a.ExternalID = id
 		a.RuleID = "native-rule-1"
+		a.Region = "ap-guangzhou"
 		a.Severity = severity
 		a.EventTime = at
 		a.FirstSeenAt = at

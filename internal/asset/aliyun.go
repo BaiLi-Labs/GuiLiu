@@ -67,7 +67,8 @@ func AliyunCall(cred connector.Credential, region string) (Call, error) {
 		}
 		clients[name] = c
 	}
-	return func(ctx context.Context, svc, action string, params map[string]any) (json.RawMessage, error) {
+	return func(ctx context.Context, svc, action string, params map[string]any) (result json.RawMessage, callErr error) {
+		defer func() { callErr = connector.WithSourceAPI("aliyun", strings.ToUpper(svc)+" "+action, callErr) }()
 		client, ok := clients[svc]
 		if !ok {
 			return nil, fmt.Errorf("unsupported asset service")
@@ -88,11 +89,11 @@ func AliyunCall(cred connector.Credential, region string) (Call, error) {
 			BodyType:    tea.String("binary"),
 		}
 		runtime := &service.RuntimeOptions{ConnectTimeout: tea.Int(10000), ReadTimeout: tea.Int(15000)}
-		result, err := client.CallApi(p, &openapi.OpenApiRequest{Query: aliyunQuery(region, params)}, runtime)
+		response, err := client.CallApi(p, &openapi.OpenApiRequest{Query: aliyunQuery(region, params)}, runtime)
 		if err != nil {
 			return nil, err
 		}
-		body, ok := result["body"].(io.ReadCloser)
+		body, ok := response["body"].(io.ReadCloser)
 		if !ok {
 			return nil, fmt.Errorf("Alibaba API returned no response stream")
 		}
@@ -152,6 +153,7 @@ func aliyunPolicyComponent(raw json.RawMessage, err error) model.AssetComponent 
 	c := model.AssetComponent{Status: "failed", SourceAPI: api, APIVersion: aliyunECSAV}
 	if err != nil {
 		c.Reason = errorCode(err, "aliyun")
+		c.SourceError = connector.SourceError(connector.WithSourceAPI("aliyun", c.SourceAPI, err))
 		return c
 	}
 	var response struct{ Permissions json.RawMessage }

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
 // Beijing is the timezone used by the Chinese cloud security APIs for their
@@ -122,6 +124,26 @@ func JoinNonEmpty(sep string, values ...string) string {
 		}
 	}
 	return strings.Join(parts, sep)
+}
+
+// NamedResource builds the primary resource and records where its display name
+// came from. vendorName must be a human-readable name the source declares for
+// that exact asset. fallbacks are identifiers (domain, IP, native ID); they are
+// used only when no name is declared, and the result says so. Mappers must not
+// pass titles, alert text or locally derived labels as vendorName.
+func NamedResource(id, typ, vendorName string, fallbacks ...string) model.Resource {
+	resource := model.Resource{ID: id, Type: typ}
+	if name := strings.TrimSpace(vendorName); name != "" {
+		resource.Name, resource.Source = name, model.ResourceSourceVendorDeclared
+		return resource
+	}
+	for _, fallback := range fallbacks {
+		if name := strings.TrimSpace(fallback); name != "" {
+			resource.Name, resource.Source = name, model.ResourceSourceIdentifierFallback
+			return resource
+		}
+	}
+	return resource
 }
 
 // RetryDelay returns the backoff before retry attempt n (1-based), capped at

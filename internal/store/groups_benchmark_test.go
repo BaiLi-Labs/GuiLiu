@@ -29,8 +29,8 @@ func BenchmarkAlertGroups300K(b *testing.B) {
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO alerts
 		(id,provider,account_id,account_name,product,external_id,dedupe_key,title,severity_id,severity,alert_type,
-		event_time,first_seen_at,last_seen_at,region,resource_id,resource_name,src_ip,ocsf,raw,created_at,updated_at,canonical,raw_hash,content_hash,revision,sequence,ingested_at,last_ingested_at,rule_id,account_uid)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+		event_time,first_seen_at,last_seen_at,region,resource_id,resource_name,resource_type,src_ip,ocsf,raw,created_at,updated_at,canonical,raw_hash,content_hash,revision,sequence,ingested_at,last_ingested_at,rule_id,account_uid)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'host',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		b.Fatal(err)
 	}
