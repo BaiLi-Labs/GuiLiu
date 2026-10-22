@@ -59,6 +59,7 @@ type Store interface {
 	ListAlertRevisions(ctx context.Context, alertID string, limit int) ([]model.AlertRevision, error)
 	UpdateAlertStatus(ctx context.Context, id string, status model.AlertStatus) error
 	AlertStats(ctx context.Context, filter model.AlertFilter) (*model.AlertStats, error)
+	ObservedEventRanges(ctx context.Context, filter model.AlertFilter) (map[string]model.ObservedEventRange, error)
 
 	GetSyncState(ctx context.Context, accountID string) (*model.SyncState, error)
 	SaveSyncState(ctx context.Context, state *model.SyncState) error

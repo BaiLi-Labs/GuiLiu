@@ -49,7 +49,7 @@ func newAssetsCommand(g *globalOptions) (*flagSet, runFunc) {
 		if out.JSON && all {
 			return usagef("--all requires table or --ndjson; use --limit for one JSON page")
 		}
-		columns, err := assetTableColumns(out.Fields)
+		columns, err := assetTableColumns(out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func newAssetsCommand(g *globalOptions) (*flagSet, runFunc) {
 				truncated = true
 			}
 			if out.NDJSON {
-				if err := emitNDJSON(stdout, batch); err != nil {
+				if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 					return err
 				}
 			} else {
@@ -189,6 +189,7 @@ func newComponentCommand(g *globalOptions) (*flagSet, runFunc) {
 
 type assetLookupResponse struct {
 	Status      string              `json:"status"`
+	Reason      string              `json:"reason,omitempty"`
 	Asset       *model.Asset        `json:"asset,omitempty"`
 	Refresh     *model.AssetRefresh `json:"refresh,omitempty"`
 	Scope       *query.AssetScope   `json:"scope,omitempty"`
@@ -199,7 +200,7 @@ func newLookupCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs := newFlagSet("lookup", io.Discard)
 	registerGlobalFlags(fs, g)
 	var provider, account, accountUID, region, resourceType, resourceID string
-	fs.String(&provider, "provider", "", "Provider; currently tencent")
+	fs.String(&provider, "provider", "", "Provider ID, e.g. tencent")
 	fs.String(&account, "account", "", "Optional source connection ID for refresh status")
 	fs.String(&accountUID, "account-uid", "", "Native cloud account UID")
 	fs.String(&region, "region", "", "Cloud region")
@@ -292,7 +293,7 @@ func newFindingsCommand(g *globalOptions) (*flagSet, runFunc) {
 		if out.JSON && all {
 			return usagef("--all requires table or --ndjson; use --limit for one JSON page")
 		}
-		columns, err := alertTableColumns(out.Fields)
+		columns, err := alertTableColumns(out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -329,7 +330,7 @@ func newFindingsCommand(g *globalOptions) (*flagSet, runFunc) {
 				truncated = true
 			}
 			if out.NDJSON {
-				if err := emitNDJSON(stdout, batch); err != nil {
+				if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 					return err
 				}
 			} else {
@@ -416,7 +417,7 @@ func newHealthCommand(g *globalOptions) (*flagSet, runFunc) {
 			}
 			return renderAccountHealth(stdout, health)
 		}
-		columns, err := healthTableColumns(out.Fields)
+		columns, err := healthTableColumns(out.tableFields())
 		if err != nil {
 			return err
 		}

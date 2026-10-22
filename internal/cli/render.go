@@ -106,14 +106,14 @@ func shortTime(value string) string {
 	if err != nil {
 		return value
 	}
-	return t.UTC().Format("2006-01-02 15:04:05")
+	return t.UTC().Format("2006-01-02 15:04:05 UTC")
 }
 
 func shortTimeValue(value time.Time) string {
 	if value.IsZero() {
 		return "-"
 	}
-	return value.UTC().Format("2006-01-02 15:04:05")
+	return value.UTC().Format("2006-01-02 15:04:05 UTC")
 }
 
 func shortTimePtr(value *time.Time) string {
@@ -458,6 +458,9 @@ func renderAssetDetail(w io.Writer, a model.Asset) error {
 }
 
 func renderAssetLookup(w io.Writer, result assetLookupResponse) error {
+	if result.Reason != "" {
+		fmt.Fprintf(w, "reason %s\n", clean(result.Reason))
+	}
 	fmt.Fprintf(w, "status %s\n", clean(result.Status))
 	if result.Asset != nil {
 		fmt.Fprintln(w)
@@ -542,7 +545,18 @@ func renderSourceError(w io.Writer, sourceError *model.SourceError) {
 
 func printCoverage(w io.Writer, coverage *model.Coverage) {
 	if coverage != nil && !coverage.Complete {
-		fmt.Fprint(w, ", coverage incomplete")
+		fmt.Fprint(w, ", collection window not fully confirmed")
+	}
+	if coverage == nil {
+		return
+	}
+	for _, a := range coverage.Accounts {
+		for _, gap := range a.OutsideCompletedWindows {
+			fmt.Fprintf(w, ", account %s outside completed source query bounds %s .. %s (%gs, %s; not a missing-event count)", clean(a.AccountID), shortTimeValue(gap.Start), shortTimeValue(gap.End), gap.DurationSeconds, clean(gap.Reason))
+		}
+		if len(a.Reasons) > 0 {
+			fmt.Fprintf(w, ", account %s reasons=%s", clean(a.AccountID), clean(strings.Join(a.Reasons, ",")))
+		}
 	}
 }
 
@@ -554,9 +568,8 @@ func renderStats(w io.Writer, stats statsResponse) error {
 	if stats.SnapshotSequence != nil {
 		fmt.Fprintf(w, "snapshot %d\n", *stats.SnapshotSequence)
 	}
-	if stats.Coverage != nil && !stats.Coverage.Complete {
-		fmt.Fprintln(w, "coverage incomplete")
-	}
+	printCoverage(w, stats.Coverage)
+	fmt.Fprintln(w)
 	renderCounts(w, "by_severity", stats.Statistics.BySeverity, severityKeys(stats.Statistics.BySeverity))
 	renderCounts(w, "by_provider", stats.Statistics.ByProvider, countKeys(stats.Statistics.ByProvider))
 	renderCounts(w, "by_status", stats.Statistics.ByStatus, countKeys(stats.Statistics.ByStatus))
@@ -576,7 +589,23 @@ func renderStats(w io.Writer, stats statsResponse) error {
 			fmt.Fprintf(w, "  %-40s %d\n", truncate(clean(label), 40), item.Count)
 		}
 	}
+	for _, key := range countKeysDistribution(stats.Statistics.Distributions) {
+		d := stats.Statistics.Distributions[key]
+		fmt.Fprintf(w, "\n%s (distinct=%d, missing=%d, other=%d, has_more=%v)\n", key, d.DistinctCount, d.MissingCount, d.OtherCount, d.HasMore)
+		for _, v := range d.Top {
+			fmt.Fprintf(w, "  %s %s %d\n", clean(v.Key), v.Severity, v.Count)
+		}
+	}
 	return nil
+}
+
+func countKeysDistribution(values map[string]model.FieldDistribution) []string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func renderCounts(w io.Writer, title string, values map[string]int, keys []string) {
@@ -623,6 +652,11 @@ func severityKeys(values map[string]int) []string {
 func renderCoverage(w io.Writer, coverage model.Coverage) error {
 	fmt.Fprintf(w, "complete %v\n", coverage.Complete)
 	fmt.Fprintf(w, "boundary %s\n\n", clean(coverage.Boundary))
+	printCoverage(w, &coverage)
+	fmt.Fprintln(w)
+	for _, a := range coverage.Accounts {
+		fmt.Fprintf(w, "account %s source time basis: %s; completed source query bounds: %s .. %s; observed matching findings: %d, event_time: %s .. %s\n", clean(a.AccountID), clean(a.TimeBasis), shortTimePtr(a.CoverageStart), shortTimePtr(a.Watermark), a.ObservedEvents.FindingCount, shortTimePtr(a.ObservedEvents.Start), shortTimePtr(a.ObservedEvents.End))
+	}
 	if len(coverage.Accounts) == 0 {
 		fmt.Fprintln(w, "No accounts.")
 		return nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
@@ -97,6 +98,10 @@ func FindingQuery(ctx context.Context, f model.AlertFilter) {
 		values["end"] = f.End.UTC().Format(time.RFC3339Nano)
 	}
 	values["time_field"] = f.TimeField
+	if len(f.StatsOptions.TopBy) > 0 {
+		values["top_by"] = strings.Join(f.StatsOptions.TopBy, ",")
+		values["top_n"] = f.StatsOptions.TopN
+	}
 	if f.TimeField == "" {
 		values["time_field"] = "event_time"
 	}

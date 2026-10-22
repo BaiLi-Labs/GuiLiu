@@ -208,7 +208,7 @@ func TestQueryUsageErrors(t *testing.T) {
 		{"all with json", []string{"alerts", "--json", "--all"}, "--all requires table or --ndjson"},
 		{"wide window", []string{"alerts", "--start", "2026-01-01", "--end", "2026-06-01"}, "time range exceeds"},
 		{"bad field", []string{"alerts", "--fields", "nope"}, "unknown field"},
-		{"fields with json", []string{"alerts", "--fields", "id", "--json"}, "--fields is for table output"},
+		{"fields with json", []string{"alerts", "--fields", "id", "--json"}, "--fields supports table or --ndjson"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

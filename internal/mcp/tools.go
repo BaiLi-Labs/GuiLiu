@@ -15,7 +15,6 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
-	"github.com/BaiLi-Labs/GuiLiu/internal/timeutil"
 	"github.com/BaiLi-Labs/GuiLiu/internal/view"
 )
 
@@ -117,7 +116,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert_statistics",
-		Description: "Aggregate alert counts by severity, provider, status, day and top assets. Defaults to the last 7 days.",
+		Description: "Count stored Findings, with bounded exact-value distributions, distinct/missing counts and UTC day buckets. No quality or security verdict. Defaults to the last 7 days.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"provider":   strProp("Provider id"),
 			"account_id": strProp("Configured account id"),
@@ -262,6 +261,22 @@ func (s *Server) toolStatistics(ctx context.Context, args map[string]any) (any, 
 	if err != nil {
 		return nil, err
 	}
+	topN := ""
+	if v, ok := args["top_n"]; ok {
+		if n, ok := v.(float64); !ok || math.Trunc(n) != n {
+			return nil, errors.New("top_n must be an integer")
+		}
+		topN = fmt.Sprint(v)
+	}
+	if v, ok := args["top_by"]; ok {
+		if _, ok := v.(string); !ok {
+			return nil, errors.New("top_by must be a comma-separated string")
+		}
+	}
+	f.StatsOptions, err = query.ParseStatsOptions(argString(args, "top_by"), topN)
+	if err != nil {
+		return nil, err
+	}
 	f.Limit = 1
 	if err := query.PinSnapshot(ctx, s.store, &f); err != nil {
 		return nil, err
@@ -275,11 +290,8 @@ func (s *Server) toolStatistics(ctx context.Context, args map[string]any) (any, 
 		return nil, err
 	}
 	return map[string]any{"snapshot_sequence": f.SnapshotSequence,
-		"coverage": coverage,
-		"window": map[string]any{
-			"start": timeutil.Format(derefTime(f.Start)),
-			"end":   timeutil.Format(derefTime(f.End)),
-		},
+		"coverage":   coverage,
+		"window":     view.WindowFromFilter(f),
 		"statistics": view.Summarize(*stats),
 	}, nil
 }

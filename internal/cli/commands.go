@@ -35,8 +35,8 @@ func (o *outputOptions) validate() error {
 	if o.Pretty && !o.JSON {
 		return usagef("--pretty requires --json")
 	}
-	if o.Fields != "" && (o.JSON || o.NDJSON) {
-		return usagef("--fields is for table output; use jq with --json/--ndjson")
+	if o.Fields != "" && o.JSON {
+		return usagef("--fields supports table or --ndjson output; --json preserves the REST response")
 	}
 	return nil
 }
@@ -81,7 +81,7 @@ func registerGlobalFlags(fs *flagSet, g *globalOptions) {
 	fs.Bool(&g.out.Pretty, "pretty", g.out.Pretty, "Indent --json output")
 	fs.Bool(&g.out.Quiet, "quiet", g.out.Quiet, "Suppress table metadata on stderr")
 	fs.Bool(&g.out.Describe, "describe", g.out.Describe, "Print machine-readable command and flag metadata")
-	fs.String(&g.out.Fields, "fields", g.out.Fields, "Comma-separated table columns; use jq for JSON/NDJSON projection")
+	fs.String(&g.out.Fields, "fields", g.out.Fields, "Table columns or NDJSON JSON field paths, e.g. id,title,resource.id")
 }
 
 // Run executes `guiliu query ...` and returns a process exit code.
@@ -164,6 +164,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if err := g.out.validate(); err != nil {
 		fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
 		return 2
+	}
+	if g.out.NDJSON && g.out.Fields != "" {
+		if err := validateProjection(cmd.name, g.out.Fields); err != nil {
+			fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+			return 2
+		}
 	}
 	key, err := g.apiKey(stderr)
 	if err != nil {
@@ -496,12 +502,14 @@ type limitsInfo struct {
 }
 
 type commandInfo struct {
-	Name     string    `json:"name"`
-	Summary  string    `json:"summary"`
-	Usage    string    `json:"usage"`
-	Endpoint string    `json:"endpoint"`
-	Examples []string  `json:"examples"`
-	Flags    []flagDef `json:"flags"`
+	Name           string         `json:"name"`
+	Summary        string         `json:"summary"`
+	Usage          string         `json:"usage"`
+	Endpoint       string         `json:"endpoint"`
+	Examples       []string       `json:"examples"`
+	Flags          []flagDef      `json:"flags"`
+	ResponseSchema map[string]any `json:"response_schema"`
+	NDJSONSchema   map[string]any `json:"ndjson_item_schema,omitempty"`
 }
 
 type describeOutput struct {
@@ -557,12 +565,14 @@ func commandInfoFrom(cmd *command, fs *flagSet, globalCount int) commandInfo {
 		flags = append(flags, fs.defs[globalCount:]...)
 	}
 	return commandInfo{
-		Name:     cmd.name,
-		Summary:  cmd.summary,
-		Usage:    cmd.usage,
-		Endpoint: cmd.endpoint,
-		Examples: cmd.examples,
-		Flags:    flags,
+		Name:           cmd.name,
+		Summary:        cmd.summary,
+		Usage:          cmd.usage,
+		Endpoint:       cmd.endpoint,
+		Examples:       cmd.examples,
+		Flags:          flags,
+		ResponseSchema: responseSchema(cmd.name),
+		NDJSONSchema:   ndjsonSchema(cmd.name),
 	}
 }
 
@@ -579,7 +589,7 @@ func describeOutputFormat() outputInfo {
 		Default: "table",
 		JSON:    "Exact REST response body; one page only, because --all is rejected with --json.",
 		NDJSON:  "One JSON record per line; pagination metadata and the next cursor go to stderr. Combine with --all for batches.",
-		Fields:  "Comma-separated table columns. Use jq for JSON/NDJSON projection.",
+		Fields:  "Table columns or NDJSON JSON field paths. NDJSON preserves nested objects and exact JSON numbers; absent optional fields become null. Arrays/maps/raw payloads can be selected whole, not traversed. --json always preserves the full REST response.",
 		ExitCodes: map[string]string{
 			"0": "success, including an empty result",
 			"1": "API or network error",

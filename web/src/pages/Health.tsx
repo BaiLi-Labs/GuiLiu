@@ -18,6 +18,8 @@ const runStatus: Record<string, { label: string; cls: string }> = {
 };
 const triggers: Record<string, string> = { schedule: '定时', manual: '手动', startup: '启动', api: '手动' };
 const coverageText: Record<string, string> = {
+  collection_window_bounds_are_not_event_time_coverage: '采集窗口按来源筛选时间记录，不代表事件时间的完整覆盖。',
+  sync_metadata_is_current_not_snapshot_versioned: '同步状态为当前状态；告警时间范围按返回的快照计算。',
   upstream_permissions_and_retention: '受上游权限与数据保留期限限制。',
   not_all_vendor_products: '只覆盖接入 API 汇集的产品。',
   no_historical_state_reconciliation: '尚未持续核对全部历史记录的最新状态。',
@@ -222,8 +224,11 @@ export function Health() {
             <summary>{account.name} · {account.api}</summary>
             <dl className="detail-fields mt-3">
               <dt>API</dt><dd>{account.api_version}</dd>
-              <dt>{t('历史起点')}</dt><dd>{formatDate(account.coverage_start || undefined)}</dd>
-              <dt>{t('数据截至')}</dt><dd>{formatDate(account.watermark || undefined)}</dd>
+              <dt>{t('已完成采集窗口起点')}</dt><dd>{formatDate(account.coverage_start || undefined)}</dd>
+              <dt>{t('已完成采集窗口终点')}</dt><dd>{formatDate(account.watermark || undefined)}</dd>
+              <dt>{t('本地命中的告警记录数')}</dt><dd>{fmtNum(account.observed_events?.finding_count)}</dd>
+              <dt>{t('命中记录的事件时间范围')}</dt><dd>{formatDate(account.observed_events?.start || undefined)} — {formatDate(account.observed_events?.end || undefined)}</dd>
+              {account.pending_window ? <><dt>{t('尚未完成采集的窗口')}</dt><dd>{formatDate(account.pending_window.start)} — {formatDate(account.pending_window.end)}</dd></> : null}
               <dt>{t('接入范围')}</dt>
               <dd className="break-all font-mono text-xs">{JSON.stringify(account.scope)}</dd>
               <dt>{t('采集时间依据')}</dt><dd>{t(coverageText[account.time_basis] || account.time_basis)}</dd>

@@ -39,6 +39,16 @@ func TestAssetContextDisclosesScopeAndSourceError(t *testing.T) {
 	if got.Status != "unavailable" || got.Reason != "not_collected" {
 		t.Fatalf("context = %+v", got)
 	}
+	filter := model.AssetFilter{AccountID: account.ID, Provider: "tencent", AccountUID: account.AccountUID, Region: account.Region, ResourceType: "cvm", ResourceID: "ins-abc"}
+	lookupBefore, err := LookupAsset(ctx, st, filter)
+	if err != nil || lookupBefore.Status != "not_collected" || lookupBefore.Reason != "no_recorded_refresh" {
+		t.Fatalf("unrequested refresh: %+v %v", lookupBefore, err)
+	}
+	filter.AccountID = ""
+	lookupBefore, err = LookupAsset(ctx, st, filter)
+	if err != nil || lookupBefore.Reason != "no_saved_observation_refresh_not_checked" {
+		t.Fatalf("unspecified connection: %+v %v", lookupBefore, err)
+	}
 	if got.Scope == nil || got.Scope.Provider != "tencent" || got.Scope.Region != "ap-guangzhou" ||
 		got.Scope.ResourceType != "cvm" || got.Scope.ResourceID != "ins-abc" ||
 		got.Scope.SourceAPI != "CVM DescribeInstances" || got.Scope.APIVersion == "" {

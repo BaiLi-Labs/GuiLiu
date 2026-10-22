@@ -311,6 +311,8 @@ func Summarize(m model.AlertStats) map[string]any {
 		"by_status":     m.ByStatus,
 		"by_day":        m.ByDay,
 		"top_resources": m.TopResources,
+		"distributions": m.Distributions,
+		"day_timezone":  m.DayTimezone,
 	}
 }
 

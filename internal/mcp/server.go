@@ -330,8 +330,17 @@ type Tool struct {
 
 func (s *Server) register(t Tool) {
 	if props, ok := t.InputSchema["properties"].(map[string]any); ok {
+		if t.Name == "get_alert_statistics" {
+			props["top_by"] = strProp("Comma-separated exact-value dimensions: " + model.StatsDimensions + "; defaults to title,source_ip,source_country")
+			props["top_n"] = intProp("Maximum values per distribution", model.StatsDefaultTopN, 1, model.StatsMaxTopN)
+		}
+		if t.Name == "get_alert_statistics" || t.Name == "get_data_coverage" {
+			for _, key := range []string{"keyword", "ip", "resource", "severity", "status"} {
+				props[key] = strProp("Same filter as list_alerts")
+			}
+		}
 		switch t.Name {
-		case "list_alerts", "list_alert_groups", "get_alert_group", "search_alerts_by_ip", "search_alerts_by_asset", "get_alert_statistics":
+		case "list_alerts", "list_alert_groups", "get_alert_group", "search_alerts_by_ip", "search_alerts_by_asset", "get_alert_statistics", "get_data_coverage":
 			for key, value := range map[string]any{"time_field": strProp("Timestamp used by start/end: event_time (default), source_updated_at or ingested_at"),
 				"vendor_title": strProp("Exact source-reported finding title; a statistical field, not a rule ID"), "asset_snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned asset watermark for stable network group membership"}, "rule_id": strProp("Exact native rule ID, scoped by provider and product"), "finding_kind": strProp("detection, vulnerability, compliance, incident or other"), "vendor_status": strProp("Exact source status; independent of local annotation status"), "observable_type": map[string]any{"type": "integer", "minimum": 0, "description": "OCSF observable type ID"}, "observable_value": strProp("Exact typed observable value: IP, domain, hash, account, user or resource"), "snapshot_sequence": map[string]any{"type": "integer", "minimum": 0, "description": "Reuse the returned snapshot sequence for stable paging and group expansion"}, "after_id": strProp("Continue an ID-sorted snapshot using next_cursor")} {
 				props[key] = value

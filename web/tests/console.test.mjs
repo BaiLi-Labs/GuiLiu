@@ -429,3 +429,21 @@ test('API errors retain structured SDK diagnostics without confusing cloud refus
     });
   } finally { responseStatus=200; responseText=''; }
 });
+
+test('field distributions expose counts without data-quality verdicts', () => {
+  const { FieldDistribution } = load('src/components/FieldDistribution.tsx');
+  const distribution = { distinct_count: 1, missing_count: 2, other_count: 0, has_more: false, top_n: 20, top: [{ key: '<source-value>', count: 8 }] };
+  i18n.setLocale('en-US');
+  let html = renderToStaticMarkup(React.createElement(FieldDistribution, { label: '源 IP 分布', distribution }));
+  assert.match(html, /Distinct values/);
+  assert.match(html, /Missing values/);
+  assert.match(html, /&lt;source-value&gt;/);
+  assert.match(html, /no identity or security conclusion/);
+  assert.doesNotMatch(html, /unusable|low quality|high risk/i);
+  assert.doesNotMatch(html, /Findings with other values/);
+  i18n.setLocale('zh-CN');
+  html = renderToStaticMarkup(React.createElement(FieldDistribution, { label: '告警标题分布', distribution: { ...distribution, has_more: true, other_count: 3 } }));
+  assert.match(html, /未展示值对应的记录数/);
+  assert.match(html, /字段缺失/);
+  assert.equal(renderToStaticMarkup(React.createElement(FieldDistribution, { label: '告警标题分布' })), '');
+});

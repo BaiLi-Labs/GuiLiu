@@ -19,7 +19,7 @@ paginate, wants to keep large results out of its context, or runs in CI/cron.
 export GUILIU_URL="http://127.0.0.1:8080"   # default
 export GUILIU_API_KEY="glk_..."             # created in the console: API & MCP
 guiliu query --help
-guiliu query describe                      # machine-readable commands and flags
+guiliu query describe                      # commands, flags and response JSON Schemas
 guiliu query alerts --help                 # one command
 ```
 
@@ -38,12 +38,18 @@ coverage warnings go to stderr.
 | `--json` | Exact REST response body, one page. Use `jq` to project. |
 | `--ndjson` | One JSON record per line. Combine with `--all` for batches. |
 | `--all` | Follow the server cursor/offset until exhausted or `--max-items` (default 1000). |
-| `--fields` | Table-only column selection; not allowed with `--json`/`--ndjson`. |
+| `--fields` | Table columns, or real JSON paths with `--ndjson` (e.g. `id,resource.id`). Not allowed with exact `--json`. |
 | `--quiet` | Suppress the stderr metadata line. |
 
 Agent-sized defaults: alert lists and stats use the last 7 days, groups use the
 last 24 hours, and the window is capped at 90 days. Pass `--since 24h`,
 `--start`/`--end` to change it. `--start` and `--since` are mutually exclusive.
+
+Use `<command> --describe` to read `response_schema` and `ndjson_item_schema`
+before choosing field paths. NDJSON projection keeps nested objects and exact
+JSON numbers, returns null for absent optional fields, and rejects unknown or
+overlapping paths. Select arrays/maps/raw payloads whole; no query expressions.
+Table timestamps carry an explicit UTC suffix.
 
 ## Recipes
 
@@ -70,7 +76,7 @@ statements (for example `BlockAttackIP`); they are not platform verdicts.
 
 ```bash
 guiliu query alerts --since 7d --all --max-items 500 --ndjson \
-  | jq -c '{id,severity,title,event_time,source_ip,resource:.resource.name}' \
+  --fields id,severity,title,event_time,source_ip,resource.id \
   > alerts.ndjson
 ```
 
@@ -110,6 +116,10 @@ guiliu query alerts \
   --json
 ```
 
+Group members use `finding_count`, `top_titles[].key/count` and `max_severity`.
+`summary` is null for `signature`, `source` and `type_asset`; it is an object
+only for asset/network grouping. This does not mean those groups failed.
+
 ### 5. Incremental consumption
 
 ```bash
@@ -131,12 +141,36 @@ to stderr.
 
 ```bash
 guiliu query coverage --since 7d --json \
-  | jq '{complete, accounts:[.accounts[]|{name,status,complete,watermark,last_error}]}'
+  | jq '{query_window,snapshot_sequence,complete,accounts:[.accounts[]|{name,status,time_basis,coverage_start,watermark,observed_events,outside_completed_windows,pending_window,reasons,last_error}]}'
 ```
 
-`complete=false`, a stale watermark or a disabled account means the empty list
-is not proof of absence. `list`/`stats` stderr also says `coverage incomplete`
-when applicable. Check `guiliu query health --json` for ingestion errors.
+`coverage_start` is the first successfully completed source query's start,
+not the oldest event time. `watermark` is the last completed source query's
+end. `observed_events` separately reports matching stored Finding counts and
+event times at the returned snapshot. Older events may arrive in later windows.
+`outside_completed_windows` compares requested timestamp bounds to source
+query bounds; durations are not missing-event counts or percentages. Read the
+source `time_basis` before comparing it with the query's `time_field`.
+Sync status remains current even for an old Finding snapshot.
+
+`complete` is a mechanical collection check, not a usability score or delivery
+guarantee. An empty list never proves absence in all upstream products.
+CLI metadata explains bounds outside completed collection and reason codes.
+Check `guiliu query health --json` for ingestion errors.
+
+For exact counts without exporting every Finding:
+
+```bash
+guiliu query stats --since 72h --top-by title,source_ip,source_country,severity_day --top-n 20 --json
+```
+
+Read `statistics.distributions.<dimension>.distinct_count/missing_count/top/other_count/has_more`.
+`top` contains `key/count`, and `severity_day` adds `severity` with UTC dates.
+All counts refer to Finding records; top counts + other_count + missing_count
+equal total. Source IP counts use the explicit source field; `group_by=source`
+instead groups source IP plus alert type. Constant values are reported as facts,
+without a field-quality verdict. Reuse `--snapshot-sequence` and absolute bounds
+for matching statistics, list and coverage queries.
 
 ### 7. Assets
 
@@ -190,5 +224,11 @@ guiliu query failures --account "$ACCOUNT_ID" --json
 ### Asset and network grouping
 
 Use `groups --group-by asset` (default), `name_asset` (exact source title, not a rule), `vpc`, `subnet`, `security_group`, or `nic`. Network groups reflect explicit saved primary-host references, not traffic paths or effective policy. Check page `summary`: unique Finding count differs from overlapping memberships; missing context is not absence of cloud resources. Group asset/title samples are limited to 5.
+
+`lookup` with `reason=no_recorded_refresh` means no saved attempt for the selected
+connection; `no_saved_observation_refresh_not_checked` means no matching local
+observation and refresh was not checked (for example no connection was selected).
+Use the explicit connection ID to inspect recorded failures. These read queries
+never collect cloud assets implicitly.
 
 For paging or expansion preserve **both** `--snapshot-sequence` and `--asset-snapshot-sequence` plus absolute start/end and filters. Expand with `alerts --group-by security_group --group-key '<returned key>' ...`; add `--vendor-title` only for exact source-title filtering. Preserve title whitespace and case. Queries never implicitly refresh cloud assets. Current asset observations are not event-time configuration; use returned asset IDs/revisions for exact evidence.

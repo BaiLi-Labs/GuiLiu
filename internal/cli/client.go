@@ -145,8 +145,13 @@ func decodeAPIError(status int, requestID string, body []byte) error {
 
 func decode[T any](body []byte) (T, error) {
 	var value T
-	if err := json.Unmarshal(body, &value); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
 		return value, fmt.Errorf("decode response: %w", err)
+	}
+	if len(bytes.TrimSpace(body[dec.InputOffset():])) > 0 {
+		return value, fmt.Errorf("decode response: unexpected trailing data")
 	}
 	return value, nil
 }
@@ -166,11 +171,22 @@ func emitJSON(w io.Writer, body []byte, pretty bool) error {
 	return err
 }
 
-func emitNDJSON[T any](w io.Writer, items []T) error {
+func emitNDJSON[T any](w io.Writer, items []T, fields string) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	for _, item := range items {
-		if err := enc.Encode(item); err != nil {
+		var output any = item
+		if fields != "" {
+			data, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			output, err = projectJSON(data, fields)
+			if err != nil {
+				return err
+			}
+		}
+		if err := enc.Encode(output); err != nil {
 			return err
 		}
 	}

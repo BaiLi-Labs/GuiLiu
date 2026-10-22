@@ -598,6 +598,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
+	f.StatsOptions, err = query.ParseStatsOptions(r.URL.Query().Get("top_by"), r.URL.Query().Get("top_n"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	f.Limit = 1
 	stats, err := s.store.AlertStats(r.Context(), f)
 	if err != nil {
@@ -610,10 +615,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"snapshot_sequence": f.SnapshotSequence, "coverage": coverage,
-		"window": map[string]any{
-			"start": formatOptional(f.Start),
-			"end":   formatOptional(f.End),
-		},
+		"window":     view.WindowFromFilter(f),
 		"statistics": view.Summarize(*stats),
 	})
 }

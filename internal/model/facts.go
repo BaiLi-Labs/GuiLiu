@@ -51,28 +51,60 @@ type ChangePage struct {
 }
 
 type Coverage struct {
-	Complete bool              `json:"complete"`
-	Accounts []AccountCoverage `json:"accounts"`
+	Complete         bool                `json:"complete"`
+	Accounts         []AccountCoverage   `json:"accounts"`
+	SnapshotSequence *int64              `json:"snapshot_sequence"`
+	QueryWindow      CoverageQueryWindow `json:"query_window"`
 	// Completeness is bounded by these sources, permissions and recorded windows.
 	Boundary string `json:"boundary"`
 }
 
 type AccountCoverage struct {
-	AccountID       string            `json:"account_id"`
-	Provider        string            `json:"provider"`
-	Name            string            `json:"name"`
-	Enabled         bool              `json:"enabled"`
-	Scope           map[string]string `json:"scope"`
-	API             string            `json:"api"`
-	APIVersion      string            `json:"api_version"`
-	TimeBasis       string            `json:"time_basis"`
-	Status          string            `json:"status"`
-	Complete        bool              `json:"complete"`
-	CoverageStart   *time.Time        `json:"coverage_start"`
-	Watermark       *time.Time        `json:"watermark"`
-	LastSuccessAt   *time.Time        `json:"last_success_at"`
-	FailedRecords   int               `json:"failed_records"`
-	LastError       string            `json:"last_error,omitempty"`
-	LastSourceError *SourceError      `json:"last_source_error,omitempty"`
-	Limitations     []string          `json:"limitations"`
+	AccountID               string               `json:"account_id"`
+	Provider                string               `json:"provider"`
+	Name                    string               `json:"name"`
+	Enabled                 bool                 `json:"enabled"`
+	Scope                   map[string]string    `json:"scope"`
+	API                     string               `json:"api"`
+	APIVersion              string               `json:"api_version"`
+	TimeBasis               string               `json:"time_basis"`
+	Status                  string               `json:"status"`
+	Complete                bool                 `json:"complete"`
+	CoverageStart           *time.Time           `json:"coverage_start"`
+	Watermark               *time.Time           `json:"watermark"`
+	LastSuccessAt           *time.Time           `json:"last_success_at"`
+	FailedRecords           int                  `json:"failed_records"`
+	LastError               string               `json:"last_error,omitempty"`
+	LastSourceError         *SourceError         `json:"last_source_error,omitempty"`
+	Limitations             []string             `json:"limitations"`
+	ObservedEvents          ObservedEventRange   `json:"observed_events"`
+	OutsideCompletedWindows []CollectionInterval `json:"outside_completed_windows"`
+	PendingWindow           *CollectionWindow    `json:"pending_window"`
+	LastAttemptAt           *time.Time           `json:"last_attempt_at"`
+	Reasons                 []string             `json:"reasons"`
+}
+
+type CoverageQueryWindow struct {
+	Start     *time.Time `json:"start"`
+	End       *time.Time `json:"end"`
+	TimeField string     `json:"time_field"`
+}
+
+type CollectionWindow struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// These are source query bounds, not proof of missing events in this interval.
+type CollectionInterval struct {
+	CollectionWindow
+	DurationSeconds float64 `json:"duration_seconds"`
+	Reason          string  `json:"reason"`
+}
+
+// Counts and event bounds of matching stored Findings, never collection bounds.
+type ObservedEventRange struct {
+	FindingCount int        `json:"finding_count"`
+	Start        *time.Time `json:"start"`
+	End          *time.Time `json:"end"`
 }

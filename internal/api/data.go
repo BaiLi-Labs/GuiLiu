@@ -54,6 +54,10 @@ func (s *Server) handleCoverage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
+	if err := query.PinSnapshot(r.Context(), s.store, &f); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
 	c, err := query.Coverage(r.Context(), s.store, s.registry, f, 3*s.cfg.Sync.Interval.Get())
 	if err != nil {
 		s.writeStoreError(w, err)

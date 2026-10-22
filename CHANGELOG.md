@@ -4,8 +4,14 @@
 
 ## [Unreleased]
 
+## [0.3.2-dev] - 2026-10-22（开发中，未发布）
+
 ### 新增与调整
 
+- Coverage 区分来源查询的完成采集边界、同快照命中记录的事件范围、未完成分页窗口和失败原因；边界外区间返回起止和秒数，不推断缺失告警比例，不给数据打可用性评分。`coverage_start` 的原有采集窗口含义不变。
+- 统计新增有界字段分布 `top_by/top_n`，返回精确原值的不同值数、缺失数、前 N 项与剩余记录数；覆盖标题、源 IP、来源国家、UTC 日期与等级组合等维度。Web、REST、MCP、CLI 共用统计语义；字段恒定也不输出质量结论。
+- CLI `describe` 提供响应和 NDJSON 记录的 JSON Schema；`--ndjson --fields` 支持嵌套字段投影并保留 JSON 整数精度，表格时间带 UTC。资产查询补充未记录刷新与未检查刷新的原因区分。分组限制仅对适用分组返回，明确传统分组的 `summary=null`。
+- 本批补充快照与跨接口一致性、采集窗口、计数并列/空值、字段投影和元数据展示回归测试；使用合成数据及本地临时服务，未新增真实云厂商验证。
 - 告警的受影响资产名优先取来源为该资产声明的名称（阿里 `InstanceName`、华为/AWS 资源 `name`、GCP `displayName`、Azure `compromisedEntity`），没有声明时才回退到域名、IP 或原生 ID；新增 `resource.source` 区分 `vendor_declared` 与 `identifier_fallback`。告警标题、描述和本地标签不会被当作资产名。
 - 修正腾讯资产语义：`Victim.Name` 的语义在来源侧不一致（SDK 写企业名称、示例为 `name1`、真实主机资产上是显示名），因此不再作为 `resource.name`，改为原样保留到 `resource.declared_name`；`Victim.Account`（实测为 AppID）不再投影为 `resource.account_uid`。腾讯主机名仍以 CVM 资产观测为准。
 - 腾讯新增结构化投影：`source_location` / `source_country`（`Attacker.Address` / `Attacker.Country`）、`response_action`（`ProcessType`）；Azure 补受影响资源所属订阅。六家 mapper 升级到 v5，腾讯因上述资产语义修正升级到 `tencent-csip/v6`；历史记录可用 `guiliu replay -apply` 重放。

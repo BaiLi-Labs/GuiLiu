@@ -35,9 +35,9 @@ func newProvidersCommand(g *globalOptions) (*flagSet, runFunc) {
 			return err
 		}
 		if out.NDJSON {
-			return emitNDJSON(stdout, page.Providers)
+			return emitNDJSON(stdout, page.Providers, out.Fields)
 		}
-		columns, err := selectColumns(providerColumns(), []string{"id", "name", "vendor", "product", "mapper_version", "api_version"}, out.Fields)
+		columns, err := selectColumns(providerColumns(), []string{"id", "name", "vendor", "product", "mapper_version", "api_version"}, out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -101,9 +101,9 @@ func newMappingCommand(g *globalOptions) (*flagSet, runFunc) {
 			return err
 		}
 		if out.NDJSON {
-			return emitNDJSON(stdout, page.Fields)
+			return emitNDJSON(stdout, page.Fields, out.Fields)
 		}
-		columns, err := selectColumns(mappingColumns(), []string{"field", "source_paths", "transform"}, out.Fields)
+		columns, err := selectColumns(mappingColumns(), []string{"field", "source_paths", "transform"}, out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -168,11 +168,11 @@ func newFailuresCommand(g *globalOptions) (*flagSet, runFunc) {
 			return err
 		}
 		if out.NDJSON {
-			if err := emitNDJSON(stdout, page.Failures); err != nil {
+			if err := emitNDJSON(stdout, page.Failures, out.Fields); err != nil {
 				return err
 			}
 		} else {
-			columns, err := selectColumns(failureColumns(), []string{"id", "attempts", "mapper_version", "created_at", "last_attempt_at", "error"}, out.Fields)
+			columns, err := selectColumns(failureColumns(), []string{"id", "attempts", "mapper_version", "created_at", "last_attempt_at", "error"}, out.tableFields())
 			if err != nil {
 				return err
 			}

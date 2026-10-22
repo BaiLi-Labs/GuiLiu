@@ -280,6 +280,17 @@ export interface Statistics {
   by_status?: Record<string, number>;
   by_day?: DayCount[];
   top_resources?: Count[];
+  distributions?: Record<string, FieldDistribution>;
+  day_timezone?: string;
+}
+
+export interface FieldDistribution {
+  distinct_count: number;
+  missing_count: number;
+  other_count: number;
+  has_more: boolean;
+  top_n: number;
+  top: {key: string; severity?: string; count: number}[];
 }
 
 export interface StatsResponse {
@@ -348,5 +359,12 @@ export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp' | 'audi
 export interface Coverage {
  complete: boolean;
  boundary: string;
- accounts: Array<{account_id: string;provider: string;name: string;status: string;complete: boolean;api: string;api_version: string;scope: Record<string,string>;time_basis: string;coverage_start: string | null;watermark: string | null;failed_records: number;limitations: string[];last_source_error?: SourceError}>;
+ snapshot_sequence?: number;
+ query_window?: {start: string | null;end: string | null;time_field: string};
+ accounts: Array<{account_id: string;provider: string;name: string;status: string;complete: boolean;api: string;api_version: string;scope: Record<string,string>;time_basis: string;coverage_start: string | null;watermark: string | null;failed_records: number;limitations: string[];last_source_error?: SourceError;
+ observed_events?: {finding_count:number;start:string | null;end:string | null};
+ outside_completed_windows?: {start:string;end:string;duration_seconds:number;reason:string}[];
+ pending_window?: {start:string;end:string} | null;
+ reasons?: string[];
+ }>;
 }

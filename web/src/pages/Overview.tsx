@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
+import { FieldDistribution } from '../components/FieldDistribution';
 import { Empty, ErrorBox, SeverityBadge, SkeletonRows, StatCard } from '../components/ui';
 import {
   RANGE_OPTIONS,
@@ -189,6 +190,10 @@ export function Overview() {
                 ) : null}
               </div>
             </section>
+          </div>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <FieldDistribution label="告警标题分布" distribution={stats?.distributions?.title} />
+            <FieldDistribution label="源 IP 分布" distribution={stats?.distributions?.source_ip} />
           </div>
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section className="table-wrap">

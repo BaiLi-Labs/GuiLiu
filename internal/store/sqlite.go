@@ -792,6 +792,22 @@ func (s *SQLite) UpdateAlertStatus(ctx context.Context, id string, status model.
 }
 
 func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.AlertStats, error) {
+	if _, err := f.StatsOptions.Normalize(); err != nil {
+		return nil, err
+	}
+	if f.SnapshotSequence == nil {
+		seq, err := s.SnapshotSequence(ctx)
+		if err != nil {
+			return nil, err
+		}
+		f.SnapshotSequence = &seq
+	}
+	// Keep all counts in one local read view, including mutable annotations.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	where, args := buildAlertWhere(f)
 	args = withContextArgs(f, args)
 	stats := &model.AlertStats{
@@ -799,10 +815,10 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		ByProvider: map[string]int{},
 		ByStatus:   map[string]int{},
 	}
-	if err := s.db.QueryRowContext(ctx, snapshotPrefix(f)+`SELECT COUNT(*) FROM alerts`+where, args...).Scan(&stats.Total); err != nil {
+	if err := tx.QueryRowContext(ctx, snapshotPrefix(f)+`SELECT COUNT(*) FROM alerts`+where, args...).Scan(&stats.Total); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, snapshotPrefix(f)+`SELECT severity_id, COUNT(*) FROM alerts`+where+` GROUP BY severity_id`, args...)
+	rows, err := tx.QueryContext(ctx, snapshotPrefix(f)+`SELECT severity_id, COUNT(*) FROM alerts`+where+` GROUP BY severity_id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -815,9 +831,13 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		}
 		stats.BySeverity[model.Severity(sev).String()] = count
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`SELECT provider, COUNT(*) FROM alerts`+where+` GROUP BY provider`, args...)
+	rows, err = tx.QueryContext(ctx, snapshotPrefix(f)+`SELECT provider, COUNT(*) FROM alerts`+where+` GROUP BY provider`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -830,9 +850,13 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		}
 		stats.ByProvider[k] = count
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`SELECT status, COUNT(*) FROM alerts`+where+` GROUP BY status`, args...)
+	rows, err = tx.QueryContext(ctx, snapshotPrefix(f)+`SELECT status, COUNT(*) FROM alerts`+where+` GROUP BY status`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -845,9 +869,13 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		}
 		stats.ByStatus[k] = count
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`
+	rows, err = tx.QueryContext(ctx, snapshotPrefix(f)+`
 		SELECT strftime('%Y-%m-%d', event_time/1000, 'unixepoch') AS day, COUNT(*)
 		FROM alerts`+where+`
 		GROUP BY day ORDER BY day ASC`, args...)
@@ -863,6 +891,10 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		}
 		stats.ByDay = append(stats.ByDay, model.DayCount{Day: day, Count: count})
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 
 	topWhere := where
@@ -871,10 +903,10 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 	} else {
 		topWhere += " AND resource_id <> ''"
 	}
-	rows, err = s.db.QueryContext(ctx, snapshotPrefix(f)+`
+	rows, err = tx.QueryContext(ctx, snapshotPrefix(f)+`
 		SELECT resource_id, MAX(resource_name), COUNT(*) AS c
 		FROM alerts`+topWhere+`
-		GROUP BY resource_id ORDER BY c DESC LIMIT 10`, args...)
+		GROUP BY resource_id ORDER BY c DESC, resource_id ASC LIMIT 10`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -887,8 +919,20 @@ func (s *SQLite) AlertStats(ctx context.Context, f model.AlertFilter) (*model.Al
 		}
 		stats.TopResources = append(stats.TopResources, model.Count{Key: id, Name: name, Count: count})
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 
+	stats.DayTimezone = "UTC"
+	stats.Distributions, err = fieldDistributions(ctx, tx, f, stats.Total)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return stats, nil
 }
 

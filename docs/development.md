@@ -599,7 +599,7 @@ guiliu query alerts --since 24h --severity high,critical --limit 20 --json
 
 输出契约：
 
-- 默认表格；`--fields` 只选择表格列。
+- 默认表格；`--fields` 可选择表格列，也支持 NDJSON 的 JSON 字段路径投影（保留嵌套结构与整数精度）。
 - `--json` 打印单页 REST 原始响应，适合 `jq` 精确投影。
 - `--ndjson` 每行一条记录，配合 `--all` 批量消费；分页元数据和 coverage 提示写到 stderr。
 - stdout 只放数据；stderr 放错误与元数据。退出码 `0` 成功、`1` API/网络错误、`2` 用法错误。
@@ -610,6 +610,7 @@ guiliu query alerts --since 24h --severity high,critical --limit 20 --json
 - 告警、统计、覆盖默认最近 7 天，分组默认 24 小时，窗口最多 90 天；与 MCP 共用同一组常量。
 - 告警列表不返回 raw；原始载荷只对单条告警、组件修订或失败记录显式请求。
 - CLI 请求带 `X-Guiliu-Client: cli`，访问审计记录 `surface=cli`。
+- `describe` 提供响应 JSON Schema；统计分布、Coverage 窗口定义和投影语义见 [查询元数据](query-metadata.md)。
 - Agent 使用说明见 [`skills/guiliu-query/SKILL.md`](../skills/guiliu-query/SKILL.md)。
 
 ---

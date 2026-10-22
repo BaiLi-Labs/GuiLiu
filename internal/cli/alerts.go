@@ -79,6 +79,7 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 	fs.String(&f.ip, "ip", "", "Exact source, destination or observable IP")
 	fs.String(&f.resource, "resource", "", "Asset ID (exact) or asset name (substring)")
 	fs.String(&f.timeField, "time-field", "", "event_time (default), source_updated_at or ingested_at")
+	fs.Int64(&f.snapshot, "snapshot-sequence", -1, "Reuse a returned Finding snapshot for queries and statistics")
 	fs.String(&f.vendorTitle, "vendor-title", "", "Exact source-reported finding title (statistical equality)")
 	fs.String(&f.ruleID, "rule-id", "", "Exact native rule ID, scoped by provider and product")
 	fs.String(&f.findingKind, "finding-kind", "", "detection, vulnerability, compliance, incident or other")
@@ -93,7 +94,6 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 			fs.String(&f.afterID, "after-id", "", "Continue an ID-sorted snapshot using next_cursor")
 		}
 		fs.Int64(&f.assetSnapshot, "asset-snapshot-sequence", -1, "Reuse the returned asset watermark for stable network groups")
-		fs.Int64(&f.snapshot, "snapshot-sequence", -1, "Reuse a returned snapshot sequence for stable paging")
 		fs.Bool(&f.all, "all", false, "Follow pages until exhausted or --max-items")
 		fs.Int(&f.maxItems, "max-items", query.AgentDefaultMaxItems, "Maximum records emitted with --all")
 	}
@@ -252,7 +252,7 @@ func runAlerts(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	if err := validatePaging(out, f.all, f.afterID, f.limit, f.maxItems); err != nil {
 		return err
 	}
-	columns, err := alertTableColumns(out.Fields)
+	columns, err := alertTableColumns(out.tableFields())
 	if err != nil {
 		return err
 	}
@@ -292,7 +292,7 @@ func runAlerts(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 			last.Limit = len(batch)
 		}
 		if out.NDJSON {
-			if err := emitNDJSON(stdout, batch); err != nil {
+			if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 				return err
 			}
 		} else {
@@ -407,15 +407,17 @@ func newAlertCommand(g *globalOptions) (*flagSet, runFunc) {
 }
 
 type groupListResponse struct {
-	Groups                []model.AlertGroup `json:"groups"`
-	Total                 int                `json:"total"`
-	Limit                 int                `json:"limit"`
-	Offset                int                `json:"offset"`
-	AssetSnapshotSequence *int64             `json:"asset_snapshot_sequence"`
-	SnapshotSequence      *int64             `json:"snapshot_sequence"`
-	Window                view.QueryWindow   `json:"window"`
-	GroupBy               string             `json:"group_by"`
-	Coverage              *model.Coverage    `json:"coverage"`
+	Groups                []model.AlertGroup     `json:"groups"`
+	Total                 int                    `json:"total"`
+	Limit                 int                    `json:"limit"`
+	Offset                int                    `json:"offset"`
+	AssetSnapshotSequence *int64                 `json:"asset_snapshot_sequence"`
+	SnapshotSequence      *int64                 `json:"snapshot_sequence"`
+	Window                view.QueryWindow       `json:"window"`
+	GroupBy               string                 `json:"group_by"`
+	Coverage              *model.Coverage        `json:"coverage"`
+	Summary               *model.GroupingSummary `json:"summary"`
+	Limitations           []string               `json:"limitations"`
 }
 
 func newGroupsCommand(g *globalOptions) (*flagSet, runFunc) {
@@ -435,7 +437,7 @@ func runGroups(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	if err := validatePaging(out, f.all, "", f.limit, f.maxItems); err != nil {
 		return err
 	}
-	columns, err := groupTableColumns(out.Fields)
+	columns, err := groupTableColumns(out.tableFields())
 	if err != nil {
 		return err
 	}
@@ -475,7 +477,7 @@ func runGroups(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 			last.Limit = len(batch)
 		}
 		if out.NDJSON {
-			if err := emitNDJSON(stdout, batch); err != nil {
+			if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 				return err
 			}
 		} else {
@@ -545,7 +547,7 @@ func newRevisionsCommand(g *globalOptions) (*flagSet, runFunc) {
 		if err := validatePaging(out, all, "", limit, maxItems); err != nil {
 			return err
 		}
-		columns, err := revisionTableColumns(out.Fields)
+		columns, err := revisionTableColumns(out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -578,7 +580,7 @@ func newRevisionsCommand(g *globalOptions) (*flagSet, runFunc) {
 				truncated = true
 			}
 			if out.NDJSON {
-				if err := emitNDJSON(stdout, batch); err != nil {
+				if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 					return err
 				}
 			} else {
@@ -618,20 +620,21 @@ func newRevisionsCommand(g *globalOptions) (*flagSet, runFunc) {
 }
 
 type statsResponse struct {
-	AssetSnapshotSequence *int64           `json:"asset_snapshot_sequence"`
-	SnapshotSequence      *int64           `json:"snapshot_sequence"`
-	Window                view.QueryWindow `json:"window"`
-	Statistics            statsView        `json:"statistics"`
-	Coverage              *model.Coverage  `json:"coverage"`
+	SnapshotSequence *int64           `json:"snapshot_sequence"`
+	Window           view.QueryWindow `json:"window"`
+	Statistics       statsView        `json:"statistics"`
+	Coverage         *model.Coverage  `json:"coverage"`
 }
 
 type statsView struct {
-	Total        int              `json:"total"`
-	BySeverity   map[string]int   `json:"by_severity"`
-	ByProvider   map[string]int   `json:"by_provider"`
-	ByStatus     map[string]int   `json:"by_status"`
-	ByDay        []model.DayCount `json:"by_day"`
-	TopResources []model.Count    `json:"top_resources"`
+	Total         int                                `json:"total"`
+	BySeverity    map[string]int                     `json:"by_severity"`
+	ByProvider    map[string]int                     `json:"by_provider"`
+	ByStatus      map[string]int                     `json:"by_status"`
+	ByDay         []model.DayCount                   `json:"by_day"`
+	TopResources  []model.Count                      `json:"top_resources"`
+	Distributions map[string]model.FieldDistribution `json:"distributions"`
+	DayTimezone   string                             `json:"day_timezone"`
 }
 
 func newStatsCommand(g *globalOptions) (*flagSet, runFunc) {
@@ -639,6 +642,10 @@ func newStatsCommand(g *globalOptions) (*flagSet, runFunc) {
 	registerGlobalFlags(fs, g)
 	var filters alertFilterFlags
 	filters.register(fs, filterOptions{defaultSince: "7d"})
+	var topBy string
+	var topN int
+	fs.String(&topBy, "top-by", "title,source_ip,source_country", "Exact-value distributions: "+model.StatsDimensions)
+	fs.Int(&topN, "top-n", model.StatsDefaultTopN, "Maximum values per distribution (1-100)")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if err := noArgs(fs); err != nil {
 			return err
@@ -653,6 +660,11 @@ func newStatsCommand(g *globalOptions) (*flagSet, runFunc) {
 		if err != nil {
 			return usagef("%v", err)
 		}
+		if _, err := query.ParseStatsOptions(topBy, strconv.Itoa(topN)); err != nil {
+			return usagef("%v", err)
+		}
+		params.Set("top_by", topBy)
+		params.Set("top_n", strconv.Itoa(topN))
 		body, err := c.get(ctx, "/stats", params)
 		if err != nil {
 			return err
@@ -733,7 +745,7 @@ func newChangesCommand(g *globalOptions) (*flagSet, runFunc) {
 		if out.JSON && all {
 			return usagef("--all requires table or --ndjson; use --limit for one JSON page")
 		}
-		columns, err := changeTableColumns(out.Fields)
+		columns, err := changeTableColumns(out.tableFields())
 		if err != nil {
 			return err
 		}
@@ -766,7 +778,7 @@ func newChangesCommand(g *globalOptions) (*flagSet, runFunc) {
 				truncated = true
 			}
 			if out.NDJSON {
-				if err := emitNDJSON(stdout, batch); err != nil {
+				if err := emitNDJSON(stdout, batch, out.Fields); err != nil {
 					return err
 				}
 			} else {

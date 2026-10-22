@@ -420,6 +420,7 @@ type AlertFilter struct {
 	GroupKey              map[string]string
 	Limit                 int
 	Offset                int
+	StatsOptions          StatsOptions
 }
 
 // AlertGroupBy is a read-only alert grouping strategy. Grouping never changes
@@ -539,12 +540,14 @@ func GroupID(groupBy AlertGroupBy, key map[string]string) string {
 
 // AlertStats is the aggregate view used by the dashboard and MCP.
 type AlertStats struct {
-	Total        int            `json:"total"`
-	BySeverity   map[string]int `json:"by_severity"`
-	ByProvider   map[string]int `json:"by_provider"`
-	ByStatus     map[string]int `json:"by_status"`
-	ByDay        []DayCount     `json:"by_day,omitempty"`
-	TopResources []Count        `json:"top_resources,omitempty"`
+	Total         int                          `json:"total"`
+	BySeverity    map[string]int               `json:"by_severity"`
+	ByProvider    map[string]int               `json:"by_provider"`
+	ByStatus      map[string]int               `json:"by_status"`
+	ByDay         []DayCount                   `json:"by_day,omitempty"`
+	TopResources  []Count                      `json:"top_resources,omitempty"`
+	Distributions map[string]FieldDistribution `json:"distributions"`
+	DayTimezone   string                       `json:"day_timezone"`
 }
 
 type DayCount struct {

@@ -86,6 +86,7 @@ func scopeFor(p asset.Provider, accountUID, region, resourceType, resourceID str
 
 type AssetLookup struct {
 	Status      string              `json:"status"`
+	Reason      string              `json:"reason,omitempty"`
 	Asset       *model.Asset        `json:"asset,omitempty"`
 	Refresh     *model.AssetRefresh `json:"refresh,omitempty"`
 	Scope       *AssetScope         `json:"scope,omitempty"`
@@ -105,6 +106,7 @@ func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*Ass
 		Scope:       scopeFor(p, f.AccountUID, f.Region, f.ResourceType, f.ResourceID),
 		Limitations: []string{"local_observations_only", "not_event_time_state", "no_network_reachability_inference"},
 	}
+	refreshChecked := false
 	if f.AccountID != "" {
 		connection, err := st.GetAccount(ctx, f.AccountID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -119,6 +121,7 @@ func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*Ass
 				return nil, err
 			}
 			out.Refresh = attempt
+			refreshChecked = true
 		}
 	}
 	f.AccountID = ""
@@ -129,8 +132,16 @@ func LookupAsset(ctx context.Context, st store.Store, f model.AssetFilter) (*Ass
 		return nil, err
 	}
 	if len(items) == 0 {
+		out.Reason = "no_saved_observation_refresh_not_checked"
+		if refreshChecked {
+			out.Reason = "no_saved_observation"
+			if out.Refresh == nil {
+				out.Reason = "no_recorded_refresh"
+			}
+		}
 		if status := failedRefreshStatus(out.Refresh); status != "" {
 			out.Status = status
+			out.Reason = status
 		}
 		return out, nil
 	}
