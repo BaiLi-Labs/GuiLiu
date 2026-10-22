@@ -43,7 +43,7 @@ var (
 	ErrTooManyAttempts     = errors.New("too many login attempts, try again later")
 	ErrUnauthorized        = errors.New("authentication required")
 	ErrAuthDisabled        = errors.New("authentication is disabled in dev mode")
-	ErrAdminPasswordNeeded = errors.New("no users configured: set GUILIU_ADMIN_PASSWORD for the first start, or run `guiliu user add`")
+	ErrAdminPasswordNeeded = errors.New("no users configured: set GUILIU_ADMIN_PASSWORD for the first start, or run `gl-cli user add`")
 	ErrWeakPassword        = fmt.Errorf("password must be between %d and %d characters", minPasswordLength, maxPasswordLength)
 	ErrInvalidUsername     = errors.New("username must be 3-64 chars: lowercase letters, digits, dot, dash or underscore")
 	ErrConflict            = store.ErrConflict

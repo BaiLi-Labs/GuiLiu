@@ -8,3 +8,6 @@ guiliu.json
 .DS_Store
 web/node_modules/
 web/.vite/
+
+__pycache__/
+*.pyc

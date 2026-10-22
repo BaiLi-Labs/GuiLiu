@@ -21,7 +21,7 @@ ARG COMMIT=dev
 ARG BUILD_DATE
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X github.com/BaiLi-Labs/GuiLiu/internal/version.Commit=${COMMIT} -X github.com/BaiLi-Labs/GuiLiu/internal/version.BuildDate=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
-    -o /out/guiliu ./cmd/guiliu
+    -o /out/gl-cli ./cmd/gl-cli
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates \
@@ -29,7 +29,7 @@ RUN apk add --no-cache ca-certificates \
     && adduser -S -G guiliu guiliu \
     && mkdir -p /data \
     && chown guiliu:guiliu /data
-COPY --from=build /out/guiliu /usr/local/bin/guiliu
+COPY --from=build /out/gl-cli /usr/local/bin/gl-cli
 COPY LICENSE NOTICE /licenses/
 
 USER guiliu
@@ -40,5 +40,5 @@ ENV GUILIU_LISTEN=0.0.0.0:8080 \
 
 VOLUME ["/data"]
 EXPOSE 8080
-ENTRYPOINT ["guiliu"]
+ENTRYPOINT ["gl-cli"]
 CMD ["serve"]

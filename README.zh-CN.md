@@ -61,6 +61,14 @@ make mock
 
 打开 <http://127.0.0.1:8081>。演示包含六家云的 56 条合成告警，使用内存数据库，关闭认证与定时采集，无需云账号凭据。
 
+## 下载发布包
+
+可执行文件名为 **`gl-cli`**，Windows 为 `gl-cli.exe`。[GitHub Releases](https://github.com/BaiLi-Labs/GuiLiu/releases) 的 tag 版本提供 Linux、macOS、Windows 的 amd64 / arm64 压缩包。每包包含可执行文件、查询 Skill、中英文 README、LICENSE、NOTICE 与公共文档。
+
+按 `SHA256SUMS` 核对校验值，解压后运行 `./gl-cli version`（PowerShell 为 `.\gl-cli.exe version`）。启动服务时将 `configs/guiliu.example.json` 复制为 `guiliu.json`，按下文配置初始管理员密码，然后运行 `./gl-cli serve`。
+
+仅主动推送版本 tag 时构建发布；普通分支 push 或修改开发版本号不会发布。详见[发布步骤与签名限制](docs/versioning.md#tag-自动构建与发布)。
+
 ## 部署
 
 构建控制台与服务：
@@ -69,7 +77,7 @@ make mock
 make build
 cp configs/guiliu.example.json guiliu.json
 export GUILIU_ADMIN_PASSWORD='replace-with-a-long-initial-password'
-./bin/guiliu serve
+./bin/gl-cli serve
 ```
 
 打开 <http://127.0.0.1:8080>，使用 `admin` 登录，在「云账号」中添加接入。云凭据应仅授予告警读取权限。
@@ -125,15 +133,15 @@ CI、批量导出和翻页场景。它不需要 MCP 客户端，也不直接读�
 export GUILIU_URL="http://127.0.0.1:8080"
 export GUILIU_API_KEY="glk_..."
 
-guiliu query describe
-guiliu query alerts --since 24h --severity high,critical --limit 20 --json
-guiliu query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
-guiliu query changes --cursor 12345 --limit 100 --json
-guiliu query coverage --since 7d --json
+gl-cli query describe
+gl-cli query alerts --since 24h --severity high,critical --limit 20 --json
+gl-cli query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
+gl-cli query changes --cursor 12345 --limit 100 --json
+gl-cli query coverage --since 7d --json
 ```
 
 默认输出表格；`--json` 是单页 REST 原始响应；`--ndjson` 每行一条记录，配合
-`--all` 做批量。分页元数据与 coverage 提示写到 stderr。`guiliu query describe`
+`--all` 做批量。分页元数据与 coverage 提示写到 stderr。`gl-cli query describe`
 是命令、参数与限制的机器可读来源。配套 Agent Skill 见
 [`skills/guiliu-query/SKILL.md`](skills/guiliu-query/SKILL.md)。CLI 请求带
 `X-Guiliu-Client: cli`，访问审计记为 `surface=cli`。
@@ -145,7 +153,7 @@ guiliu query coverage --since 7d --json
 - 云凭据使用 AES-256-GCM 加密存储。
 - 平台告警状态与厂商状态独立，不向云厂商写回修改。
 - 每个实例使用共享数据集，尚未实现 OIDC、租户隔离和细粒度 API Key 授权。
-- 保留原始载荷，支持通过 `guiliu replay` 离线重映射历史数据，默认预览，添加 `-apply` 才写入。
+- 保留原始载荷，支持通过 `gl-cli replay` 离线重映射历史数据，默认预览，添加 `-apply` 才写入。
 
 接入正式环境前，请阅读[已知限制与验证记录](docs/development.md)。OCSF Schema 的 CI 校验、其他存储后端，以及更多厂商的真实账号验证仍在路线图中。
 

@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
@@ -72,12 +75,12 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 
 	fs.String(&f.provider, "provider", "", "Provider id, e.g. tencent")
 	fs.String(&f.accountID, "account", "", "Configured account ID")
-	fs.String(&f.severity, "severity", "", "Comma-separated severities: informational,low,medium,high,critical")
-	fs.String(&f.status, "status", "", "Comma-separated platform statuses: open,acknowledged,suppressed,closed")
-	fs.String(&f.keyword, "keyword", "", "Full-text search across title, description, alert type and asset name")
+	fs.String(&f.severity, "severity", "", "Optional comma-separated source display severities: unknown,informational,low,medium,high,critical,fatal; omit for all, invalid names fail")
+	fs.String(&f.status, "status", "", "Optional local annotations: open,acknowledged,suppressed,closed; independent of vendor-status, invalid names fail")
+	fs.String(&f.keyword, "keyword", "", "Literal substring across source title, description, alert type and resource name; no query language")
 	fs.String(&f.keyword, "q", "", "Alias for --keyword")
 	fs.String(&f.ip, "ip", "", "Exact source, destination or observable IP")
-	fs.String(&f.resource, "resource", "", "Asset ID (exact) or asset name (substring)")
+	fs.String(&f.resource, "resource", "", "Native resource ID (exact) or source resource name (substring); not GuiLiu asset_id")
 	fs.String(&f.timeField, "time-field", "", "event_time (default), source_updated_at or ingested_at")
 	fs.Int64(&f.snapshot, "snapshot-sequence", -1, "Reuse a returned Finding snapshot for queries and statistics")
 	fs.String(&f.vendorTitle, "vendor-title", "", "Exact source-reported finding title (statistical equality)")
@@ -93,7 +96,7 @@ func (f *alertFilterFlags) register(fs *flagSet, opts filterOptions) {
 		if !opts.groupBy {
 			fs.String(&f.afterID, "after-id", "", "Continue an ID-sorted snapshot using next_cursor")
 		}
-		fs.Int64(&f.assetSnapshot, "asset-snapshot-sequence", -1, "Reuse the returned asset watermark for stable network groups")
+		fs.Int64(&f.assetSnapshot, "asset-snapshot-sequence", -1, "Reuse asset_snapshot_sequence; required to expand asset/network groups with the original Finding snapshot and absolute window")
 		fs.Bool(&f.all, "all", false, "Follow pages until exhausted or --max-items")
 		fs.Int(&f.maxItems, "max-items", query.AgentDefaultMaxItems, "Maximum records emitted with --all")
 	}
@@ -312,6 +315,9 @@ func runAlerts(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	if out.Quiet {
 		return nil
 	}
+	if last.HasMore || truncated {
+		defer printContinuation(stderr, "alerts", f, out, last.Offset+last.Limit, last.NextCursor)
+	}
 	fmt.Fprintf(stderr, "%d alert(s)", emitted)
 	if last.Total > 0 {
 		fmt.Fprintf(stderr, " of %d", last.Total)
@@ -356,7 +362,7 @@ func newAlertCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.Int64(&snapshot, "snapshot-sequence", -1, "Read the alert from a pinned snapshot")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: %s", "guiliu query alert <alert-id> [flags]")
+			return usagef("usage: %s", "gl-cli query alert <alert-id> [flags]")
 		}
 		if revision > 0 && snapshot >= 0 {
 			return usagef("use --revision or --snapshot-sequence, not both")
@@ -497,6 +503,9 @@ func runGroups(ctx context.Context, c *client, out *outputOptions, f *alertFilte
 	if out.Quiet {
 		return nil
 	}
+	if last.Offset+last.Limit < last.Total || truncated {
+		defer printContinuation(stderr, "groups", f, out, last.Offset+last.Limit, "")
+	}
 	fmt.Fprintf(stderr, "%d group(s)", emitted)
 	if last.Total > 0 {
 		fmt.Fprintf(stderr, " of %d", last.Total)
@@ -542,7 +551,7 @@ func newRevisionsCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.Int(&maxItems, "max-items", query.AgentDefaultMaxItems, "Maximum revisions emitted with --all")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: guiliu query revisions <alert-id> [flags]")
+			return usagef("usage: gl-cli query revisions <alert-id> [flags]")
 		}
 		if err := validatePaging(out, all, "", limit, maxItems); err != nil {
 			return err
@@ -824,7 +833,7 @@ func newContextCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.Int64(&snapshot, "snapshot-sequence", -1, "Read the alert from a pinned snapshot")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: guiliu query context <alert-id> [flags]")
+			return usagef("usage: gl-cli query context <alert-id> [flags]")
 		}
 		if out.NDJSON {
 			return usagef("--ndjson is not supported for asset context")
@@ -852,4 +861,44 @@ func newContextCommand(g *globalOptions) (*flagSet, runFunc) {
 		}
 		return renderAssetContext(stdout, context)
 	}
+}
+
+// Full precision bounds and filters allow a second invocation to resume the
+// same snapshot. This marker is data, not a shell command with interpolations.
+func printContinuation(w io.Writer, command string, f *alertFilterFlags, out *outputOptions, offset int, cursor string) {
+	params, err := f.values(time.Now())
+	if err != nil {
+		return
+	}
+	params.Set("offset", strconv.Itoa(offset))
+	if f.afterID != "" {
+		params.Set("after_id", cursor)
+		params.Del("offset")
+	} else {
+		params.Del("after_id")
+	}
+	args := []string{command}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		flag := strings.ReplaceAll(key, "_", "-")
+		if key == "account_id" {
+			flag = "account"
+		}
+		args = append(args, "--"+flag, params.Get(key))
+	}
+	if f.all {
+		args = append(args, "--all", "--max-items", strconv.Itoa(f.maxItems))
+	}
+	if out.NDJSON {
+		args = append(args, "--ndjson")
+	}
+	if out.Fields != "" {
+		args = append(args, "--fields", out.Fields)
+	}
+	encoded, _ := json.Marshal(map[string]any{"args": args})
+	fmt.Fprintf(w, "continuation: %s\n", encoded)
 }

@@ -1,4 +1,4 @@
-BINARY := bin/guiliu
+BINARY := bin/gl-cli
 VERSION := $(shell cat internal/version/VERSION)
 COMMIT ?= $(shell git describe --always --dirty --exclude='*' 2>/dev/null || echo dev)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -26,7 +26,7 @@ web-dev:
 	cd web && npm run dev
 
 build: web
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/guiliu
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/gl-cli
 
 # Production-like: login is required.
 run: build

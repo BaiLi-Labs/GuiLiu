@@ -171,15 +171,6 @@ func TestQueryDescribeIsMachineReadable(t *testing.T) {
 	if alerts == nil {
 		t.Fatal("alerts command missing")
 	}
-	found := false
-	for _, flag := range alerts.Flags {
-		if flag.Name == "since" && flag.Default == "7d" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("since flag missing: %+v", alerts.Flags)
-	}
 	if all.Limits.MaxRange != "90d" || all.Limits.GroupWindow != "24h" {
 		t.Fatalf("limits = %+v", all.Limits)
 	}

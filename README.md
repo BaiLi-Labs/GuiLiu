@@ -59,6 +59,21 @@ make mock
 
 Open <http://127.0.0.1:8081>. The demo contains 56 synthetic alerts across six providers, uses an in-memory database, and disables authentication and scheduled ingestion. It does not require cloud credentials.
 
+## Download release bundles
+
+The executable is **`gl-cli`** (`gl-cli.exe` on Windows). Tagged versions on
+[GitHub Releases](https://github.com/BaiLi-Labs/GuiLiu/releases) provide Linux,
+macOS and Windows bundles for amd64 and arm64. Each archive includes the
+executable, query Skill, both READMEs, LICENSE, NOTICE and public documentation.
+Check its SHA-256 against `SHA256SUMS`, extract the archive and run
+`./gl-cli version` (`.\gl-cli.exe version` in PowerShell). To start the server,
+copy `configs/guiliu.example.json` to `guiliu.json`, configure the initial admin
+password as below, then run `./gl-cli serve`.
+
+Only deliberately pushed version tags build releases; changing the development
+version or pushing a branch does not publish one. See the
+[release procedure and signing limits](docs/versioning.md#tag-自动构建与发布).
+
 ## Deploy
 
 Build the embedded console and server:
@@ -67,7 +82,7 @@ Build the embedded console and server:
 make build
 cp configs/guiliu.example.json guiliu.json
 export GUILIU_ADMIN_PASSWORD='replace-with-a-long-initial-password'
-./bin/guiliu serve
+./bin/gl-cli serve
 ```
 
 Open <http://127.0.0.1:8080>, sign in as `admin`, and connect an account from **Cloud accounts**. Use read-only cloud permissions.
@@ -124,17 +139,17 @@ does not read the database directly:
 export GUILIU_URL="http://127.0.0.1:8080"
 export GUILIU_API_KEY="glk_..."
 
-guiliu query describe
-guiliu query alerts --since 24h --severity high,critical --limit 20 --json
-guiliu query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
-guiliu query changes --cursor 12345 --limit 100 --json
-guiliu query coverage --since 7d --json
+gl-cli query describe
+gl-cli query alerts --since 24h --severity high,critical --limit 20 --json
+gl-cli query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title}'
+gl-cli query changes --cursor 12345 --limit 100 --json
+gl-cli query coverage --since 7d --json
 ```
 
 Output is a human table by default, `--json` is the exact REST body for one
 page, and `--ndjson` emits one record per line for `--all` batches. Metadata
-and coverage warnings go to stderr. `guiliu query describe` is the
-machine-readable source of truth for commands, flags and limits. The companion
+and coverage warnings go to stderr. `gl-cli query describe` is the
+compact command catalog; use `<command> --describe` for flags/field names and add `--schema` for full response structures. The companion
 agent skill lives in [`skills/guiliu-query/SKILL.md`](skills/guiliu-query/SKILL.md).
 CLI calls carry `X-Guiliu-Client: cli`, so the access audit records
 `surface=cli`.
@@ -146,7 +161,7 @@ CLI calls carry `X-Guiliu-Client: cli`, so the access audit records
 - Cloud credentials encrypted at rest with AES-256-GCM.
 - Platform alert status is independent of vendor status. GuiLiu does not write changes back to cloud services.
 - A shared dataset within each instance. OIDC, tenant isolation, and fine-grained API-key scopes are not implemented.
-- Replay historical mappings offline with `guiliu replay`. It previews changes by default; use `-apply` to write them.
+- Replay historical mappings offline with `gl-cli replay`. It previews changes by default; use `-apply` to write them.
 
 See the [current limitations and validation record](docs/development.md) before connecting a production workload. OCSF schema validation in CI, additional storage backends, and broader real-account validation remain on the roadmap.
 

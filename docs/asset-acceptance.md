@@ -30,8 +30,8 @@ Web 使用同一 REST 接口，未做浏览器视觉回归。
 ## 验收步骤
 
 1. **确认连接与范围**
-   - `GET /api/v1/coverage` 或 `guiliu query coverage`：确认账号启用、API 版本、地域/账号 UID。
-   - `guiliu query providers`：确认该 provider 的能力声明。
+   - `GET /api/v1/coverage` 或 `gl-cli query coverage`：确认账号启用、API 版本、地域/账号 UID。
+   - `gl-cli query providers`：确认该 provider 的能力声明。
 2. **显式刷新主机**
    - `POST /api/v1/accounts/{connection_id}/assets/refresh`，body 为 `{"resource_id":"<原生主机 ID>"}`；省略 `resource_type` 使用该 provider 的主机类型。
    - 记录 `status`、`attempt.status`、`related` 和耗时；期望 `available` 或带明确原因的 `partial`。
@@ -48,7 +48,7 @@ Web 使用同一 REST 接口，未做浏览器视觉回归。
 6. **检查同资源相关记录**
    - `GET /api/v1/assets/{asset_id}/findings` 与 MCP `list_asset_findings`：与 `GET /api/v1/alerts?resource=<原生主机 ID>` 的已保存记录一致；记录 `matched_on` 和分页游标。
 7. **四入口一致性**
-   - 对同一资产分别用 Web、REST、MCP、`guiliu query asset/lookup/findings/component` 读取，比较资源身份、字段值、组件原始字节和分页结果。
+   - 对同一资产分别用 Web、REST、MCP、`gl-cli query asset/lookup/findings/component` 读取，比较资源身份、字段值、组件原始字节和分页结果。
 8. **缺口与失败表达**
    - 明确授权拒绝：期望 `permission_denied` 或带组件失败的 `partial`；凭据认证失败为 `authentication_failed`，原因不明确的访问拒绝为 `access_denied`。核对 `source_error` 的 SDK 原错误码和实际 API，不能静默成功。参见 [来源错误契约](source-errors.md)。
    - 不存在的资源 ID：期望 `not_found_or_not_visible`，不能解释为已删除。

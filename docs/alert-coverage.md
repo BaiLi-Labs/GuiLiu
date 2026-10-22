@@ -48,7 +48,7 @@ GCP 的 category 同样开放；FindingClass 在本次 v2 SDK 中有 THREAT、VU
 8. 腾讯/阿里序列化失败不再静默 continue；腾讯/阿里/华为在仍有总数时收到空页会失败而非完成窗口，缺失实体也不会静默丢弃。
 9. 六家 mapper 升级到 v5；腾讯随后因资产语义修正升级到 `tencent-csip/v6`：资产展示名纳入厂商声明的名称并标注 `resource.source`；腾讯新增 `Attacker.Address/Country`、`ProcessType` 的结构化投影（`source_location`、`source_country`、`response_action`），Azure 补资源所属订阅。腾讯 `Victim.Name` 原样保留为 `resource.declared_name`（语义以来源为准，不声称是实例名），`Victim.Account`（实测 AppID）不冒充账号 UID。
 
-映射版本已升级。历史归一字段可通过 guiliu replay 重放修正；旧记录中没有保存的信息需要重新拉取，重放不会主动补拉。
+映射版本已升级。历史归一字段可通过 gl-cli replay 重放修正；旧记录中没有保存的信息需要重新拉取，重放不会主动补拉。
 
 ## 仍需真实数据核对的采集逻辑
 

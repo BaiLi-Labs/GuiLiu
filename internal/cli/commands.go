@@ -25,10 +25,14 @@ type outputOptions struct {
 	Pretty   bool
 	Quiet    bool
 	Describe bool
+	Schema   bool
 	Fields   string
 }
 
 func (o *outputOptions) validate() error {
+	if o.Schema && !o.Describe {
+		return usagef("--schema requires a command --describe")
+	}
 	if o.JSON && o.NDJSON {
 		return usagef("use --json or --ndjson, not both")
 	}
@@ -79,16 +83,17 @@ func registerGlobalFlags(fs *flagSet, g *globalOptions) {
 	fs.Bool(&g.out.JSON, "json", g.out.JSON, "Print the exact REST JSON response (single page)")
 	fs.Bool(&g.out.NDJSON, "ndjson", g.out.NDJSON, "Print one JSON record per line; combine with --all")
 	fs.Bool(&g.out.Pretty, "pretty", g.out.Pretty, "Indent --json output")
-	fs.Bool(&g.out.Quiet, "quiet", g.out.Quiet, "Suppress table metadata on stderr")
-	fs.Bool(&g.out.Describe, "describe", g.out.Describe, "Print machine-readable command and flag metadata")
+	fs.Bool(&g.out.Quiet, "quiet", g.out.Quiet, "Suppress stderr metadata, including cursors and truncation notices")
+	fs.Bool(&g.out.Describe, "describe", g.out.Describe, "Print command flags and response field names; add --schema for full JSON Schemas")
+	fs.Bool(&g.out.Schema, "schema", g.out.Schema, "Include full response schemas with a command --describe")
 	fs.String(&g.out.Fields, "fields", g.out.Fields, "Table columns or NDJSON JSON field paths, e.g. id,title,resource.id")
 }
 
-// Run executes `guiliu query ...` and returns a process exit code.
+// Run executes `gl-cli query ...` and returns a process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
 	timeout, err := envDuration("GUILIU_TIMEOUT", defaultTimeout)
 	if err != nil {
-		fmt.Fprintf(stderr, "guiliu query: %v\n", err)
+		fmt.Fprintf(stderr, "gl-cli query: %v\n", err)
 		return 2
 	}
 	g := &globalOptions{
@@ -105,14 +110,18 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			printQueryUsage(stdout, gfs)
 			return 0
 		}
-		fmt.Fprintf(stderr, "guiliu query: %v\n\n", err)
+		fmt.Fprintf(stderr, "gl-cli query: %v\n\n", err)
 		printQueryUsage(stderr, gfs)
 		return 2
 	}
 	rest := gfs.Args()
 	if g.out.Describe && len(rest) == 0 {
+		if g.out.Schema {
+			fmt.Fprintln(stderr, "--schema requires a command --describe")
+			return 2
+		}
 		if err := describeAll(stdout, g, gfs); err != nil {
-			fmt.Fprintf(stderr, "guiliu query: %v\n", err)
+			fmt.Fprintf(stderr, "gl-cli query: %v\n", err)
 			return 1
 		}
 		return 0
@@ -126,19 +135,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if rest[0] == "describe" {
-		if len(rest) > 1 {
-			fmt.Fprintln(stderr, "guiliu query describe: no arguments are accepted")
+		if len(rest) > 1 || g.out.Schema {
+			fmt.Fprintln(stderr, "gl-cli query describe: no arguments are accepted; use <command> --describe --schema")
 			return 2
 		}
 		if err := describeAll(stdout, g, gfs); err != nil {
-			fmt.Fprintf(stderr, "guiliu query: %v\n", err)
+			fmt.Fprintf(stderr, "gl-cli query: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 	cmd := findCommand(rest[0])
 	if cmd == nil {
-		fmt.Fprintf(stderr, "guiliu query: unknown command %q\n\n", rest[0])
+		fmt.Fprintf(stderr, "gl-cli query: unknown command %q\n\n", rest[0])
 		printQueryUsage(stderr, gfs)
 		return 2
 	}
@@ -150,39 +159,39 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			printCommandUsage(stdout, cmd, fs)
 			return 0
 		}
-		fmt.Fprintf(stderr, "guiliu query %s: %v\n\n", cmd.name, err)
+		fmt.Fprintf(stderr, "gl-cli query %s: %v\n\n", cmd.name, err)
 		printCommandUsage(stderr, cmd, fs)
 		return 2
 	}
 	if g.out.Describe {
 		if err := describeCommand(stdout, g, gfs, cmd, fs); err != nil {
-			fmt.Fprintf(stderr, "guiliu query: %v\n", err)
+			fmt.Fprintf(stderr, "gl-cli query: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 	if err := g.out.validate(); err != nil {
-		fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+		fmt.Fprintf(stderr, "gl-cli query %s: %v\n", cmd.name, err)
 		return 2
 	}
 	if g.out.NDJSON && g.out.Fields != "" {
 		if err := validateProjection(cmd.name, g.out.Fields); err != nil {
-			fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+			fmt.Fprintf(stderr, "gl-cli query %s: %v\n", cmd.name, err)
 			return 2
 		}
 	}
 	key, err := g.apiKey(stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+		fmt.Fprintf(stderr, "gl-cli query %s: %v\n", cmd.name, err)
 		return 2
 	}
 	c, err := newClient(config{BaseURL: g.url, APIKey: key, Timeout: g.timeout})
 	if err != nil {
-		fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+		fmt.Fprintf(stderr, "gl-cli query %s: %v\n", cmd.name, err)
 		return 2
 	}
 	if err := run(context.Background(), c, &g.out, stdout, stderr); err != nil {
-		fmt.Fprintf(stderr, "guiliu query %s: %v\n", cmd.name, err)
+		fmt.Fprintf(stderr, "gl-cli query %s: %v\n", cmd.name, err)
 		var apiErr *apiError
 		if errors.As(err, &apiErr) && apiErr.Status == 401 {
 			fmt.Fprintln(stderr, "hint: set GUILIU_API_KEY or pass --api-key-file; API keys are created in the GuiLiu console under API & MCP")
@@ -200,177 +209,177 @@ func commands() []*command {
 		{
 			name:     "alerts",
 			summary:  "List alerts with filters and bounded pagination",
-			usage:    "guiliu query alerts [flags]",
+			usage:    "gl-cli query alerts [flags]",
 			endpoint: "GET /api/v1/alerts",
 			examples: []string{
-				"guiliu query alerts --since 24h --severity high,critical --limit 20 --json",
-				"guiliu query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title,event_time}'",
+				"gl-cli query alerts --since 24h --severity high,critical --limit 20 --json",
+				"gl-cli query alerts --since 7d --all --max-items 500 --ndjson | jq -c '{id,severity,title,event_time}'",
 			},
 			newRun: newAlertsCommand,
 		},
 		{
 			name:     "alert",
-			summary:  "Get one alert, its raw vendor JSON, or its asset context",
-			usage:    "guiliu query alert <alert-id> [flags]",
+			summary:  "Get one Finding with raw evidence; use context for asset observations",
+			usage:    "gl-cli query alert <alert-id> [flags]",
 			endpoint: "GET /api/v1/alerts/{id}",
 			examples: []string{
-				"guiliu query alert 01JABCDEF --json",
-				"guiliu query alert 01JABCDEF --raw",
-				"guiliu query alert 01JABCDEF --revision 2 --json",
+				"gl-cli query alert 01JABCDEF --json",
+				"gl-cli query alert 01JABCDEF --raw",
+				"gl-cli query alert 01JABCDEF --revision 2 --json",
 			},
 			newRun: newAlertCommand,
 		},
 		{
 			name:     "groups",
 			summary:  "List exact-field alert groups without inventing verdicts",
-			usage:    "guiliu query groups [flags]",
+			usage:    "gl-cli query groups [flags]",
 			endpoint: "GET /api/v1/alerts/groups",
 			examples: []string{
-				"guiliu query groups --group-by signature --since 24h --json",
-				"guiliu query groups --since 24h --all --ndjson",
+				"gl-cli query groups --group-by signature --since 24h --json",
+				"gl-cli query groups --since 24h --all --ndjson",
 			},
 			newRun: newGroupsCommand,
 		},
 		{
 			name:     "changes",
 			summary:  "Read the persistent change log in sequence order",
-			usage:    "guiliu query changes [flags]",
+			usage:    "gl-cli query changes [flags]",
 			endpoint: "GET /api/v1/alerts/changes",
 			examples: []string{
-				"guiliu query changes --limit 100 --json",
-				"guiliu query changes --cursor 12345 --all --max-items 5000 --ndjson",
+				"gl-cli query changes --limit 100 --json",
+				"gl-cli query changes --cursor 12345 --all --max-items 5000 --ndjson",
 			},
 			newRun: newChangesCommand,
 		},
 		{
 			name:     "stats",
 			summary:  "Aggregate alert counts by severity, provider, status, day and asset",
-			usage:    "guiliu query stats [flags]",
+			usage:    "gl-cli query stats [flags]",
 			endpoint: "GET /api/v1/stats",
 			examples: []string{
-				"guiliu query stats --since 7d --json",
+				"gl-cli query stats --since 7d --json",
 			},
 			newRun: newStatsCommand,
 		},
 		{
 			name:     "coverage",
 			summary:  "Show source scope, collection window, watermarks and limitations",
-			usage:    "guiliu query coverage [flags]",
+			usage:    "gl-cli query coverage [flags]",
 			endpoint: "GET /api/v1/coverage",
 			examples: []string{
-				"guiliu query coverage --since 7d --json",
+				"gl-cli query coverage --since 7d --json",
 			},
 			newRun: newCoverageCommand,
 		},
 		{
 			name:     "revisions",
 			summary:  "List immutable revisions for one alert",
-			usage:    "guiliu query revisions <alert-id> [flags]",
+			usage:    "gl-cli query revisions <alert-id> [flags]",
 			endpoint: "GET /api/v1/alerts/{id}/revisions",
 			examples: []string{
-				"guiliu query revisions 01JABCDEF --limit 20 --json",
+				"gl-cli query revisions 01JABCDEF --limit 20 --json",
 			},
 			newRun: newRevisionsCommand,
 		},
 		{
 			name:     "context",
 			summary:  "Read current local asset context for one alert",
-			usage:    "guiliu query context <alert-id> [flags]",
+			usage:    "gl-cli query context <alert-id> [flags]",
 			endpoint: "GET /api/v1/alerts/{id}/asset-context",
 			examples: []string{
-				"guiliu query context 01JABCDEF --json",
+				"gl-cli query context 01JABCDEF --json",
 			},
 			newRun: newContextCommand,
 		},
 		{
 			name:     "assets",
 			summary:  "List locally saved control-plane assets",
-			usage:    "guiliu query assets [flags]",
+			usage:    "gl-cli query assets [flags]",
 			endpoint: "GET /api/v1/assets",
 			examples: []string{
-				"guiliu query assets --provider tencent --limit 20 --json",
-				"guiliu query assets --all --max-items 200 --ndjson",
+				"gl-cli query assets --provider tencent --limit 20 --json",
+				"gl-cli query assets --all --max-items 200 --ndjson",
 			},
 			newRun: newAssetsCommand,
 		},
 		{
 			name:     "asset",
 			summary:  "Read one local asset observation by asset ID",
-			usage:    "guiliu query asset <asset-id> [flags]",
+			usage:    "gl-cli query asset <asset-id> [flags]",
 			endpoint: "GET /api/v1/assets/{id}",
 			examples: []string{
-				"guiliu query asset 01JABCDEF --json",
+				"gl-cli query asset 01JABCDEF --json",
 			},
 			newRun: newAssetCommand,
 		},
 		{
 			name:     "lookup",
 			summary:  "Follow an explicit cloud resource reference to a saved asset",
-			usage:    "guiliu query lookup --provider ... --account-uid ... --region ... --resource-type ... --resource-id ... [flags]",
+			usage:    "gl-cli query lookup --provider ... --account-uid ... --region ... --resource-type ... --resource-id ... [flags]",
 			endpoint: "GET /api/v1/assets/lookup",
 			examples: []string{
-				"guiliu query lookup --provider tencent --account-uid 123456789 --region ap-guangzhou --resource-type cvm --resource-id ins-abc --json",
+				"gl-cli query lookup --provider tencent --account-uid 123456789 --region ap-guangzhou --resource-type cvm --resource-id ins-abc --json",
 			},
 			newRun: newLookupCommand,
 		},
 		{
 			name:     "findings",
 			summary:  "List stored alerts that share an asset's exact host identity",
-			usage:    "guiliu query findings <asset-id> [flags]",
+			usage:    "gl-cli query findings <asset-id> [flags]",
 			endpoint: "GET /api/v1/assets/{id}/findings",
 			examples: []string{
-				"guiliu query findings 01JABCDEF --all --ndjson",
+				"gl-cli query findings 01JABCDEF --all --ndjson",
 			},
 			newRun: newFindingsCommand,
 		},
 		{
 			name:     "component",
 			summary:  "Read exact source bytes for one asset component revision",
-			usage:    "guiliu query component <asset-id> --revision N --component KEY",
+			usage:    "gl-cli query component <asset-id> --revision N --component KEY",
 			endpoint: "GET /api/v1/assets/{id}/revisions/{revision}/components/{component}/raw",
 			examples: []string{
-				"guiliu query component 01JABCDEF --revision 2 --component runtime | jq .",
+				"gl-cli query component 01JABCDEF --revision 2 --component runtime | jq .",
 			},
 			newRun: newComponentCommand,
 		},
 		{
 			name:     "health",
 			summary:  "Show ingestion health for all accounts or one account",
-			usage:    "guiliu query health [flags]",
+			usage:    "gl-cli query health [flags]",
 			endpoint: "GET /api/v1/health or GET /api/v1/accounts/{id}/health",
 			examples: []string{
-				"guiliu query health --json",
-				"guiliu query health --account 01JABCDEF --json",
+				"gl-cli query health --json",
+				"gl-cli query health --account 01JABCDEF --json",
 			},
 			newRun: newHealthCommand,
 		},
 		{
 			name:     "providers",
 			summary:  "List connector capabilities, source APIs and mapper versions",
-			usage:    "guiliu query providers [flags]",
+			usage:    "gl-cli query providers [flags]",
 			endpoint: "GET /api/v1/providers",
 			examples: []string{
-				"guiliu query providers --json",
+				"gl-cli query providers --json",
 			},
 			newRun: newProvidersCommand,
 		},
 		{
 			name:     "mapping",
 			summary:  "Read the versioned field paths consumed by a connector mapper",
-			usage:    "guiliu query mapping --provider <id> [flags]",
+			usage:    "gl-cli query mapping --provider <id> [flags]",
 			endpoint: "GET /api/v1/providers/{id}/mapping",
 			examples: []string{
-				"guiliu query mapping --provider tencent --json",
+				"gl-cli query mapping --provider tencent --json",
 			},
 			newRun: newMappingCommand,
 		},
 		{
 			name:     "failures",
 			summary:  "List stored ingestion failures for one account",
-			usage:    "guiliu query failures --account <id> [flags]",
+			usage:    "gl-cli query failures --account <id> [flags]",
 			endpoint: "GET /api/v1/accounts/{id}/failures",
 			examples: []string{
-				"guiliu query failures --account 01JABCDEF --json",
+				"gl-cli query failures --account 01JABCDEF --json",
 			},
 			newRun: newFailuresCommand,
 		},
@@ -433,9 +442,9 @@ func printQueryUsage(w io.Writer, fs *flagSet) {
 	fmt.Fprintln(w, "GuiLiu query CLI — read-only REST client for agents and scripts")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  guiliu query [global flags] <command> [flags]")
-	fmt.Fprintln(w, "  guiliu query describe")
-	fmt.Fprintln(w, "  guiliu query <command> --describe")
+	fmt.Fprintln(w, "  gl-cli query [global flags] <command> [flags]")
+	fmt.Fprintln(w, "  gl-cli query describe")
+	fmt.Fprintln(w, "  gl-cli query <command> --describe")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
 	for _, cmd := range commands() {
@@ -502,14 +511,16 @@ type limitsInfo struct {
 }
 
 type commandInfo struct {
-	Name           string         `json:"name"`
-	Summary        string         `json:"summary"`
-	Usage          string         `json:"usage"`
-	Endpoint       string         `json:"endpoint"`
-	Examples       []string       `json:"examples"`
-	Flags          []flagDef      `json:"flags"`
-	ResponseSchema map[string]any `json:"response_schema"`
-	NDJSONSchema   map[string]any `json:"ndjson_item_schema,omitempty"`
+	Name           string            `json:"name"`
+	Summary        string            `json:"summary"`
+	Usage          string            `json:"usage"`
+	Endpoint       string            `json:"endpoint"`
+	Examples       []string          `json:"examples"`
+	Flags          []flagDef         `json:"flags,omitempty"`
+	ResponseFields map[string]string `json:"response_fields,omitempty"`
+	NDJSONFields   map[string]string `json:"ndjson_item_fields,omitempty"`
+	ResponseSchema map[string]any    `json:"response_schema,omitempty"`
+	NDJSONSchema   map[string]any    `json:"ndjson_item_schema,omitempty"`
 }
 
 type describeOutput struct {
@@ -527,7 +538,7 @@ type describeOutput struct {
 
 func describeAll(w io.Writer, g *globalOptions, gfs *flagSet) error {
 	out := describeOutput{
-		Name:        "guiliu query",
+		Name:        "gl-cli query",
 		Version:     version.Version,
 		Description: "Read-only REST client for GuiLiu alerts, groups, changes, coverage, assets and ingestion health.",
 		BaseURL:     g.url,
@@ -538,15 +549,17 @@ func describeAll(w io.Writer, g *globalOptions, gfs *flagSet) error {
 	}
 	for _, cmd := range commands() {
 		fs, _ := cmd.newRun(copyGlobal(g))
-		out.Commands = append(out.Commands, commandInfoFrom(cmd, fs, len(gfs.defs)))
+		info := commandInfoFrom(cmd, fs, len(gfs.defs), false)
+		info.Flags, info.Examples, info.ResponseFields, info.NDJSONFields = nil, nil, nil, nil
+		out.Commands = append(out.Commands, info)
 	}
 	return writeDescribe(w, out)
 }
 
 func describeCommand(w io.Writer, g *globalOptions, gfs *flagSet, cmd *command, fs *flagSet) error {
-	info := commandInfoFrom(cmd, fs, len(gfs.defs))
+	info := commandInfoFrom(cmd, fs, len(gfs.defs), g.out.Schema)
 	out := describeOutput{
-		Name:        "guiliu query",
+		Name:        "gl-cli query",
 		Version:     version.Version,
 		Description: "Read-only REST client for GuiLiu alerts, groups, changes, coverage, assets and ingestion health.",
 		BaseURL:     g.url,
@@ -559,21 +572,25 @@ func describeCommand(w io.Writer, g *globalOptions, gfs *flagSet, cmd *command, 
 	return writeDescribe(w, out)
 }
 
-func commandInfoFrom(cmd *command, fs *flagSet, globalCount int) commandInfo {
+func commandInfoFrom(cmd *command, fs *flagSet, globalCount int, schema bool) commandInfo {
 	flags := []flagDef{}
 	if globalCount < len(fs.defs) {
 		flags = append(flags, fs.defs[globalCount:]...)
 	}
-	return commandInfo{
+	info := commandInfo{
 		Name:           cmd.name,
 		Summary:        cmd.summary,
 		Usage:          cmd.usage,
 		Endpoint:       cmd.endpoint,
 		Examples:       cmd.examples,
 		Flags:          flags,
-		ResponseSchema: responseSchema(cmd.name),
-		NDJSONSchema:   ndjsonSchema(cmd.name),
+		ResponseFields: compactFields(responseSchema(cmd.name)),
+		NDJSONFields:   compactFields(ndjsonSchema(cmd.name)),
 	}
+	if schema {
+		info.ResponseSchema, info.NDJSONSchema = responseSchema(cmd.name), ndjsonSchema(cmd.name)
+	}
+	return info
 }
 
 func describeAuth() authInfo {

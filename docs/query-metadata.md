@@ -4,7 +4,7 @@
 
 ## 响应结构发现
 
-`guiliu query describe` 和 `guiliu query groups --describe` 可离线运行，返回命令参数、`response_schema`（完整响应的 JSON Schema）及支持 NDJSON 命令的 `ndjson_item_schema`（每行记录结构）。字段名直接来自公开 JSON 类型；来源载荷与动态 Map 保留开放结构，不宣称已经描述厂商所有原生字段。
+`gl-cli query describe` 可离线返回简明命令目录；`gl-cli query groups --describe` 返回该命令的参数、默认值、`response_fields` 和 `ndjson_item_fields` 顶层字段名/类型。需要完整嵌套结构时追加 `--schema`，读取 `response_schema`（完整响应 JSON Schema）及 `ndjson_item_schema`（每行记录结构）。不把全部命令的完整结构一次塞入 Agent 上下文。字段来自公开 JSON 类型；来源载荷与动态 Map 保留开放结构。
 
 分组成员数是 `groups[].finding_count`，来源标题样本是 `groups[].top_titles[].key/count`，等级上界是 `max_severity`。它们不是 `count`、`samples`，也不是攻击次数或平台风险评级。
 
@@ -32,7 +32,7 @@ Coverage 与查询共享过滤条件，`snapshot_sequence` 固定命中 Finding 
 ## 有界字段分布
 
 ```bash
-guiliu query stats --since 72h --top-by title,source_ip,source_country,severity_day --top-n 20 --json
+gl-cli query stats --since 72h --top-by title,source_ip,source_country,severity_day --top-n 20 --json
 ```
 
 REST 使用 `GET /api/v1/stats?top_by=title,source_ip&top_n=20`，MCP `get_alert_statistics` 使用相同的 `top_by` 字符串与整数 `top_n`。支持 `title/source_ip/destination_ip/source_country/severity/severity_day/provider/alert_type/rule_id`，默认维度为 `title,source_ip,source_country`；`top_n` 默认 20、上限 100。未知维度、非整数或越界数量会报错。
@@ -53,12 +53,16 @@ REST 使用 `GET /api/v1/stats?top_by=title,source_ip&top_n=20`，MCP `get_alert
 ## 输出与资产缺失
 
 ```bash
-guiliu query alerts --since 24h --all --max-items 1000 --ndjson \
+gl-cli query alerts --since 24h --all --max-items 1000 --ndjson \
   --fields id,title,event_time,resource.id,source_ip > findings.ndjson
 ```
 
-NDJSON 投影使用真实 JSON 字段路径，保留嵌套对象；可选字段缺失时输出 null。数组、Map、原始载荷可整体选择，不支持下标、通配符或表达式。未知路径和父子路径重叠在请求前报错；整数和证据 JSON 保持精度。表格仍使用原有列名，`--json` 继续返回完整 REST 响应。表格时间明确标记 UTC，分页和采集范围元信息留在 stderr。
+NDJSON 投影使用真实 JSON 字段路径，保留嵌套对象；可选字段缺失时输出 null。数组、Map、原始载荷可整体选择，不支持下标、通配符或表达式。未知路径和父子路径重叠在请求前报错；整数和证据 JSON 保持精度。表格仍使用原有列名，`--json` 继续返回完整 REST 响应。表格时间明确标记 UTC，分页和采集范围元信息留在 stderr。达到 `--max-items` 仍以退出码 0 返回部分数据，stderr 明示 `stopped at --max-items`。存在下一页时额外返回 `continuation: {"args":[...]}`：完整精度的绝对时间、过滤条件、排序、快照与下一位置，作为参数数组继续交给同一个 `gl-cli query`，不通过 shell eval 执行。`--quiet` 会隐藏这些元数据；长期消费建议按单页 JSON 持久化检查点。单次 `--all` 的快照保证不自动延伸到另一次重新使用 `--since` 的调用。
 
 资产查询只读本地观测，不触发云 API。`lookup` 无本地观测时：未指定或未找到匹配连接返回 `reason=no_saved_observation_refresh_not_checked`；检查了连接但从未记录刷新时返回 `no_recorded_refresh`；有刷新失败则返回实际记录的失败原因与来源错误。它们不表示云资产不存在或 AK/SK 必然无权限。需要管理员显式刷新后才能增加观测；完整资产继续作为独立类型提供，不复制进每条 Finding。
 
 本批测试使用合成来源、临时数据库和本地 HTTP 服务，未新增真实云账号验证。
+
+## 来源发生次数
+
+`occurrence_count` 只表示来源报告的数量，未提供时为 null，不默认为零或一。`occurrence_scope` 表示来源定义；相同标签并不证明不同记录互不重叠或不同产品口径相同。数量可能是来源记录生命周期累计值，不一定在当前时间窗内。平台不默认加权统计，不把 Finding/修订/来源次数相加为攻击次数。

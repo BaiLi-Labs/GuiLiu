@@ -120,6 +120,11 @@ func typeSchema(t reflect.Type) map[string]any {
 
 func fieldNotes(t reflect.Type) map[string]string {
 	switch t {
+	case reflect.TypeOf(view.Alert{}):
+		return map[string]string{
+			"occurrence_count": "Source-reported occurrence count; null means not supplied, not zero or one. May cover a source-defined lifetime, not the requested query window. Counts from different records/scopes may overlap; not an attack count.",
+			"occurrence_scope": "Source-specific meaning of occurrence_count. Equal scope labels alone do not establish non-overlap or cross-product comparability.",
+		}
 	case reflect.TypeOf(model.Coverage{}):
 		return map[string]string{
 			"complete":          "Mechanical collection check: bounded request within saved source query bounds, enabled account and healthy sync without unresolved mapping failures. Not an event-delivery guarantee, usability score or security verdict.",
@@ -148,4 +153,19 @@ func fieldNotes(t reflect.Type) map[string]string {
 		}
 	}
 	return nil
+}
+
+// compactFields provides shallow discovery; full nested structure is opt-in.
+func compactFields(schema map[string]any) map[string]string {
+	props, _ := schema["properties"].(map[string]any)
+	out := map[string]string{}
+	for name, value := range props {
+		p, _ := value.(map[string]any)
+		kind, _ := p["type"].(string)
+		if kind == "" {
+			kind = "nullable or source-defined; see --schema"
+		}
+		out[name] = kind
+	}
+	return out
 }

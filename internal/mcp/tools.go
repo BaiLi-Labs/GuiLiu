@@ -29,7 +29,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "list_alerts",
-		Description: "List normalized cloud security alerts. Use this for cross-cloud fact retrieval and filtering by provider, severity, status, asset or keyword.",
+		Description: "Page normalized Finding summaries in alerts[], with total, has_more, next_cursor, window, snapshot_sequence and coverage. Raw/OCSF payloads are omitted; get_alert reads selected full evidence. Defaults to 7d and 20 records.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"provider":   strProp("Provider id, e.g. tencent or aliyun"),
 			"account_id": strProp("Configured account id"),
@@ -37,7 +37,7 @@ func (s *Server) registerTools() {
 			"status":     statusProp(),
 			"keyword":    strProp("Full-text search across title, description, alert type and asset name"),
 			"ip":         strProp("Exact match on source, destination or observable IP"),
-			"resource":   strProp("Asset id (exact) or asset name (substring)"),
+			"resource":   strProp(nativeResourceNote),
 			"sort":       strProp("event_time (default), severity, last_seen, first_seen"),
 		}, mergeProps(timeProps(), map[string]any{
 			"limit":  intProp("Maximum alerts to return", 20, 1, query.AgentMaxPageSize),
@@ -56,7 +56,7 @@ func (s *Server) registerTools() {
 			"status":     statusProp(),
 			"keyword":    strProp("Full-text search across title, description, alert type and asset name"),
 			"ip":         strProp("Exact match on source or destination IP"),
-			"resource":   strProp("Asset id (exact) or asset name (substring)"),
+			"resource":   strProp(nativeResourceNote),
 		}, mergeProps(timeProps(), map[string]any{
 			"limit":  intProp("Maximum groups to return", 20, 1, query.AgentMaxPageSize),
 			"offset": intProp("Pagination offset", 0, 0, 10000),
@@ -65,7 +65,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert_group",
-		Description: "Get original alerts in a group. Copy group_by, group_key, both snapshot sequences and window.start/end from list_alert_groups to keep membership within the same time range.",
+		Description: "Page normalized member summaries in alerts[]. Pass groups[].key as group_key, the page group_by, both snapshot sequences, window.start/end and the original filters from list_alert_groups. Use get_alert/get_alert_evidence for selected raw evidence. Defaults to 24h and 20 members.",
 		InputSchema: obj(mergeProps(map[string]any{
 			"group_by":   groupByProp(),
 			"group_key":  groupKeyProp(),
@@ -75,9 +75,9 @@ func (s *Server) registerTools() {
 			"status":     statusProp(),
 			"keyword":    strProp("Full-text search"),
 			"ip":         strProp("Exact match on source or destination IP"),
-			"resource":   strProp("Asset id (exact) or asset name (substring)"),
+			"resource":   strProp(nativeResourceNote),
 		}, mergeProps(timeProps(), map[string]any{
-			"limit":  intProp("Maximum member alerts to return", 50, 1, query.AgentMaxPageSize),
+			"limit":  intProp("Maximum member alerts to return", 20, 1, query.AgentMaxPageSize),
 			"offset": intProp("Pagination offset", 0, 0, 10000),
 		})), "group_by", "group_key"),
 		Handler: s.toolGetAlertGroup,
@@ -90,7 +90,7 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "get_alert_evidence",
-		Description: "Get the evidence artifacts, observables and raw vendor payload for one alert. Use this before drawing conclusions.",
+		Description: "Read observables, evidences, OCSF and raw source payload for one Finding on demand. get_alert already includes this evidence; no second fetch is needed when it is present.",
 		InputSchema: obj(map[string]any{"alert_id": strProp("Alert id returned by list_alerts")}, "alert_id"),
 		Handler:     s.toolGetAlertEvidence,
 	})
@@ -106,9 +106,9 @@ func (s *Server) registerTools() {
 	})
 	s.register(Tool{
 		Name:        "search_alerts_by_asset",
-		Description: "Find alerts for an asset id or name. Defaults to the last 7 days.",
+		Description: "Search source resource IDs or names, returning paginated alerts[]. Defaults to 7d and 50 records. For an exact GuiLiu asset_id relationship use list_asset_findings.",
 		InputSchema: obj(mergeProps(map[string]any{
-			"asset": strProp("Asset id (exact) or asset name (substring)"),
+			"asset": strProp(nativeResourceNote),
 		}, mergeProps(timeProps(), map[string]any{
 			"limit": intProp("Maximum alerts to return", 50, 1, query.AgentMaxPageSize),
 		})), "asset"),
@@ -263,10 +263,11 @@ func (s *Server) toolStatistics(ctx context.Context, args map[string]any) (any, 
 	}
 	topN := ""
 	if v, ok := args["top_n"]; ok {
-		if n, ok := v.(float64); !ok || math.Trunc(n) != n {
-			return nil, errors.New("top_n must be an integer")
+		if err := validateValue("top_n", v, intProp("Maximum values", model.StatsDefaultTopN, 1, model.StatsMaxTopN)); err != nil {
+			return nil, err
 		}
-		topN = fmt.Sprint(v)
+		n, _ := parseInteger(v)
+		topN = strconv.FormatInt(n, 10)
 	}
 	if v, ok := args["top_by"]; ok {
 		if _, ok := v.(string); !ok {
@@ -548,6 +549,10 @@ func argInt(args map[string]any, key string, def, min, max int) int {
 	case string:
 		if parsed, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
 			n = parsed
+		}
+	case json.Number:
+		if parsed, err := t.Int64(); err == nil {
+			n = int(parsed)
 		}
 	case int:
 		n = t

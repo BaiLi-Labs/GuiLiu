@@ -1,4 +1,4 @@
-// Command guiliu runs the GuiLiu security data hub.
+// Command gl-cli runs the GuiLiu security data hub.
 package main
 
 import (
@@ -53,7 +53,7 @@ func run(args []string) int {
 	case "user":
 		return runUser(args[1:])
 	case "version", "-v", "--version":
-		fmt.Printf("guiliu %s (commit %s, built %s)\n", version.Version, version.Commit, version.BuildDate)
+		fmt.Printf("gl-cli %s (commit %s, built %s)\n", version.Version, version.Commit, version.BuildDate)
 		return 0
 	case "help", "-h", "--help":
 		usage()
@@ -72,17 +72,17 @@ func usage() {
 	fmt.Print(`GuiLiu — vendor-neutral cloud security alert hub
 
 Usage:
-  guiliu serve    [-config path]   Start REST API, Web console and MCP HTTP endpoint
-  guiliu mcp      [-config path]   Run the MCP server over stdio
-  guiliu sync     [-config path] [-account id|name] [-all]
-  guiliu probe    [-config path] -account id|name [-since 24h] [-limit 5] [-raw] [-mapped]
-  guiliu replay   [-config path] -account id|name [-since 7d] [-mapper-version old] [-apply]
-  guiliu accounts [-config path]
-  guiliu query    <command> [flags]  Read-only REST client; see guiliu query --help
-  guiliu user list    [-config path]
-  guiliu user add     [-config path] -username alice [-role admin|viewer]
-  guiliu user passwd  [-config path] -username alice
-  guiliu version
+  gl-cli serve    [-config path]   Start REST API, Web console and MCP HTTP endpoint
+  gl-cli mcp      [-config path]   Run the MCP server over stdio
+  gl-cli sync     [-config path] [-account id|name] [-all]
+  gl-cli probe    [-config path] -account id|name [-since 24h] [-limit 5] [-raw] [-mapped]
+  gl-cli replay   [-config path] -account id|name [-since 7d] [-mapper-version old] [-apply]
+  gl-cli accounts [-config path]
+  gl-cli query    <command> [flags]  Read-only REST client; see gl-cli query --help
+  gl-cli user list    [-config path]
+  gl-cli user add     [-config path] -username alice [-role admin|viewer]
+  gl-cli user passwd  [-config path] -username alice
+  gl-cli version
 
   Passwords for user commands are read from GUILIU_NEW_PASSWORD (not argv).
 
@@ -448,7 +448,7 @@ func runAccounts(args []string) int {
 
 func runUser(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: guiliu user list|add|passwd [-config path] [-username name] [-role admin|viewer]")
+		fmt.Fprintln(os.Stderr, "usage: gl-cli user list|add|passwd [-config path] [-username name] [-role admin|viewer]")
 		return 2
 	}
 	sub := args[0]

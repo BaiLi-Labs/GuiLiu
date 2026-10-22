@@ -1,0 +1,125 @@
+name: Release binaries
+
+# Only an explicitly pushed version tag publishes packages. Branch pushes and
+# pull requests never run this workflow.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Validate tag and source version
+        run: |
+          python3 -c 'import os; from scripts.package_release import validate_tag; validate_tag(os.environ["RELEASE_TAG"])'
+          node scripts/version.mjs check "${RELEASE_TAG#v}"
+      - name: Test Go and release packaging
+        run: |
+          go test ./...
+          go vet ./...
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Test and build embedded console
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: embedded-console
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Replace checked-in console with validated build
+        run: rm -rf web/dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: embedded-console
+          path: web/dist/
+      - name: Build and package target
+        env:
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+        run: python3 scripts/package_release.py --tag "$RELEASE_TAG" --goos "$TARGET_OS" --goarch "$TARGET_ARCH"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: bundle-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: bin/release/
+      - name: Verify six bundles and assemble release notes
+        run: |
+          python3 scripts/release_manifest.py --tag "$RELEASE_TAG" --directory bin/release --notes bin/release-notes.md
+          cd bin/release
+          sha256sum -c SHA256SUMS
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" bin/release/*.tar.gz bin/release/*.zip bin/release/SHA256SUMS \
+            --verify-tag --title "$RELEASE_TAG" --notes-file bin/release-notes.md "${args[@]}"

@@ -68,7 +68,7 @@ export function MCP() {
     },
   };
   const stdioConfig = {
-    mcpServers: { guiliu: { command: 'guiliu', args: ['mcp', '-config', '/etc/guiliu/guiliu.json'] } },
+    mcpServers: { guiliu: { command: 'gl-cli', args: ['mcp', '-config', '/etc/guiliu/guiliu.json'] } },
   };
   const config = JSON.stringify(transport === 'http' ? httpConfig : stdioConfig, null, 2);
   const curl = `curl -s '${endpoint}' \\\n  ${!dev ? `-H 'Authorization: Bearer ${token}' \\\n  ` : ''}-H 'Content-Type: application/json' \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
@@ -230,7 +230,7 @@ export function MCP() {
         </div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <code className="break-all text-xs text-[var(--muted)]">
-            {transport === 'http' ? endpoint : 'guiliu mcp'}
+            {transport === 'http' ? endpoint : 'gl-cli mcp'}
           </code>
           <CopyButton value={config} label="复制配置" />
         </div>

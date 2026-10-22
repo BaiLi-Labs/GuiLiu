@@ -231,8 +231,8 @@ func TestNormalize(t *testing.T) {
 
 ```bash
 go test ./internal/connector/acme -run TestNormalize -v
-./bin/guiliu probe -account acme-prod -since 1h -limit 3 -raw | jq .
-./bin/guiliu probe -account acme-prod -since 1h -limit 3 -mapped
+./bin/gl-cli probe -account acme-prod -since 1h -limit 3 -raw | jq .
+./bin/gl-cli probe -account acme-prod -since 1h -limit 3 -mapped
 ```
 
 `probe` 直连厂商，不写数据库；这是确认权限、时间参数与分页行为的最快方式。

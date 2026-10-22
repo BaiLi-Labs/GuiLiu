@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -55,7 +56,7 @@ func TestNDJSONProjectionRejectsUnknownPathsBeforeRequest(t *testing.T) {
 
 func TestDescribeDocumentsResponseFieldsAndConditionalSummary(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if Run([]string{"groups", "--describe"}, &stdout, &stderr) != 0 {
+	if Run([]string{"groups", "--describe", "--schema"}, &stdout, &stderr) != 0 {
 		t.Fatal(stderr.String())
 	}
 	var description describeOutput
@@ -82,12 +83,26 @@ func TestDescribeDocumentsResponseFieldsAndConditionalSummary(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &description); err != nil {
 		t.Fatal(err)
 	}
+	if len(stdout.Bytes()) > 16000 {
+		t.Fatalf("discovery expanded to %d bytes", stdout.Len())
+	}
 	for _, command := range description.Commands {
-		if command.ResponseSchema == nil {
-			t.Fatalf("missing schema for %s", command.Name)
+		if command.ResponseSchema != nil || len(command.Flags) != 0 {
+			t.Fatalf("eager details for %s", command.Name)
 		}
-		if command.Name != "component" && command.Name != "health" && command.ResponseSchema["properties"] == nil {
-			t.Fatalf("no response fields documented for %s", command.Name)
+		stdout.Reset()
+		if Run([]string{command.Name, "--describe"}, &stdout, &stderr) != 0 {
+			t.Fatal(stderr.String())
+		}
+		var one describeOutput
+		if err := json.Unmarshal(stdout.Bytes(), &one); err != nil {
+			t.Fatal(err)
+		}
+		if one.Command.ResponseSchema != nil {
+			t.Fatal("full schema must be opt-in")
+		}
+		if command.Name != "component" && command.Name != "health" && len(one.Command.ResponseFields) == 0 {
+			t.Fatalf("no response fields for %s", command.Name)
 		}
 	}
 }
@@ -107,6 +122,89 @@ func TestCLIStatsForwardsBoundedOptionsAndSnapshot(t *testing.T) {
 		code, _, stderr = runCLI(t, args, func(http.ResponseWriter, *http.Request) { t.Fatal("invalid stats sent") })
 		if code != 2 {
 			t.Fatalf("%d %s", code, stderr)
+		}
+	}
+}
+
+func TestContinuationResumesSameSnapshotWithExactWindowAndFilters(t *testing.T) {
+	for _, command := range []string{"alerts", "groups"} {
+		t.Run(command, func(t *testing.T) {
+			t.Setenv("GUILIU_API_KEY", "synthetic-key")
+			calls := 0
+			start, end := "2026-10-20T01:02:03.123456789Z", "2026-10-21T01:02:03.987654321Z"
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				q := r.URL.Query()
+				if q.Get("provider") != "tencent" || q.Get("vendor_title") != " Exact Title " || q.Get("sort") != "id" {
+					t.Error(q)
+				}
+				if calls > 1 && (q.Get("snapshot_sequence") != "42" || q.Get("asset_snapshot_sequence") != "9" || q.Get("start") != start || q.Get("end") != end || q.Get("offset") != "1") {
+					t.Errorf("resume changed identity: %v", q)
+				}
+				field := "alerts"
+				if command == "groups" {
+					field = "groups"
+				}
+				items := []any{map[string]any{"id": "original-1"}, map[string]any{"id": "original-2"}}
+				offset := 0
+				if calls > 1 {
+					items = items[1:]
+					offset = 1
+				}
+				// A new upstream record exists between calls; only snapshot 42
+				// retains the original two IDs. Assert the request, not wording.
+				_ = json.NewEncoder(w).Encode(map[string]any{field: items, "total": 2, "offset": offset, "limit": len(items), "has_more": calls == 1, "snapshot_sequence": 42, "asset_snapshot_sequence": 9, "group_by": "asset", "window": map[string]any{"start": start, "end": end}})
+			}
+			server := httptest.NewServer(http.HandlerFunc(handler))
+			defer server.Close()
+			t.Setenv("GUILIU_URL", server.URL)
+			var stdout, stderr bytes.Buffer
+			args := []string{command, "--provider", "tencent", "--vendor-title", " Exact Title ", "--sort", "id", "--all", "--max-items", "1", "--limit", "2", "--ndjson"}
+			if Run(args, &stdout, &stderr) != 0 {
+				t.Fatal(stderr.String())
+			}
+			var next struct {
+				Args []string `json:"args"`
+			}
+			for _, line := range strings.Split(stderr.String(), "\n") {
+				if strings.HasPrefix(line, "continuation: ") {
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "continuation: ")), &next); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if len(next.Args) == 0 {
+				t.Fatal("no resume checkpoint")
+			}
+			stderr.Reset()
+			if Run(next.Args, &stdout, &stderr) != 0 || calls != 2 {
+				t.Fatalf("resume: %d %s", calls, stderr.String())
+			}
+			if len(strings.Split(strings.TrimSpace(stdout.String()), "\n")) != 2 {
+				t.Fatal(stdout.String())
+			}
+		})
+	}
+}
+
+func TestSchemaIsExplicitAndDocumentsSourceOccurrenceSemantics(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if Run([]string{"alerts", "--schema"}, &stdout, &stderr) != 2 {
+		t.Fatal("schema silently ignored")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if Run([]string{"alerts", "--describe", "--schema"}, &stdout, &stderr) != 0 {
+		t.Fatal(stderr.String())
+	}
+	var out describeOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	props := out.Command.NDJSONSchema["properties"].(map[string]any)
+	for _, key := range []string{"occurrence_count", "occurrence_scope"} {
+		if props[key].(map[string]any)["description"] == nil {
+			t.Fatalf("missing source semantics: %s", key)
 		}
 	}
 }

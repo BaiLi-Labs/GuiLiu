@@ -131,7 +131,7 @@ func newAssetCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.Int(&revision, "revision", 0, "Exact asset revision")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: guiliu query asset <asset-id> [flags]")
+			return usagef("usage: gl-cli query asset <asset-id> [flags]")
 		}
 		if out.NDJSON {
 			return usagef("--ndjson is not supported for one asset")
@@ -167,7 +167,7 @@ func newComponentCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.String(&component, "component", "", "Component key returned by the asset detail (required)")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: guiliu query component <asset-id> --revision N --component KEY")
+			return usagef("usage: gl-cli query component <asset-id> --revision N --component KEY")
 		}
 		if revision < 1 {
 			return usagef("--revision is required")
@@ -282,7 +282,7 @@ func newFindingsCommand(g *globalOptions) (*flagSet, runFunc) {
 	fs.Int(&maxItems, "max-items", query.AgentDefaultMaxItems, "Maximum findings emitted with --all")
 	return fs, func(ctx context.Context, c *client, out *outputOptions, stdout, stderr io.Writer) error {
 		if fs.NArg() != 1 {
-			return usagef("usage: guiliu query findings <asset-id> [flags]")
+			return usagef("usage: gl-cli query findings <asset-id> [flags]")
 		}
 		if limit < 1 || limit > query.AssetMaxLimit {
 			return usagef("--limit must be between 1 and %d", query.AssetMaxLimit)

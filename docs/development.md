@@ -45,8 +45,8 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），以 React 组件内嵌，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
-| MCP | Streamable HTTP `/mcp` + stdio `guiliu mcp`，20 个只读工具；HTTP 使用 API Key |
-| 查询 CLI | `guiliu query <command>`，REST 薄客户端；表格 / `--json` / `--ndjson` / `--all`，`describe` 输出机器可读命令与参数 |
+| MCP | Streamable HTTP `/mcp` + stdio `gl-cli mcp`，20 个只读工具；HTTP 使用 API Key |
+| 查询 CLI | `gl-cli query <command>`，REST 薄客户端；表格 / `--json` / `--ndjson` / `--all`，`describe` 输出机器可读命令与参数 |
 | Mock | `make mock` 启动免登录的六家云合成数据（56 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
 | 存储 | 默认 SQLite（纯 Go，无 CGO）；`store.Store` 接口可替换 PostgreSQL / ClickHouse |
@@ -78,14 +78,14 @@ npm run preview
 
 ```bash
 git clone https://github.com/BaiLi-Labs/GuiLiu.git guiliu && cd guiliu
-go build -o bin/guiliu ./cmd/guiliu
+go build -o bin/gl-cli ./cmd/gl-cli
 
 cp configs/guiliu.example.json guiliu.json
 export GUILIU_ADMIN_PASSWORD='a-long-initial-password'   # 首次启动创建 admin
 export TENCENT_SECRET_ID='...'
 export TENCENT_SECRET_KEY='...'
 
-./bin/guiliu serve
+./bin/gl-cli serve
 ```
 
 打开 <http://127.0.0.1:8080>，使用 `admin` + `GUILIU_ADMIN_PASSWORD` 登录。
@@ -185,15 +185,15 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
 
 ```bash
 export GUILIU_NEW_PASSWORD='a-long-password'
-./bin/guiliu user add -username admin -role admin
+./bin/gl-cli user add -username admin -role admin
 ```
 
 用户管理（本机 CLI，密码只从环境变量读取）：
 
 ```bash
-./bin/guiliu user list
-GUILIU_NEW_PASSWORD='...' ./bin/guiliu user add -username alice -role viewer
-GUILIU_NEW_PASSWORD='...' ./bin/guiliu user passwd -username alice
+./bin/gl-cli user list
+GUILIU_NEW_PASSWORD='...' ./bin/gl-cli user add -username alice -role viewer
+GUILIU_NEW_PASSWORD='...' ./bin/gl-cli user passwd -username alice
 ```
 
 > `GUILIU_DEV=1` / `make dev` 会完全关闭认证；`GUILIU_MOCK=1` / `make mock` 也会关闭认证。两者都只能绑定本机，绝不要暴露到公网。
@@ -228,16 +228,16 @@ make mock
 
 ```bash
 # 直连厂商 API，确认凭据、权限、时间窗口有效
-./bin/guiliu probe -account prod-tencent -since 24h -limit 5
+./bin/gl-cli probe -account prod-tencent -since 24h -limit 5
 
 # 看厂商原始 JSON（可接 jq）
-./bin/guiliu probe -account prod-tencent -since 24h -limit 5 -raw | jq .
+./bin/gl-cli probe -account prod-tencent -since 24h -limit 5 -raw | jq .
 
 # 看归一化结果与生成的 OCSF
-./bin/guiliu probe -account prod-tencent -since 24h -limit 5 -mapped
+./bin/gl-cli probe -account prod-tencent -since 24h -limit 5 -mapped
 
 # 真正跑一次同步并写入数据库
-./bin/guiliu sync -account prod-tencent
+./bin/gl-cli sync -account prod-tencent
 ```
 
 建议流程：
@@ -281,7 +281,7 @@ Azure Defender ──┘
 ### 代码结构
 
 ```text
-cmd/guiliu/                  CLI：serve / mcp / query / sync / probe / accounts
+cmd/gl-cli/                  CLI：serve / mcp / query / sync / probe / accounts
 internal/cli/                只读查询 CLI：REST 薄客户端、分页、表格与 JSON/NDJSON
 internal/query/              共享查询语义：时间窗口、快照、覆盖范围、资产查询
 internal/app/                进程装配与声明式账号 bootstrap
@@ -543,7 +543,7 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 {
   "mcpServers": {
     "guiliu": {
-      "command": "guiliu",
+      "command": "gl-cli",
       "args": ["mcp", "-config", "/etc/guiliu/guiliu.json"]
     }
   }
@@ -571,15 +571,15 @@ API Key 只在创建时返回一次；控制台「MCP」页可以创建、查看
 
 ## 查询 CLI
 
-`guiliu query` 是 REST API 的只读薄客户端，面向只有 shell 的 Agent、CI、批量导出和翻页场景。它不直连 SQLite，也不复制查询逻辑；权限和数据语义由 REST 服务端决定，CLI 只做有界默认值与本地用法校验。
+`gl-cli query` 是 REST API 的只读薄客户端，面向只有 shell 的 Agent、CI、批量导出和翻页场景。它不直连 SQLite，也不复制查询逻辑；权限和数据语义由 REST 服务端决定，CLI 只做有界默认值与本地用法校验。
 
 ```bash
 export GUILIU_URL="http://127.0.0.1:8080"
 export GUILIU_API_KEY="glk_..."
 
-guiliu query describe                 # 机器可读的命令、参数、默认值与限制
-guiliu query alerts --help
-guiliu query alerts --since 24h --severity high,critical --limit 20 --json
+gl-cli query describe                 # 简明命令目录；详细参数用 alerts --describe，完整结构加 --schema
+gl-cli query alerts --help
+gl-cli query alerts --since 24h --severity high,critical --limit 20 --json
 ```
 
 | 命令 | 对应 REST | 说明 |
@@ -610,7 +610,7 @@ guiliu query alerts --since 24h --severity high,critical --limit 20 --json
 - 告警、统计、覆盖默认最近 7 天，分组默认 24 小时，窗口最多 90 天；与 MCP 共用同一组常量。
 - 告警列表不返回 raw；原始载荷只对单条告警、组件修订或失败记录显式请求。
 - CLI 请求带 `X-Guiliu-Client: cli`，访问审计记录 `surface=cli`。
-- `describe` 提供响应 JSON Schema；统计分布、Coverage 窗口定义和投影语义见 [查询元数据](query-metadata.md)。
+- `<command> --describe` 提供参数和字段，追加 `--schema` 提供完整响应 JSON Schema；统计分布、Coverage 窗口定义和投影语义见 [查询元数据](query-metadata.md)。
 - Agent 使用说明见 [`skills/guiliu-query/SKILL.md`](../skills/guiliu-query/SKILL.md)。
 
 ---
@@ -666,9 +666,9 @@ guiliu query alerts --since 24h --severity high,critical --limit 20 --json
 
 ```bash
 # 默认仅预览，省略 -since 表示该账号的全部历史
-./bin/guiliu replay -account prod-tencent -since 7d
+./bin/gl-cli replay -account prod-tencent -since 7d
 # 指定旧映射版本，确认范围后应用
-./bin/guiliu replay -account prod-tencent -mapper-version tencent-csip/v1 -apply
+./bin/gl-cli replay -account prod-tencent -mapper-version tencent-csip/v1 -apply
 ```
 
 命令输出 scanned / changed / failed 数量；重映射不调用告警采集接口，保留原始载荷、告警 ID、创建时间和平台处理状态，发生实质变化时保留版本记录。使用稳定 ID 游标遍历，时间修正不会导致漏处理。厂商映射版本与统一序列化版本分别记录为 `mapper_version`、OCSF `unmapped.normalizer_version`。
@@ -708,7 +708,7 @@ guiliu query alerts --since 24h --severity high,critical --limit 20 --json
 ```bash
 make test     # go test ./...
 make vet      # go vet ./...
-make build    # bin/guiliu
+make build    # bin/gl-cli
 make run      # 本地启动
 ```
 
