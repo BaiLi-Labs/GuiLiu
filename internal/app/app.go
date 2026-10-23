@@ -21,6 +21,7 @@ import (
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/all"
 	"github.com/BaiLi-Labs/GuiLiu/internal/credential"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
+	"github.com/BaiLi-Labs/GuiLiu/internal/intake"
 	"github.com/BaiLi-Labs/GuiLiu/internal/mcp"
 	"github.com/BaiLi-Labs/GuiLiu/internal/mock"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
@@ -38,6 +39,7 @@ type App struct {
 	Auth     *auth.Service
 	MCP      *mcp.Server
 	API      *api.Server
+	Intake   *intake.Server
 }
 
 // New opens storage, loads the master key, bootstraps declarative accounts and
@@ -109,7 +111,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 
 	mcpServer := mcp.New(st, registry, log, 3*cfg.Sync.Interval.Get())
-	apiServer := api.New(cfg, st, engine, registry, cipher, mcpServer, authService, log)
+	intakeServer := intake.New(st, engine, registry, cipher, intake.Options{
+		MaxBodyBytes:  cfg.Intake.MaxBodyBytes,
+		SyslogListen:  cfg.Intake.SyslogListen,
+		SyslogNet:     cfg.Intake.SyslogNet,
+		SyslogWorkers: cfg.Intake.SyslogWorkers,
+	}, log)
+	apiServer := api.New(cfg, st, engine, registry, cipher, mcpServer, authService, intakeServer, log)
 
 	a := &App{
 		Config:   cfg,
@@ -121,6 +129,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Auth:     authService,
 		MCP:      mcpServer,
 		API:      apiServer,
+		Intake:   intakeServer,
 	}
 	a.pruneAudit(ctx)
 	return a, nil
@@ -192,6 +201,14 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	a.Engine.Run(ctx)
+	syslogCtx, stopSyslog := context.WithCancel(ctx)
+	syslogDone := make(chan struct{})
+	go func() {
+		defer close(syslogDone)
+		if err := a.Intake.RunSyslog(syslogCtx, intake.SyslogConfig{Listen: a.Config.Intake.SyslogListen, Net: a.Config.Intake.SyslogNet}); err != nil {
+			a.Log.Error("syslog intake stopped", "error", err)
+		}
+	}()
 	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
 	maintenanceDone := make(chan struct{})
 	go func() {
@@ -208,6 +225,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 	defer func() { stopMaintenance(); <-maintenanceDone }()
+	defer func() { stopSyslog(); <-syslogDone }()
 
 	select {
 	case err := <-errCh:
@@ -261,10 +279,17 @@ func bootstrapAccounts(ctx context.Context, cfg *config.Config, st *store.SQLite
 			"session_token":        cred.SessionToken,
 			"service_account_json": cred.ServiceAccountJSON,
 		}
+		pushOnly := strings.TrimSpace(ac.PushToken) != "" &&
+			provided["access_key_id"] == "" && provided["access_key_secret"] == "" &&
+			provided["session_token"] == "" && provided["service_account_json"] == ""
 		if !exists {
-			for _, f := range desc.Credential {
-				if f.Required && strings.TrimSpace(provided[f.Name]) == "" {
-					return fmt.Errorf("account %q: %s is required for first-time configuration", ac.Name, f.Name)
+			// A push-only account has nothing to call on the product, so required
+			// polling credentials do not apply to it.
+			if !pushOnly {
+				for _, f := range desc.Credential {
+					if f.Required && strings.TrimSpace(provided[f.Name]) == "" {
+						return fmt.Errorf("account %q: %s is required for first-time configuration", ac.Name, f.Name)
+					}
 				}
 			}
 			for _, f := range desc.OptionFields {
@@ -274,13 +299,20 @@ func bootstrapAccounts(ctx context.Context, cfg *config.Config, st *store.SQLite
 			}
 		}
 
+		options := make(map[string]string, len(ac.Options)+1)
+		for k, v := range ac.Options {
+			options[k] = v
+		}
+		if token := strings.TrimSpace(ac.PushToken); token != "" {
+			options["push_token_sha256"] = intake.HashToken(token)
+		}
 		acct := &model.Account{
 			Name:       ac.Name,
 			Provider:   ac.Provider,
 			AccountUID: ac.AccountUID,
 			Region:     ac.Region,
 			Enabled:    ac.IsEnabled(),
-			Options:    ac.Options,
+			Options:    options,
 		}
 		if provided["access_key_id"] != "" || provided["access_key_secret"] != "" ||
 			provided["session_token"] != "" || provided["service_account_json"] != "" {

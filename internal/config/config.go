@@ -52,7 +52,18 @@ type Config struct {
 	Auth          AuthConfig      `json:"auth"`
 	Audit         AuditConfig     `json:"audit"`
 	Sync          SyncConfig      `json:"sync"`
+	Intake        IntakeConfig    `json:"intake"`
 	Accounts      []AccountConfig `json:"accounts"`
+}
+
+// IntakeConfig controls the push receive path. Webhook ingest shares the main
+// listener at POST /ingest/{account}; syslog needs its own listener because the
+// protocol is not HTTP.
+type IntakeConfig struct {
+	SyslogListen  string `json:"syslog_listen"`
+	SyslogNet     string `json:"syslog_net"`
+	SyslogWorkers int    `json:"syslog_workers"`
+	MaxBodyBytes  int64  `json:"max_body_bytes"`
 }
 
 type AuditConfig struct {
@@ -89,6 +100,9 @@ type AccountConfig struct {
 	ServiceAccountJSON string            `json:"service_account_json"`
 	Enabled            *bool             `json:"enabled"`
 	Options            map[string]string `json:"options"`
+	// PushToken enables the push receive path for this account. Only its
+	// SHA-256 is persisted; the plaintext stays in configuration.
+	PushToken string `json:"push_token"`
 }
 
 func (a AccountConfig) IsEnabled() bool {
@@ -231,6 +245,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Sync.Workers < 1 {
 		return fmt.Errorf("sync.workers must be at least 1")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Intake.SyslogNet)) {
+	case "", "tcp", "udp", "both":
+	default:
+		return fmt.Errorf("intake.syslog_net must be one of tcp, udp, both")
+	}
+	if c.Intake.MaxBodyBytes < 0 {
+		return fmt.Errorf("intake.max_body_bytes must not be negative")
 	}
 	seen := map[string]struct{}{}
 	for i, a := range c.Accounts {

@@ -257,12 +257,31 @@ func AccountFromModel(a *model.Account) Account {
 		AccountUID:    a.AccountUID,
 		Region:        a.Region,
 		Enabled:       a.Enabled,
-		Options:       a.Options,
+		Options:       publicAccountOptions(a.Options),
 		AccessKeyHint: a.AccessKeyHint,
 		CredentialSet: a.CredentialSet,
 		CreatedAt:     timeutil.Format(a.CreatedAt),
 		UpdatedAt:     timeutil.Format(a.UpdatedAt),
 	}
+}
+
+// publicAccountOptions removes server-side secrets that are stored in options
+// only because they are derived from configuration.
+func publicAccountOptions(options map[string]string) map[string]string {
+	if len(options) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(options))
+	for key, value := range options {
+		if key == "push_token_sha256" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type SyncRun struct {

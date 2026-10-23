@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestAccountViewHidesPushTokenHash(t *testing.T) {
+	acct := &model.Account{
+		ID: "1", Name: "edge", Provider: "cef",
+		Options: map[string]string{"push_token_sha256": "deadbeef", "syslog_cidrs": "203.0.113.0/24"},
+	}
+	v := AccountFromModel(acct)
+	if _, ok := v.Options["push_token_sha256"]; ok {
+		t.Fatal("the push token hash must never be returned by the API")
+	}
+	if v.Options["syslog_cidrs"] != "203.0.113.0/24" {
+		t.Fatalf("non-secret options must survive: %+v", v.Options)
+	}
+}
+
 func TestResourceAndSourceFactsAreExposed(t *testing.T) {
 	rec := &model.AlertRecord{Alert: model.Alert{
 		Resource: model.Resource{

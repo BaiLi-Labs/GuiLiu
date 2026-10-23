@@ -48,8 +48,24 @@ Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，
 | AWS             | Security Hub · `GetFindingsV2`           | 已实现，含单元测试与合成样本；待真实账号验证   |
 | Google Cloud    | Security Command Center · `ListFindings` | 已实现，含单元测试与合成样本；待真实账号验证   |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | 已实现，含单元测试与合成样本；待真实账号验证   |
+| 长亭科技        | 雷池 SafeLine · `FilterV2API`            | 依据公开的 chaitin-cli 契约实现；待真实设备验证 |
+| CrowdStrike     | Falcon · `Alerts v2`                     | 已实现，含单元测试与合成样本；待真实租户验证   |
+| Microsoft       | Defender XDR · Graph `alerts_v2`         | 已实现，含单元测试与合成样本；待真实租户验证   |
+| 通用            | Webhook / Syslog · CEF                   | 已实现，可作为推送接入的参考实现              |
+| Cloudflare      | WAF · GraphQL `firewallEventsAdaptive`   | 已实现，含单元测试与合成样本；待真实 zone 验证 |
+
+Microsoft Defender for Cloud（Azure Resource Manager）与 Microsoft Defender XDR（Microsoft Graph）是两个独立连接器，权限模型不同。
 
 控制台支持简体中文和英文，记住语言与外观设置，日期和数字随语言切换。厂商告警正文与原始证据保留原文。
+
+### 推送接入
+
+设备主动推送的记录与拉取记录进入同一条归一化、去重、保留与修订链路：
+
+- Webhook：`POST /ingest/{account}`，请求头 `Authorization: Bearer <push_token>`。
+- Syslog：TCP 或 UDP 监听 `intake.syslog_listen`，支持 RFC 5424 / RFC 3164，并解码 CEF 头与扩展字段。
+
+推送账号在配置文件中设置 `push_token`，数据库只保存其 SHA-256。纯推送来源不需要产品凭据，定时拉取会自动跳过。传输信封与原始报文完整保留，修复映射后可离线重放，无需再次访问设备。
 
 ## 本地体验
 

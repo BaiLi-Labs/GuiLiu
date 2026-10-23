@@ -46,8 +46,30 @@ Each connector targets a specific cloud security API. Other products are visible
 | AWS             | Security Hub · `GetFindingsV2`           | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Google Cloud    | Security Command Center · `ListFindings` | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | Implemented; unit tests and synthetic fixtures; real-account validation pending |
+| Chaitin         | SafeLine · `FilterV2API`                 | Implemented from the public chaitin-cli contract; live-appliance validation pending |
+| CrowdStrike     | Falcon · `Alerts v2`                     | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
+| Microsoft       | Defender XDR · Graph `alerts_v2`         | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
+| Generic         | CEF over webhook or syslog               | Implemented; reference push connector |
+| Cloudflare      | WAF · GraphQL `firewallEventsAdaptive`   | Implemented; unit tests and synthetic fixtures; real-zone validation pending |
+
+Microsoft Defender for Cloud (Azure Resource Manager) and Microsoft Defender XDR
+(Microsoft Graph) are separate connectors with separate permissions.
 
 The console supports English and Simplified Chinese, remembers language and appearance preferences, and formats dates and numbers for the selected language. Vendor alert content remains in its original language.
+
+### Push ingestion
+
+Records pushed by a product enter the same normalization, deduplication,
+retention and revision pipeline as polled records:
+
+- `POST /ingest/{account}` with `Authorization: Bearer <push_token>`.
+- Syslog RFC 5424 / RFC 3164 over TCP or UDP on `intake.syslog_listen`, with CEF
+  header and extension decoding.
+
+A push account sets `push_token` in configuration; only its SHA-256 is stored.
+Push-only sources need no product credential and are skipped by the scheduled
+poller. The raw transport envelope is retained, so a mapping fix can replay
+history without contacting the appliance.
 
 ## Try it locally
 

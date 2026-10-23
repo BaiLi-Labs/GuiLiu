@@ -340,10 +340,15 @@ func (s SyncState) Health(now time.Time, maxAge time.Duration) string {
 	if !s.PendingEnd.IsZero() || s.PendingToken != "" {
 		return "pending"
 	}
-	if s.LastSuccessAt == nil || s.CursorEnd.IsZero() {
+	// A push-only source has no polling cursor, so freshness is established by
+	// the last successful ingest rather than by CursorEnd.
+	if s.LastSuccessAt == nil {
 		return "never_synced"
 	}
-	if now.Sub(*s.LastSuccessAt) > maxAge || now.Sub(s.CursorEnd) > maxAge {
+	if now.Sub(*s.LastSuccessAt) > maxAge {
+		return "stale"
+	}
+	if !s.CursorEnd.IsZero() && now.Sub(s.CursorEnd) > maxAge {
 		return "stale"
 	}
 	if s.FailedRecords > 0 {

@@ -23,6 +23,10 @@ import (
 // already being synced.
 var ErrAlreadyRunning = errors.New("sync already running for this account")
 
+// ErrPushOnly is returned when polling is requested for a source that only
+// accepts pushed records.
+var ErrPushOnly = errors.New("source only accepts pushed records")
+
 // Options are the ingest loop defaults. Account options can override window
 // and page settings per account.
 type Options struct {
@@ -133,7 +137,7 @@ func (e *Engine) SyncAll(ctx context.Context, trigger string) {
 	var wg sync.WaitGroup
 	for i := range accounts {
 		acct := accounts[i]
-		if !acct.Enabled {
+		if !acct.Enabled || !e.polls(acct.Provider) {
 			continue
 		}
 		wg.Add(1)
@@ -159,6 +163,9 @@ func (e *Engine) Trigger(accountID, trigger string) (bool, error) {
 	if !acct.Enabled {
 		return false, errors.New("account is disabled")
 	}
+	if !e.polls(acct.Provider) {
+		return false, ErrPushOnly
+	}
 	if !e.acquire(accountID) {
 		return false, ErrAlreadyRunning
 	}
@@ -175,11 +182,24 @@ func (e *Engine) Trigger(accountID, trigger string) (bool, error) {
 
 // SyncAccount syncs one account synchronously.
 func (e *Engine) SyncAccount(ctx context.Context, acct model.Account, trigger string) (*model.SyncRun, error) {
+	if !e.polls(acct.Provider) {
+		return nil, ErrPushOnly
+	}
 	if !e.acquire(acct.ID) {
 		return nil, ErrAlreadyRunning
 	}
 	defer e.release(acct.ID)
 	return e.syncAccount(ctx, acct, trigger)
+}
+
+// polls reports whether the source exposes a polling API. Unknown providers
+// default to polling so a misconfiguration surfaces as a real connector error.
+func (e *Engine) polls(provider string) bool {
+	if e.registry == nil {
+		return true
+	}
+	desc, ok := e.registry.Descriptor(provider)
+	return !ok || !desc.PushOnly
 }
 
 func (e *Engine) acquire(id string) bool {
@@ -433,7 +453,10 @@ func (e *Engine) retryFailures(ctx context.Context, acct model.Account, conn con
 	return created, updated, failed, nil
 }
 
-func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, ingestedAt time.Time) (bool, bool, error) {
+// IngestRaw normalizes and stores one raw source record. Pulling, retrying a
+// failed mapping and pushing all share this function so identity, revision
+// tracking and OCSF projection behave identically on every path.
+func (e *Engine) IngestRaw(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, ingestedAt time.Time) (bool, bool, error) {
 	alert, err := conn.Normalize(raw)
 	if err != nil {
 		return false, false, &mappingError{fmt.Errorf("normalize: %w", err)}
@@ -445,6 +468,78 @@ func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn con
 	}
 	created, err := e.store.UpsertAlert(ctx, rec)
 	return created, rec.Changed, err
+}
+
+func (e *Engine) processRecord(ctx context.Context, acct model.Account, conn connector.Connector, raw json.RawMessage, ingestedAt time.Time) (bool, bool, error) {
+	return e.IngestRaw(ctx, acct, conn, raw, ingestedAt)
+}
+
+// PushResult summarizes one pushed batch.
+type PushResult struct {
+	Created int
+	Updated int
+	Failed  int
+}
+
+// IngestPushed stores records delivered over a push transport. Malformed or
+// unmappable payloads are retained in ingest_failures instead of being lost,
+// exactly like a polling failure, so a later mapping fix can replay them.
+// Duplicate delivery is not special-cased here: identity is the vendor alert
+// id, so UpsertAlert naturally reports the second copy as unchanged.
+func (e *Engine) IngestPushed(ctx context.Context, acct model.Account, conn connector.Connector, raws []connector.RawAlert, ingestedAt time.Time) (PushResult, error) {
+	var result PushResult
+	for _, record := range raws {
+		if len(record.Raw) == 0 || !json.Valid(record.Raw) {
+			result.Failed++
+			if err := e.saveFailure(ctx, acct, conn, record.Raw, ingestedAt, errors.New("pushed record is not valid JSON")); err != nil {
+				return result, err
+			}
+			continue
+		}
+		isNew, changed, err := e.IngestRaw(ctx, acct, conn, record.Raw, ingestedAt)
+		if err != nil {
+			var mappingErr *mappingError
+			if !errors.As(err, &mappingErr) {
+				return result, err
+			}
+			if err := e.saveFailure(ctx, acct, conn, record.Raw, ingestedAt, err); err != nil {
+				return result, err
+			}
+			result.Failed++
+			continue
+		}
+		if isNew {
+			result.Created++
+		} else if changed {
+			result.Updated++
+		}
+	}
+	if len(raws) > 0 {
+		if err := e.markPushed(ctx, acct.ID, len(raws)); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// markPushed records freshness for push-only accounts. An account that has
+// already completed a polling window keeps its cursor-derived health, because
+// a push heartbeat must not hide a broken poller.
+func (e *Engine) markPushed(ctx context.Context, accountID string, items int) error {
+	state, err := e.store.GetSyncState(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if state.LastSuccessAt != nil && !state.CursorEnd.IsZero() {
+		return nil
+	}
+	now := e.now()
+	state.LastSuccessAt = &now
+	state.LastAttemptAt = &now
+	state.ItemsLastRun = items
+	state.LastError, state.LastErrorAt, state.ConsecutiveFailures = "", nil, 0
+	state.LastSourceError = nil
+	return e.store.SaveSyncState(ctx, state)
 }
 
 func (e *Engine) window(acct model.Account, state *model.SyncState) (time.Time, time.Time) {

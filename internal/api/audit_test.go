@@ -192,7 +192,7 @@ func (s noAuditIdentityStore) IdentifyAuditEvent(context.Context, *model.AuditEv
 func TestAuditUnavailableRejectsRequestBeforeHandler(t *testing.T) {
 	_, st, svc := setup(t, true)
 	for _, storage := range []store.Store{noAuditStore{st}, noAuditIdentityStore{st}} {
-		server := api.New(&config.Config{}, storage, nil, nil, nil, nil, svc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		server := api.New(&config.Config{}, storage, nil, nil, nil, nil, svc, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/api/v1/alerts", nil)
 		server.Handler().ServeHTTP(w, r)

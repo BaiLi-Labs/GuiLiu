@@ -315,6 +315,11 @@ func runProbe(args []string) int {
 	}
 	defer connector.Close(conn)
 
+	if conn.Info().PushOnly {
+		fmt.Fprintln(os.Stderr, "probe is not available for a push-only source; send a test record to the webhook or syslog intake instead")
+		return 2
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

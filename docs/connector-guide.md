@@ -251,3 +251,101 @@ go test ./internal/connector/acme -run TestNormalize -v
 - [ ] 已加入 `internal/connector/all`。
 - [ ] 已用 `probe -raw` 与 `-mapped` 对照真实数据。
 - [ ] 更新 README 的映射表与支持厂商列表。
+
+## 10. 推送接入
+
+不是所有产品都提供查询 API。设备类产品通常只推 Webhook 或 Syslog。归流把推送当作与拉取并列的接入路径，而不是另一套存储：两条路径最终都调用 `Engine.IngestRaw`，因此身份、去重、修订、OCSF 投影与映射失败重试完全一致。
+
+### 10.1 契约
+
+```go
+type Pusher interface {
+	Connector
+	DecodePush(req PushRequest) ([]RawAlert, error)
+}
+```
+
+在 `Descriptor` 上声明能力，不要用运行时探测：
+
+```go
+return connector.Descriptor{
+	// ...
+	PushFormats: []connector.PushFormat{connector.PushWebhook, connector.PushSyslog},
+	PushOnly:    true, // 没有查询 API，定时同步自动跳过
+}
+```
+
+- `PushFormats` 为空 = 只支持拉取。
+- `PushOnly: true` 时 `Fetch` 仍必须实现，但返回 `connector.ConfigError` 即可；引擎不会调用它。
+- 纯推送账号可以没有凭据：`bootstrapAccounts` 会跳过必填凭据校验。
+
+### 10.2 DecodePush
+
+```go
+func (c *Connector) DecodePush(req connector.PushRequest) ([]connector.RawAlert, error) {
+	switch req.Format {
+	case connector.PushWebhook:
+		// req.Body 是原始请求体，不做任何改写。
+	case connector.PushSyslog:
+		// req.Body 是 internal/pushwire 生成的 JSON 信封，
+		// 内含 syslog 头、原始 message 与已解码的 CEF。
+	}
+}
+```
+
+要求：
+
+- `RawAlert.Raw` 必须是合法 JSON，且尽可能保留来源字段。syslog/CEF 场景下，信封本身就是"厂商原始载荷"的载体：`message` 字段保存原始文本，`cef.raw` 保存完整 CEF 行。
+- `DecodePush` 可以返回零条（心跳、无关日志），不能返回错误以外的方式静默丢弃解析失败的事件。
+- 同一份载荷重复推送必须映射到同一个 `ExternalID`，否则重投会产生重复记录。优先使用厂商事件 ID（`event_id`、`externalId`），缺失时用 `connector.HashRaw`。
+- 不做网络请求，不读全局状态。
+
+### 10.3 接收与认证
+
+Webhook 与主服务共用监听地址：
+
+```
+POST /ingest/{account}
+Authorization: Bearer <push_token>
+```
+
+Syslog 需要独立监听（配置 `intake.syslog_listen`），TCP/UDP 均可，支持 RFC 5424 与 RFC 3164。账号归属按 `accounts[].options.syslog_cidrs` 匹配来源 IP；只有一个推送账号且未配置网段时自动归属该账号。
+
+配置示例：
+
+```json
+{
+  "intake": {
+    "syslog_listen": "0.0.0.0:5514",
+    "syslog_net": "both",
+    "syslog_workers": 4,
+    "max_body_bytes": 8388608
+  },
+  "accounts": [
+    {
+      "name": "edge-cef",
+      "provider": "cef",
+      "push_token": "${CEF_PUSH_TOKEN}",
+      "options": { "syslog_cidrs": "203.0.113.0/24" }
+    }
+  ]
+}
+```
+
+- `push_token` 只在配置文件中出现，数据库只保存 `push_token_sha256`；该值不会通过 API 返回，也不能通过账号表单写入。
+- 收到请求并返回 2xx 时，数据已经落库或已进入 `ingest_failures`。不要在写入前返回成功，设备会因此丢事件。
+- 非 CEF 的 Syslog 消息会被忽略，但不会中断监听。
+
+### 10.4 测试
+
+```bash
+go test ./internal/pushwire ./internal/intake ./internal/connector/cef -v
+```
+
+最小覆盖：
+
+- 正常 CEF 头与扩展字段（含 `\=`、`\|` 转义）；
+- RFC 5424 带结构化数据、RFC 3164；
+- 重复推送不新增行；
+- 相同 `ExternalID` 内容变化时产生新修订；
+- 错误 token、未知账号、超限载荷被拒绝。

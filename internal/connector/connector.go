@@ -76,6 +76,13 @@ type Descriptor struct {
 	Credential    []CredentialField `json:"credential_fields"`
 	OptionFields  []OptionField     `json:"option_fields,omitempty"`
 	Products      []Product         `json:"products"`
+	// PushFormats declares the transports this source accepts. Empty means the
+	// source is polling-only. It is static identity, so the intake layer can
+	// route a payload without constructing a connector.
+	PushFormats []PushFormat `json:"push_formats,omitempty"`
+	// PushOnly marks a source with no polling API. The scheduled loop skips it
+	// instead of recording a permanent Fetch failure every interval.
+	PushOnly bool `json:"push_only,omitempty"`
 }
 
 // Query is one page request over a fixed time window. Token is opaque to the

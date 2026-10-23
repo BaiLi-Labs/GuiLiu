@@ -17,6 +17,8 @@ func TestSyncHealth(t *testing.T) {
 		{"fresh", SyncState{CursorEnd: now, LastSuccessAt: &now}, "healthy"},
 		{"stopped", SyncState{CursorEnd: now, LastSuccessAt: &old}, "stale"},
 		{"behind", SyncState{CursorEnd: old, LastSuccessAt: &now}, "stale"},
+		{"push only", SyncState{LastSuccessAt: &now}, "healthy"},
+		{"push stopped", SyncState{LastSuccessAt: &old}, "stale"},
 		{"throttled", SyncState{CursorEnd: now, LastSuccessAt: &now, LastError: "throttled"}, "failed"},
 		{"backfill", SyncState{PendingEnd: now}, "pending"},
 		{"mapping failures", SyncState{CursorEnd: now, LastSuccessAt: &now, FailedRecords: 1}, "partial"},

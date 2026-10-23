@@ -88,7 +88,7 @@ func setup(t *testing.T, devMode bool, register ...func(*connector.Registry)) (*
 	eng := ingest.New(st, reg, cipher, ingest.Options{Enabled: false}, logger)
 	authSvc := auth.New(st, auth.Config{DevMode: devMode, SessionTTL: time.Hour, AdminUser: "admin"}, logger)
 	mcpServer := mcp.New(st, reg, logger)
-	server := api.New(cfg, st, eng, reg, cipher, mcpServer, authSvc, logger)
+	server := api.New(cfg, st, eng, reg, cipher, mcpServer, authSvc, nil, logger)
 	ts := &testServer{URL: "http://guiliu.test", handler: server.Handler()}
 	return ts, st, authSvc
 }

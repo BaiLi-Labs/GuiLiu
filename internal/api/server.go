@@ -19,6 +19,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
+	"github.com/BaiLi-Labs/GuiLiu/internal/intake"
 	"github.com/BaiLi-Labs/GuiLiu/internal/mcp"
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
@@ -38,9 +39,10 @@ type Server struct {
 	log       *slog.Logger
 	startedAt time.Time
 	assets    *asset.Service
+	intake    *intake.Server
 }
 
-func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *connector.Registry, cipher *secret.Cipher, mcpServer *mcp.Server, authService *auth.Service, log *slog.Logger) *Server {
+func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *connector.Registry, cipher *secret.Cipher, mcpServer *mcp.Server, authService *auth.Service, intakeServer *intake.Server, log *slog.Logger) *Server {
 	if cfg.Audit.RetentionDays == 0 {
 		cfg.Audit.RetentionDays = 90
 	}
@@ -58,6 +60,7 @@ func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *co
 		log:       log,
 		startedAt: time.Now().UTC(),
 		assets:    asset.New(st, cipher, cfg.Mock),
+		intake:    intakeServer,
 	}
 }
 
@@ -115,6 +118,11 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/api/v1/", http.StripPrefix("/api/v1", s.requireAuth(api)))
 	root.Handle("/mcp", s.requireAuth(http.HandlerFunc(s.mcp.ServeHTTP)))
 	root.Handle("/mcp/", s.requireAuth(http.HandlerFunc(s.mcp.ServeHTTP)))
+	// Push ingest authenticates with a per-account token, not a session or API
+	// key, so it is registered outside requireAuth and outside /api/v1.
+	if s.intake != nil {
+		root.HandleFunc("POST /ingest/{account}", s.intake.Webhook)
+	}
 	root.Handle("/", web.Handler())
 
 	return s.auditHTTP(s.recoverer(root))

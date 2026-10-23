@@ -20,5 +20,11 @@
     "page_size": 100,
     "workers": 2
   },
+  "intake": {
+    "syslog_listen": "",
+    "syslog_net": "both",
+    "syslog_workers": 4,
+    "max_body_bytes": 8388608
+  },
   "accounts": []
 }

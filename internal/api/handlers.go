@@ -129,6 +129,7 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Options == nil {
 		req.Options = map[string]string{}
 	}
+	req.Options = withoutServerManagedOptions(req.Options)
 	if missing := missingOptionFields(desc, req.Options); len(missing) > 0 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "missing required option: "+strings.Join(missing, ", "))
 		return
@@ -201,7 +202,9 @@ func (s *Server) handlePatchAccount(w http.ResponseWriter, r *http.Request) {
 		acct.Enabled = *req.Enabled
 	}
 	if req.Options != nil {
-		acct.Options = req.Options
+		// Options set from configuration (the push token hash) are not editable
+		// through the account form; an unrelated edit must not drop them.
+		acct.Options = withServerManagedOptions(acct.Options, req.Options)
 	}
 	desc, ok := s.registry.Descriptor(acct.Provider)
 	if !ok {
@@ -302,6 +305,8 @@ func (s *Server) handleSyncAccount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "account not found")
 		case errors.Is(err, ingest.ErrAlreadyRunning):
 			writeError(w, http.StatusConflict, "already_running", "a sync is already running for this account")
+		case errors.Is(err, ingest.ErrPushOnly):
+			writeError(w, http.StatusUnprocessableEntity, "push_only", "this source only accepts pushed records")
 		default:
 			writeError(w, http.StatusBadRequest, "sync_failed", err.Error())
 		}
@@ -845,6 +850,40 @@ func credentialFieldValue(cred connector.Credential, name string) string {
 	default:
 		return ""
 	}
+}
+
+// serverManagedOptions are stored in account options but are derived from
+// configuration or generated server-side, so the API must never accept them.
+var serverManagedOptions = map[string]struct{}{"push_token_sha256": {}}
+
+func withoutServerManagedOptions(options map[string]string) map[string]string {
+	if len(options) == 0 {
+		return options
+	}
+	out := make(map[string]string, len(options))
+	for key, value := range options {
+		if _, managed := serverManagedOptions[key]; managed {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func withServerManagedOptions(existing, incoming map[string]string) map[string]string {
+	out := make(map[string]string, len(incoming)+1)
+	for key, value := range incoming {
+		if _, managed := serverManagedOptions[key]; managed {
+			continue
+		}
+		out[key] = value
+	}
+	for key := range serverManagedOptions {
+		if value, ok := existing[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func missingCredentialFields(desc connector.Descriptor, cred connector.Credential) []string {
