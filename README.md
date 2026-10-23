@@ -51,6 +51,7 @@ Each connector targets a specific cloud security API. Other products are visible
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
 | Generic         | CEF over webhook or syslog               | Implemented; reference push connector |
 | Cloudflare      | WAF · GraphQL `firewallEventsAdaptive`   | Implemented; unit tests and synthetic fixtures; real-zone validation pending |
+| Chaitin         | TAnswer · `SearchAlarmList`              | Implemented from the public chaitin-cli contract; live-appliance validation pending |
 
 Microsoft Defender for Cloud (Azure Resource Manager) and Microsoft Defender XDR
 (Microsoft Graph) are separate connectors with separate permissions.

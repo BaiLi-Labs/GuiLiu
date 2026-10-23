@@ -53,6 +53,7 @@ Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | 已实现，含单元测试与合成样本；待真实租户验证   |
 | 通用            | Webhook / Syslog · CEF                   | 已实现，可作为推送接入的参考实现              |
 | Cloudflare      | WAF · GraphQL `firewallEventsAdaptive`   | 已实现，含单元测试与合成样本；待真实 zone 验证 |
+| 长亭科技        | 全悉 TAnswer · `SearchAlarmList`         | 依据公开的 chaitin-cli 契约实现；待真实设备验证 |
 
 Microsoft Defender for Cloud（Azure Resource Manager）与 Microsoft Defender XDR（Microsoft Graph）是两个独立连接器，权限模型不同。
 

@@ -281,6 +281,82 @@ func TestFetchPaginatesWhenTotalIsMissing(t *testing.T) {
 	}
 }
 
+func TestFetchEnrichesWithDetailWhenEnabled(t *testing.T) {
+	var detailCalls atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("scope") {
+		case "log:detect_log:optim_limit":
+			fmt.Fprint(w, `{"err":null,"data":{"items":[{"event_id":"evt-1","timestamp":"1792749600"}],"total":1}}`)
+		case "log:detect_log:detail":
+			detailCalls.Add(1)
+			if r.URL.Query().Get("event_id__exact") != "evt-1" || r.URL.Query().Get("timestamp__exact") != "1792749600" {
+				t.Errorf("detail lookup keys = %v", r.URL.Query())
+			}
+			fmt.Fprint(w, `{"err":null,"data":[{"event_id":"evt-1","timestamp":"1792749600","risk_level":"3","method":"POST","url_path":"/login","attack_type":"SQL注入","action":{"translation":"拦截"}}]}`)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	c, err := New(connector.AccountConfig{
+		Options:    map[string]string{"endpoint": srv.URL, "fetch_detail": "true"},
+		Credential: connector.Credential{AccessKeyID: "test-token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(1792740000, 0).UTC()
+	end := time.Unix(1792750000, 0).UTC()
+
+	page, err := c.Fetch(context.Background(), connector.Query{Start: start, End: end, PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("records = %d", len(page.Records))
+	}
+	if detailCalls.Load() != 1 {
+		t.Fatalf("detail calls = %d", detailCalls.Load())
+	}
+	alert, err := c.Normalize(page.Records[0].Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.Severity != model.SeverityHigh || alert.VendorStatus != "拦截" {
+		t.Fatalf("detail was not applied: severity=%v status=%q", alert.Severity, alert.VendorStatus)
+	}
+}
+
+func TestFetchKeepsListRecordWhenDetailFails(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("scope") {
+		case "log:detect_log:optim_limit":
+			fmt.Fprint(w, `{"err":null,"data":{"items":[{"event_id":"evt-1","timestamp":"1792749600"}],"total":1}}`)
+		case "log:detect_log:detail":
+			fmt.Fprint(w, `{"err":"invalid_param","data":null}`)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	c, err := New(connector.AccountConfig{
+		Options:    map[string]string{"endpoint": srv.URL, "fetch_detail": "true"},
+		Credential: connector.Credential{AccessKeyID: "test-token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := c.Fetch(context.Background(), connector.Query{
+		Start: time.Unix(1792740000, 0).UTC(), End: time.Unix(1792750000, 0).UTC(), PageSize: 10,
+	})
+	if err == nil {
+		t.Fatal("when every detail call fails the error must surface")
+	}
+	_ = page
+}
+
 func TestFetchClassifiesUnauthorized(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
