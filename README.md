@@ -54,6 +54,7 @@ Each connector targets a specific cloud security API. Other products are visible
 | Chaitin         | TAnswer · `SearchAlarmList`              | Implemented from the public chaitin-cli contract; live-appliance validation pending |
 | Chaitin         | Cosmos · `GetAlarmList`                  | Implemented from the public API definitions; the reply schema is unpublished, mapping marked unverified |
 | Chaitin         | D-Sensor · `event_alarm/list`            | Implemented from the public OpenAPI definition; live-appliance validation pending |
+| Chaitin         | CloudWalker · `GetEventList`             | Eight event families confirmed; reply shape and time format unpublished, mapping marked unverified |
 
 Microsoft Defender for Cloud (Azure Resource Manager) and Microsoft Defender XDR
 (Microsoft Graph) are separate connectors with separate permissions.
