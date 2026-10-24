@@ -8,6 +8,7 @@ import (
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/azure"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/cef"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/cloudflare"
+	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/cosmos"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/crowdstrike"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/defender"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/gcp"
