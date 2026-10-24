@@ -54,10 +54,13 @@ func TestLoadExpandsOnlyBracedEnv(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsPartialCredential(t *testing.T) {
+func TestValidateAllowsSingleTokenCredential(t *testing.T) {
+	// Several vendors authenticate with one API token, and push-only accounts
+	// have no product credential at all. Required fields are enforced by the
+	// connector descriptor during bootstrap, not here.
 	cfg := Default()
-	cfg.Accounts = []AccountConfig{{Name: "x", Provider: "tencent", AccessKeyID: "only-id"}}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected validation error")
+	cfg.Accounts = []AccountConfig{{Name: "x", Provider: "safeline-ce", AccessKeyID: "only-token"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("single-token credentials must be allowed: %v", err)
 	}
 }

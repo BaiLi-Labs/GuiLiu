@@ -266,9 +266,10 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate account name %q", a.Name)
 		}
 		seen[a.Name] = struct{}{}
-		if (a.AccessKeyID == "") != (a.AccessKeySecret == "") {
-			return fmt.Errorf("account %q: access_key_id and access_key_secret must be set together", a.Name)
-		}
+		// Credentials are not paired here: many vendors authenticate with a
+		// single API token, and push-only accounts have no product credential
+		// at all. Each connector validates its own required fields, and
+		// bootstrap applies the descriptor's required credential list.
 	}
 	return nil
 }
