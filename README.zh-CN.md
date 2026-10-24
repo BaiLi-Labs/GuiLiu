@@ -55,6 +55,7 @@ Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，
 | Cloudflare      | WAF · GraphQL `firewallEventsAdaptive`   | 已实现，含单元测试与合成样本；待真实 zone 验证 |
 | 长亭科技        | 全悉 TAnswer · `SearchAlarmList`         | 依据公开的 chaitin-cli 契约实现；待真实设备验证 |
 | 长亭科技        | 万象 Cosmos · `GetAlarmList`             | 按公开 API 定义实现；响应结构未公开，映射标记为未验证 |
+| 长亭科技        | 谛听 D-Sensor · `event_alarm/list`       | 依据公开 OpenAPI 定义实现；待真实设备验证      |
 
 Microsoft Defender for Cloud（Azure Resource Manager）与 Microsoft Defender XDR（Microsoft Graph）是两个独立连接器，权限模型不同。
 

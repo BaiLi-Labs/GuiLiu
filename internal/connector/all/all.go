@@ -11,6 +11,7 @@ import (
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/cosmos"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/crowdstrike"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/defender"
+	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/dsensor"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/gcp"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/huawei"
 	_ "github.com/BaiLi-Labs/GuiLiu/internal/connector/safeline"
