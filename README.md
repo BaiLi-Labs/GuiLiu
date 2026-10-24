@@ -47,6 +47,7 @@ Each connector targets a specific cloud security API. Other products are visible
 | Google Cloud    | Security Command Center · `ListFindings` | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Chaitin         | SafeLine · `FilterV2API`                 | Implemented from the public chaitin-cli contract; live-appliance validation pending |
+| Chaitin         | SafeLine CE · `GET /open/records`        | Implemented from the public OpenAPI; verifiable with the free Docker edition |
 | CrowdStrike     | Falcon · `Alerts v2`                     | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
 | Generic         | CEF over webhook or syslog               | Implemented; reference push connector |

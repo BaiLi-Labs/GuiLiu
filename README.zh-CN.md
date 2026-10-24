@@ -49,6 +49,7 @@ Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，
 | Google Cloud    | Security Command Center · `ListFindings` | 已实现，含单元测试与合成样本；待真实账号验证   |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | 已实现，含单元测试与合成样本；待真实账号验证   |
 | 长亭科技        | 雷池 SafeLine · `FilterV2API`            | 依据公开的 chaitin-cli 契约实现；待真实设备验证 |
+| 长亭科技        | 雷池社区版 · `GET /open/records`         | 依据公开 OpenAPI 实现；可用本地 Docker 社区版真机验证 |
 | CrowdStrike     | Falcon · `Alerts v2`                     | 已实现，含单元测试与合成样本；待真实租户验证   |
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | 已实现，含单元测试与合成样本；待真实租户验证   |
 | 通用            | Webhook / Syslog · CEF                   | 已实现，可作为推送接入的参考实现              |
