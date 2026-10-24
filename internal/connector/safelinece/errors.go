@@ -23,7 +23,7 @@ func httpError(status int, body []byte) error {
 		message = connector.FirstNonEmpty(payload.Msg, payload.Err)
 	}
 	return &connector.Error{
-		Provider: providerID, SourceAPI: "GET /open/records", HTTPStatus: status,
+		Provider: providerID, SourceAPI: "GET /api/open/records", HTTPStatus: status,
 		Kind: httpKind(status), Code: code, Message: truncate(message),
 	}
 }
@@ -43,7 +43,7 @@ func apiError(code, message string) error {
 		kind = connector.KindThrottled
 	}
 	return &connector.Error{
-		Provider: providerID, SourceAPI: "GET /open/records",
+		Provider: providerID, SourceAPI: "GET /api/open/records",
 		Kind: kind, Code: sanitizeCode(text), Message: truncate(connector.FirstNonEmpty(message, text)),
 	}
 }

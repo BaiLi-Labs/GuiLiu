@@ -28,10 +28,12 @@ import (
 )
 
 const (
-	providerID      = "safeline-ce"
-	mapperVersion   = "safeline-ce-detect-log/v1"
-	apiVersion      = "openapi"
-	recordsPath     = "/open/records"
+	providerID    = "safeline-ce"
+	mapperVersion = "safeline-ce-detect-log/v1"
+	apiVersion    = "openapi"
+	// The OpenAPI document declares basePath /api, so /open/records is served
+	// at /api/open/records. Verified against a live community edition.
+	recordsPath     = "/api/open/records"
 	defaultQPS      = 2
 	defaultPageSize = 100
 )
@@ -42,7 +44,7 @@ func init() {
 
 func descriptor() connector.Descriptor {
 	return connector.Descriptor{
-		SourceAPI:     "GET /open/records",
+		SourceAPI:     "GET /api/open/records",
 		ID:            providerID,
 		Name:          "Chaitin SafeLine CE",
 		Vendor:        "Chaitin",
@@ -153,12 +155,14 @@ func (c *Connector) list(ctx context.Context, q connector.Query, page, pageSize 
 	query := url.Values{}
 	query.Set("page", strconv.Itoa(page))
 	query.Set("page_size", strconv.Itoa(pageSize))
-	// The wire time unit is Unix seconds.
+	// The OpenAPI description says seconds, but the live 9.4.3 build filters on
+	// Unix milliseconds: a second-based window returns zero records even when
+	// records exist in range.
 	if !q.Start.IsZero() {
-		query.Set("start", strconv.FormatInt(q.Start.Unix(), 10))
+		query.Set("start", strconv.FormatInt(q.Start.UnixMilli(), 10))
 	}
 	if !q.End.IsZero() {
-		query.Set("end", strconv.FormatInt(q.End.Unix(), 10))
+		query.Set("end", strconv.FormatInt(q.End.UnixMilli(), 10))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+recordsPath+"?"+query.Encode(), nil)
