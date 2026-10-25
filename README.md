@@ -84,6 +84,12 @@ backpressure and shutdown attempts to drain queued frames within five seconds.
 UDP and process crashes can still lose frames that have not reached storage.
 Saved transport envelopes can be replayed after a mapping fix.
 
+Push transports carry alerts, not general logs. The generic CEF connector
+requires an explicit `event_categories` list and ingests nothing without it, so
+traffic or audit records cannot be mistaken for findings. Syslog is disabled by
+default; when enabled it must stay on a trusted network, and without TLS the
+transport is unencrypted and unauthenticated.
+
 Each CloudWalker account collects one `event_type`, defaulting to `webshell_event`.
 Create separate accounts with the same appliance and credential for the other
 seven families. Coverage responses expose the configured family and time format.

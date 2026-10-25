@@ -252,6 +252,9 @@ func (s *Server) RunSyslog(ctx context.Context, cfg SyslogConfig) error {
 		if err != nil {
 			s.log.Error("syslog udp listen failed", "addr", addr, "error", err)
 		} else {
+			// UDP syslog has no authentication: any host that can reach the
+			// port can inject records. Restrict it to a trusted network.
+			s.log.Warn("syslog udp listener is unencrypted and unauthenticated; restrict it to a trusted network", "addr", addr)
 			closers = append(closers, pc)
 			listeners.Go(func() { s.serveSyslogUDP(ctx, pc, queue) })
 		}

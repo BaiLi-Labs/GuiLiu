@@ -1,6 +1,7 @@
 package cef
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -96,7 +97,7 @@ func TestNormalizeMissingTimeStaysUnknown(t *testing.T) {
 
 func TestDecodePushWebhook(t *testing.T) {
 	body := `CEF:0|Fortinet|FortiGate|7.6|1059028705|traffic:forward|5|src=203.0.113.10`
-	raws, err := (&Connector{}).DecodePush(connector.PushRequest{
+	raws, err := (&Connector{acceptAll: true}).DecodePush(connector.PushRequest{
 		Format:     connector.PushWebhook,
 		Body:       []byte(body),
 		Header:     http.Header{},
@@ -134,6 +135,70 @@ func TestDecodePushSyslogIgnoresNonCEF(t *testing.T) {
 	}
 }
 
+func TestWithoutCategoriesEveryRecordIsDropped(t *testing.T) {
+	c := &Connector{}
+	body := []byte(`CEF:0|Fortinet|FortiGate|7.6|1059028705|traffic:forward|5|src=203.0.113.10`)
+	raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raws) != 0 {
+		t.Fatalf("an unconfigured CEF source must not ingest anything, got %d", len(raws))
+	}
+	if err := c.Check(context.Background()); err == nil {
+		t.Fatal("check must report the missing event_categories")
+	}
+}
+
+func TestThreatCategoryFiltersTrafficLogs(t *testing.T) {
+	c := &Connector{categories: []string{"ips", "attack"}}
+	threat := []byte(`CEF:0|Fortinet|FortiGate|7.6|1059028705|ips:attack|9|src=203.0.113.10`)
+	traffic := []byte(`CEF:0|Fortinet|FortiGate|7.6|1059028706|traffic:forward|2|src=203.0.113.11`)
+
+	for name, tc := range map[string]struct {
+		body []byte
+		want int
+	}{
+		"threat":  {threat, 1},
+		"traffic": {traffic, 0},
+	} {
+		raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: tc.body})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(raws) != tc.want {
+			t.Fatalf("%s: records = %d want %d", name, len(raws), tc.want)
+		}
+	}
+}
+
+func TestCategoryMatchesExtensionFields(t *testing.T) {
+	c := &Connector{categories: []string{"malware"}}
+	body := []byte(`CEF:0|Acme|Sensor|1|42|alert|8|deviceEventClassId=malware-detected src=203.0.113.9`)
+	raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raws) != 1 {
+		t.Fatalf("extension category was not matched, records = %d", len(raws))
+	}
+}
+
+func TestAcceptAllBypassesFilter(t *testing.T) {
+	c := &Connector{acceptAll: true}
+	body := []byte(`CEF:0|Fortinet|FortiGate|7.6|1059028706|traffic:forward|2|src=203.0.113.11`)
+	raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raws) != 1 {
+		t.Fatalf("accept_all_events must bypass filtering, got %d", len(raws))
+	}
+	if err := c.Check(context.Background()); err != nil {
+		t.Fatalf("check = %v", err)
+	}
+}
+
 func TestInfoDeclaresPushSupport(t *testing.T) {
 	desc := (&Connector{}).Info()
 	if !desc.PushOnly {
@@ -152,7 +217,7 @@ func TestDeviceIdentityDoesNotMergeDifferentEvents(t *testing.T) {
 			if eventIDs {
 				line += " eventId=" + name
 			}
-			c := &Connector{}
+			c := &Connector{acceptAll: true}
 			raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: []byte(line)})
 			if err != nil {
 				t.Fatal(err)
