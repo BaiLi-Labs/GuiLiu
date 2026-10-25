@@ -4,6 +4,7 @@
 package crowdstrike
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,7 @@ const (
 	defaultQPS      = 4
 	defaultPageSize = 100
 	alertsPath      = "/alerts/entities/alerts/v2"
+	queryPath       = "/alerts/queries/alerts/v2"
 	tokenPath       = "/oauth2/token"
 	maxOffset       = 10000
 )
@@ -129,10 +131,6 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 	if err != nil {
 		return connector.Page{}, err
 	}
-	if err := c.limiter.Wait(ctx); err != nil {
-		return connector.Page{}, err
-	}
-
 	query := url.Values{}
 	query.Set("limit", strconv.Itoa(pageSize))
 	query.Set("offset", strconv.Itoa(offset))
@@ -141,30 +139,6 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		query.Set("filter", fmt.Sprintf("timestamp:>'%s'+timestamp:<'%s'",
 			q.Start.UTC().Format(time.RFC3339), q.End.UTC().Format(time.RFC3339)))
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+alertsPath+"?"+query.Encode(), nil)
-	if err != nil {
-		return connector.Page{}, connector.ConfigError(providerID, "invalid base_url: "+err.Error())
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "GuiLiu/"+mapperVersion)
-	if c.memberCID != "" {
-		req.Header.Set("X-CS-Member-CID", c.memberCID)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return connector.Page{}, connector.WithSourceAPI(providerID, "Falcon Alerts v2", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return connector.Page{}, connector.WithSourceAPI(providerID, "Falcon Alerts v2", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return connector.Page{}, apiError(resp.StatusCode, body, c.baseURL+alertsPath)
-	}
-
 	var payload struct {
 		Meta struct {
 			Pagination struct {
@@ -173,21 +147,30 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 				Total  int `json:"total"`
 			} `json:"pagination"`
 		} `json:"meta"`
+		Resources []string `json:"resources"`
+	}
+	if err := c.request(ctx, http.MethodGet, queryPath+"?"+query.Encode(), token, nil, &payload); err != nil {
+		return connector.Page{}, err
+	}
+	// Query returns IDs only. Fetch the full entities before committing this
+	// page, so a failed detail request cannot advance the collection cursor.
+	var details struct {
 		Resources []json.RawMessage `json:"resources"`
-		Errors    []struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"errors"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return connector.Page{}, fmt.Errorf("decode crowdstrike alerts: %w", err)
+	if len(payload.Resources) > 0 {
+		body, err := json.Marshal(map[string]any{"composite_ids": payload.Resources})
+		if err != nil {
+			return connector.Page{}, err
+		}
+		if err := c.request(ctx, http.MethodPost, alertsPath, token, body, &details); err != nil {
+			return connector.Page{}, err
+		}
+		if len(details.Resources) != len(payload.Resources) {
+			return connector.Page{}, fmt.Errorf("crowdstrike returned %d entities for %d alert IDs", len(details.Resources), len(payload.Resources))
+		}
 	}
-	if len(payload.Errors) > 0 {
-		return connector.Page{}, apiErrors(payload.Errors[0].Code, payload.Errors[0].Message)
-	}
-
-	records := make([]connector.RawAlert, 0, len(payload.Resources))
-	for _, raw := range payload.Resources {
+	records := make([]connector.RawAlert, 0, len(details.Resources))
+	for _, raw := range details.Resources {
 		if len(raw) == 0 || string(raw) == "null" {
 			return connector.Page{}, fmt.Errorf("crowdstrike returned an empty alert")
 		}
@@ -199,6 +182,53 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 		next = strconv.Itoa(offset + len(records))
 	}
 	return connector.Page{Records: records, NextToken: next, Total: total}, nil
+}
+
+func (c *Connector) request(ctx context.Context, method, path, token string, body []byte, target any) error {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return connector.ConfigError(providerID, "invalid request URL: "+err.Error())
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "GuiLiu/"+mapperVersion)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.memberCID != "" {
+		req.Header.Set("X-CS-Member-CID", c.memberCID)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return connector.WithSourceAPI(providerID, "Falcon Alerts v2", err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return connector.WithSourceAPI(providerID, "Falcon Alerts v2", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return apiError(resp.StatusCode, payload, method+" "+strings.SplitN(path, "?", 2)[0])
+	}
+	var envelope struct {
+		Errors []struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return fmt.Errorf("decode crowdstrike response: %w", err)
+	}
+	if len(envelope.Errors) > 0 {
+		return apiErrors(envelope.Errors[0].Code, envelope.Errors[0].Message)
+	}
+	if err := json.Unmarshal(payload, target); err != nil {
+		return fmt.Errorf("decode crowdstrike response: %w", err)
+	}
+	return nil
 }
 
 func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {

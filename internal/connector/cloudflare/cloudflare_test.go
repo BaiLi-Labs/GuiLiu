@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -197,5 +198,73 @@ func TestNewRequiresZone(t *testing.T) {
 	_, err := New(connector.AccountConfig{Credential: connector.Credential{AccessKeyID: "t"}})
 	if err == nil {
 		t.Fatal("zone_id must be required")
+	}
+}
+
+func TestFetchFailsWhenSmallestSliceIsSaturated(t *testing.T) {
+	c := newTestConnector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":{"viewer":{"zones":[{"firewallEventsAdaptive":[{"clientIP":"203.0.113.1"},{"clientIP":"203.0.113.2"}]}]}}}`)
+	}))
+	start := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	page, err := c.Fetch(context.Background(), connector.Query{Start: start, End: start.Add(time.Second), PageSize: 2})
+	var sourceError *connector.Error
+	if !errors.As(err, &sourceError) || sourceError.Code != "window_saturated" || len(page.Records) != 0 || page.NextToken != "" {
+		t.Fatalf("saturated page = %+v, error = %v", page, err)
+	}
+}
+
+func TestFetchCollectsBurstWithinOneMinute(t *testing.T) {
+	start := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	c := newTestConnector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Limit  int `json:"limit"`
+				Filter struct {
+					Start string `json:"datetime_geq"`
+					End   string `json:"datetime_leq"`
+				} `json:"filter"`
+			} `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		from, _ := time.Parse(time.RFC3339, req.Variables.Filter.Start)
+		to, _ := time.Parse(time.RFC3339, req.Variables.Filter.End)
+		events := []map[string]string{}
+		for i, second := range []int{2, 10, 20, 30, 40} {
+			at := start.Add(time.Duration(second) * time.Second)
+			if !at.Before(from) && !at.After(to) && len(events) < req.Variables.Limit {
+				events = append(events, map[string]string{"clientIP": fmt.Sprintf("203.0.113.%d", i+1), "datetime": at.Format(time.RFC3339)})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"viewer": map[string]any{"zones": []any{map[string]any{"firewallEventsAdaptive": events}}}}})
+	}))
+	q := connector.Query{Start: start, End: start.Add(time.Minute), PageSize: 2}
+	seen := map[string]bool{}
+	for calls := 0; ; calls++ {
+		if calls > 100 {
+			t.Fatal("pagination did not finish")
+		}
+		page, err := c.Fetch(context.Background(), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range page.Records {
+			var event struct {
+				IP string `json:"clientIP"`
+			}
+			if err := json.Unmarshal(record.Raw, &event); err != nil {
+				t.Fatal(err)
+			}
+			seen[event.IP] = true
+		}
+		if page.NextToken == "" {
+			break
+		}
+		q.Token = page.NextToken
+	}
+	if len(seen) != 5 {
+		t.Fatalf("collected %d of 5 burst events: %v", len(seen), seen)
 	}
 }

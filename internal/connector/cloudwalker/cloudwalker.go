@@ -74,7 +74,7 @@ func descriptor() connector.Descriptor {
 		},
 		OptionFields: []connector.OptionField{
 			{Name: "endpoint", Label: "RPC endpoint", Required: true, Placeholder: "https://cloudwalker.example.com/rpc", Help: "自动补 /rpc 后缀"},
-			{Name: "event_type", Label: "Event family", Placeholder: defaultEvent, Help: "webshell_event / memory_webshell_event / malware_event / brute_force / port_scan / abnormal_login_event / revshell_event / suspicious_operation"},
+			{Name: "event_type", Label: "Event family", Placeholder: defaultEvent, Help: "每个账号仅采集一种事件，默认 webshell_event。采集多类事件请分别建账号。可选 webshell_event / memory_webshell_event / malware_event / brute_force / port_scan / abnormal_login_event / revshell_event / suspicious_operation"},
 			{Name: "time_format", Label: "created_at format", Placeholder: "datetime", Help: "公开源码只透传字符串。可选 datetime（2006-01-02 15:04:05）、rfc3339、epoch_ms、epoch_s"},
 			{Name: "insecure", Label: "Skip TLS verification", Placeholder: "false"},
 		},
@@ -287,7 +287,7 @@ func extractEvents(result json.RawMessage) ([]json.RawMessage, int, error) {
 	}
 	var items []json.RawMessage
 	if json.Unmarshal(result, &items) == nil {
-		return items, len(items), nil
+		return items, 0, nil // A bare page does not declare the full result count.
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(result, &object); err != nil {

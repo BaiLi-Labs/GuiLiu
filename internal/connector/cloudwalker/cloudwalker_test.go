@@ -212,3 +212,30 @@ func TestNewRejectsUnknownEventType(t *testing.T) {
 		t.Fatal("an unsupported event family must be rejected at construction")
 	}
 }
+
+func TestBareArrayPageDoesNotTruncateCollection(t *testing.T) {
+	c := newTestConnector(t, "webshell_event", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Params struct {
+				Offset int `json:"offset"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request.Params.Offset == 0 {
+			fmt.Fprint(w, `{"jsonrpc":"2.0","result":[{"id":1}]}`)
+		} else {
+			fmt.Fprint(w, `{"jsonrpc":"2.0","result":[]}`)
+		}
+	}))
+	first, err := c.Fetch(context.Background(), connector.Query{PageSize: 1})
+	if err != nil || first.NextToken != "1" {
+		t.Fatalf("first bare page = %+v, %v", first, err)
+	}
+	last, err := c.Fetch(context.Background(), connector.Query{PageSize: 1, Token: first.NextToken})
+	if err != nil || last.NextToken != "" || len(last.Records) != 0 {
+		t.Fatalf("last bare page = %+v, %v", last, err)
+	}
+}

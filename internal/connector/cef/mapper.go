@@ -64,7 +64,6 @@ func normalize(raw json.RawMessage, defaultDevice string) (model.Alert, error) {
 
 	externalID := connector.FirstNonEmpty(
 		strings.TrimSpace(ext["externalId"]),
-		strings.TrimSpace(ext["deviceExternalId"]),
 		strings.TrimSpace(ext["eventId"]),
 	)
 	if externalID == "" {

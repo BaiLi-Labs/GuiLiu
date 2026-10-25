@@ -234,34 +234,38 @@ func SyncStateFromModel(s *model.SyncState, maxAge ...time.Duration) SyncState {
 }
 
 type Account struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Provider      string            `json:"provider"`
-	ProviderName  string            `json:"provider_name,omitempty"`
-	AccountUID    string            `json:"account_uid,omitempty"`
-	Region        string            `json:"region,omitempty"`
-	Enabled       bool              `json:"enabled"`
-	Options       map[string]string `json:"options,omitempty"`
-	AccessKeyHint string            `json:"access_key_hint,omitempty"`
-	CredentialSet bool              `json:"credential_configured"`
-	CreatedAt     string            `json:"created_at,omitempty"`
-	UpdatedAt     string            `json:"updated_at,omitempty"`
-	SyncState     *SyncState        `json:"sync_state,omitempty"`
+	ID                       string            `json:"id"`
+	Name                     string            `json:"name"`
+	Provider                 string            `json:"provider"`
+	ProviderName             string            `json:"provider_name,omitempty"`
+	AccountUID               string            `json:"account_uid,omitempty"`
+	Region                   string            `json:"region,omitempty"`
+	Enabled                  bool              `json:"enabled"`
+	Options                  map[string]string `json:"options,omitempty"`
+	AccessKeyHint            string            `json:"access_key_hint,omitempty"`
+	CredentialSet            bool              `json:"credential_configured"`
+	PushOnly                 bool              `json:"push_only,omitempty"`
+	PushConfigured           bool              `json:"push_configured"`
+	PushTokenManagedByConfig bool              `json:"push_token_managed_by_config,omitempty"`
+	CreatedAt                string            `json:"created_at,omitempty"`
+	UpdatedAt                string            `json:"updated_at,omitempty"`
+	SyncState                *SyncState        `json:"sync_state,omitempty"`
 }
 
 func AccountFromModel(a *model.Account) Account {
 	return Account{
-		ID:            a.ID,
-		Name:          a.Name,
-		Provider:      a.Provider,
-		AccountUID:    a.AccountUID,
-		Region:        a.Region,
-		Enabled:       a.Enabled,
-		Options:       publicAccountOptions(a.Options),
-		AccessKeyHint: a.AccessKeyHint,
-		CredentialSet: a.CredentialSet,
-		CreatedAt:     timeutil.Format(a.CreatedAt),
-		UpdatedAt:     timeutil.Format(a.UpdatedAt),
+		ID:             a.ID,
+		Name:           a.Name,
+		Provider:       a.Provider,
+		AccountUID:     a.AccountUID,
+		Region:         a.Region,
+		Enabled:        a.Enabled,
+		Options:        publicAccountOptions(a.Options),
+		PushConfigured: a.Options["push_token_sha256"] != "",
+		AccessKeyHint:  a.AccessKeyHint,
+		CredentialSet:  a.CredentialSet,
+		CreatedAt:      timeutil.Format(a.CreatedAt),
+		UpdatedAt:      timeutil.Format(a.UpdatedAt),
 	}
 }
 

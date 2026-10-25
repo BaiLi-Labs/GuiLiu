@@ -44,7 +44,7 @@ func apiError(status int, body []byte, api string) error {
 // apiErrors handles a 200 response that still carries a structured error.
 func apiErrors(code int, message string) error {
 	return &connector.Error{
-		Provider: providerID, SourceAPI: "Falcon Alerts v2", Kind: connector.KindPermanent,
+		Provider: providerID, SourceAPI: "Falcon Alerts v2", Kind: httpKind(code),
 		Code: "cs_" + strconv.Itoa(code), Message: truncate(message),
 	}
 }

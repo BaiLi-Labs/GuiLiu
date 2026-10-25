@@ -27,7 +27,7 @@ const (
 	defaultQPS      = 4
 	defaultPageSize = 1000
 	defaultChunk    = 6 * time.Hour
-	minChunk        = time.Minute
+	minChunk        = time.Second
 )
 
 const eventsQuery = `query GuiliuFirewallEvents($zoneTag: string!, $filter: FirewallEventsAdaptiveFilter_InputObject, $limit: int!) {
@@ -207,9 +207,20 @@ func (c *Connector) Fetch(ctx context.Context, q connector.Query) (connector.Pag
 
 	tok.Start = windowStart.Format(time.RFC3339Nano)
 	tok.End = windowEnd.Format(time.RFC3339Nano)
-	if len(events) >= pageSize && sliceEnd.Sub(next) > minChunk {
+	if len(events) >= pageSize {
+		if sliceEnd.Sub(next) <= minChunk {
+			return connector.Page{}, &connector.Error{
+				Provider: providerID, SourceAPI: "GraphQL firewallEventsAdaptive",
+				Kind: connector.KindPermanent, Code: "window_saturated",
+				Message: "result limit reached in the minimum time slice; collection cursor was not advanced; increase page_size",
+			}
+		}
 		// The slice is saturated: narrow it and re-read the same range.
-		tok.Chunk = int64(sliceEnd.Sub(next) / 2)
+		narrowed := (sliceEnd.Sub(next) / 2).Truncate(time.Second)
+		if narrowed < minChunk {
+			narrowed = minChunk
+		}
+		tok.Chunk = int64(narrowed)
 		tok.Next = next.Format(time.RFC3339Nano)
 	} else {
 		tok.Chunk = int64(defaultChunk)

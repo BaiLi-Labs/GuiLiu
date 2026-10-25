@@ -34,7 +34,7 @@ func sampleAlert(t *testing.T) json.RawMessage {
 		AlarmEventTypeDisplay: strPtr("恶意文件"),
 		InstanceId:            strPtr("i-bp1xxxx"),
 		InstanceName:          strPtr("web-01"),
-		InternetIp:            strPtr("47.0.0.1"),
+		InternetIp:            strPtr("198.51.100.11"),
 		Uuid:                  strPtr("uuid-1"),
 		Details: []*sas.DescribeSuspEventsResponseBodySuspEventsDetails{
 			{NameDisplay: strPtr("源IP"), Value: strPtr("198.51.100.7")},

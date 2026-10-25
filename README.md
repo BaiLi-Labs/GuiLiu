@@ -47,7 +47,7 @@ Each connector targets a specific cloud security API. Other products are visible
 | Google Cloud    | Security Command Center · `ListFindings` | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | Implemented; unit tests and synthetic fixtures; real-account validation pending |
 | Chaitin         | SafeLine · `FilterV2API`                 | Implemented from the public chaitin-cli contract; live-appliance validation pending |
-| Chaitin         | SafeLine CE · `GET /open/records`        | Implemented from the public OpenAPI; verifiable with the free Docker edition |
+| Chaitin         | SafeLine CE · `GET /api/open/records` | Validated on 9.4.3: endpoint, millisecond windows, detector labels and repeat-sync deduplication |
 | CrowdStrike     | Falcon · `Alerts v2`                     | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | Implemented; unit tests and synthetic fixtures; real-tenant validation pending |
 | Generic         | CEF over webhook or syslog               | Implemented; reference push connector |
@@ -71,10 +71,23 @@ retention and revision pipeline as polled records:
 - Syslog RFC 5424 / RFC 3164 over TCP or UDP on `intake.syslog_listen`, with CEF
   header and extension decoding.
 
-A push account sets `push_token` in configuration; only its SHA-256 is stored.
+Creating a push-only source in the console generates a token, shown once.
+Administrators can generate or rotate it from the account list. Only its SHA-256
+is stored; ordinary reads and audit records never return the token. Alternatively,
+set `push_token` in configuration. Configuration-managed tokens must be changed
+there and require a restart; console rotation cannot override them.
+
 Push-only sources need no product credential and are skipped by the scheduled
-poller. The raw transport envelope is retained, so a mapping fix can replay
-history without contacting the appliance.
+poller. The console distinguishes waiting, receiving, and no recent events;
+recent delivery does not prove complete delivery for a time range. TCP applies
+backpressure and shutdown attempts to drain queued frames within five seconds.
+UDP and process crashes can still lose frames that have not reached storage.
+Saved transport envelopes can be replayed after a mapping fix.
+
+Each CloudWalker account collects one `event_type`, defaulting to `webshell_event`.
+Create separate accounts with the same appliance and credential for the other
+seven families. Coverage responses expose the configured family and time format.
+Cosmos and CloudWalker mappings remain unverified pending real responses.
 
 ## Try it locally
 

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,5 +200,77 @@ func TestWebhookMarksPushHealth(t *testing.T) {
 	}
 	if got := state.Health(time.Now().UTC(), time.Hour); got != "healthy" {
 		t.Fatalf("health = %s", got)
+	}
+}
+
+func TestTCPReadersStopBeforeQueueCloses(t *testing.T) {
+	s, _ := newTestServer(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer ln.Close()
+	queue := make(chan syslogJob, 1)
+	var readers sync.WaitGroup
+	var connections sync.Map
+	listeningDone := make(chan struct{})
+	go func() { defer close(listeningDone); s.serveSyslog(ctx, ln, queue, &readers, &connections) }()
+	peer, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	// A full queue holds the second frame in the TCP reader, exercising both
+	// blocked enqueue and an established connection during shutdown.
+	if _, err := io.WriteString(peer, "first\nsecond\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-queue:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reader never received the first frame")
+	}
+	cancel()
+	_ = ln.Close()
+	<-listeningDone
+	connections.Range(func(key, _ any) bool { _ = key.(net.Conn).Close(); return true })
+	readersDone := make(chan struct{})
+	go func() { readers.Wait(); close(readersDone) }()
+	select {
+	case <-readersDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("TCP readers did not stop")
+	}
+	close(queue)
+	_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := peer.Read(make([]byte, 1)); err == nil {
+		t.Fatal("accepted TCP connection remained open")
+	}
+}
+
+func TestSyslogWorkerDrainsWithLiveContextAfterReceiveStops(t *testing.T) {
+	s, st := newTestServer(t)
+	acct := createAccount(t, st, "sensor", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	queue := make(chan syslogJob, 1)
+	// fakePusher cannot map this transport envelope without an event ID;
+	// its retained mapping failure proves that the queued frame reached storage.
+	queue <- syslogJob{raw: []byte("<14>1 2026-10-25T00:00:00Z host app - - - test"), remote: "127.0.0.1:5514", receivedAt: time.Now()}
+	close(queue)
+	done := make(chan struct{})
+	workerCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer stop()
+	go s.syslogWorker(workerCtx, queue, done)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not drain")
+	}
+	failures, _, err := st.ListIngestFailures(context.Background(), acct.ID, 10)
+	if err != nil || len(failures) != 1 {
+		t.Fatalf("queued frame was not durably retained: %v, %v", failures, err)
 	}
 }

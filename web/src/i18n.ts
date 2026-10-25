@@ -51,6 +51,23 @@ export function useI18n() {
 
 // Message IDs are the source-language copy. Keep vendor payloads and API field names unchanged.
 export const en: Record<string, string> = {
+  '每个账号仅采集一种事件，默认 webshell_event。采集多类事件请分别建账号。可选 webshell_event / memory_webshell_event / malware_event / brute_force / port_scan / abnormal_login_event / revshell_event / suspicious_operation': 'Each account collects one event family, defaulting to webshell_event. Create separate accounts for multiple families. Options: webshell_event / memory_webshell_event / malware_event / brute_force / port_scan / abnormal_login_event / revshell_event / suspicious_operation',
+  '接收正常': 'Receiving',
+  '接收失败': 'Receive failed',
+  '等待推送': 'Waiting for events',
+  '近期无推送': 'No recent events',
+  '部分记录失败': 'Some records failed',
+  '推送接入': 'Push source',
+  '启用推送接入': 'Enable push source',
+  '推送 Token': 'Push token',
+  '生成推送 Token': 'Generate push token',
+  '轮换推送 Token': 'Rotate push token',
+  '生成推送 Token 失败': 'Could not generate push token',
+  '推送 Token 由配置文件管理': 'Push token is managed by the configuration file',
+  '轮换后旧推送 Token 立即失效，请同步更新发送端。是否继续？': 'The old push token will stop working immediately. Update the sender after rotation. Continue?',
+  'Token 仅显示一次，关闭前请保存，并在发送端使用 Bearer 认证。': 'This token is shown once. Save it before closing and use Bearer authentication on the sender.',
+  '接收地址': 'Receive URL',
+  '已保存': 'Saved',
  "关系依据（最多 5 项）":"Relationship evidence (up to 5)",
  "来源未提供":"Not supplied by source",
  "主网卡":"Primary interface",

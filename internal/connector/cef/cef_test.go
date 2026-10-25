@@ -143,3 +143,28 @@ func TestInfoDeclaresPushSupport(t *testing.T) {
 		t.Fatalf("push formats = %+v", desc.PushFormats)
 	}
 }
+
+func TestDeviceIdentityDoesNotMergeDifferentEvents(t *testing.T) {
+	for _, eventIDs := range []bool{true, false} {
+		var ids []string
+		for _, name := range []string{"one", "two", "one"} {
+			line := "CEF:0|Acme|Sensor|1|42|" + name + "|5|deviceExternalId=sensor-1"
+			if eventIDs {
+				line += " eventId=" + name
+			}
+			c := &Connector{}
+			raws, err := c.DecodePush(connector.PushRequest{Format: connector.PushWebhook, Body: []byte(line)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			alert, err := c.Normalize(raws[0].Raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, alert.ExternalID)
+		}
+		if ids[0] == ids[1] || ids[0] != ids[2] {
+			t.Fatalf("event IDs (explicit=%v) = %v; distinct events must differ and retries must match", eventIDs, ids)
+		}
+	}
+}

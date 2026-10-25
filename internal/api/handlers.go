@@ -15,6 +15,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/credential"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
+	"github.com/BaiLi-Labs/GuiLiu/internal/intake"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/query"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
@@ -134,10 +135,24 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "missing required option: "+strings.Join(missing, ", "))
 		return
 	}
-	enc, err := s.encryptCredential(cred)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "cannot encrypt credential")
-		return
+	var enc string
+	if !desc.PushOnly {
+		var err error
+		enc, err = s.encryptCredential(cred)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "cannot encrypt credential")
+			return
+		}
+	}
+	pushToken := ""
+	if desc.PushOnly && len(desc.PushFormats) > 0 {
+		var err error
+		pushToken, err = newPushToken()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "cannot generate push token")
+			return
+		}
+		req.Options["push_token_sha256"] = intake.HashToken(pushToken)
 	}
 	enabled := true
 	if req.Enabled != nil {
@@ -152,14 +167,18 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Options:             req.Options,
 		CredentialEncrypted: enc,
 		AccessKeyHint:       credential.HintFor(cred),
-		CredentialSet:       true,
+		CredentialSet:       enc != "",
 	}
 	if err := s.store.CreateAccount(r.Context(), acct); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
 	v, _ := s.accountView(r.Context(), acct, true)
-	writeJSON(w, http.StatusCreated, v)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, struct {
+		view.Account
+		PushToken string `json:"push_token,omitempty"`
+	}{Account: v, PushToken: pushToken})
 }
 
 type patchAccountRequest struct {
@@ -394,7 +413,9 @@ func (s *Server) accountView(ctx context.Context, acct *model.Account, withState
 	v := view.AccountFromModel(acct)
 	if d, ok := s.registry.Descriptor(acct.Provider); ok {
 		v.ProviderName = d.Name
+		v.PushOnly = d.PushOnly
 	}
+	v.PushTokenManagedByConfig = s.configManagesPushToken(acct.Name)
 	if withState {
 		state, err := s.store.GetSyncState(ctx, acct.ID)
 		if err != nil {

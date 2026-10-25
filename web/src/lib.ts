@@ -149,6 +149,13 @@ export function useHashPage(): [Page, (page: Page, params?: RouteParams) => void
 export function accountStatus(account: Account): string {
   if (!account.enabled) return '已停用';
   const state = account.sync_state;
+  if (account.push_only) {
+    const pushLabels = {
+      healthy: '接收正常', failed: '接收失败', pending: '等待推送',
+      never_synced: '等待推送', stale: '近期无推送', partial: '部分记录失败',
+    };
+    return state?.status ? pushLabels[state.status] : state?.last_success_at ? '接收正常' : '等待推送';
+  }
   if (state?.status) {
     const labels = {
       healthy: '已同步', failed: '同步失败', pending: '续传中',

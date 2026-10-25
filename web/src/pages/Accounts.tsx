@@ -1,11 +1,11 @@
 import { SourceFailure, sourceFailureReason } from "../components/SourceFailure";
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Pencil, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Check, KeyRound, Loader2, Pencil, Play, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { useApp } from '../state';
 import { BrandIcon } from '../components/BrandIcons';
-import { Empty, ErrorBox, Modal, SkeletonRows } from '../components/ui';
+import { CopyButton, Empty, ErrorBox, Modal, SkeletonRows } from '../components/ui';
 import { accountStatus, fmtNum, formatDate, providerShort, relTime } from '../lib';
 import type { Account, AccountPayload, Provider } from '../types';
 
@@ -17,6 +17,11 @@ interface FormState {
   enabled: boolean;
   credentials: Record<string, string>;
   options: Record<string, string>;
+}
+interface PushTokenResult {
+  account_name: string;
+  push_token: string;
+  webhook_path?: string;
 }
 function blankForm(provider?: Provider): FormState {
   return {
@@ -41,6 +46,7 @@ export function Accounts() {
   const [busy, setBusy] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [pushToken, setPushToken] = useState<PushTokenResult | null>(null);
   const syncAvailable = !meta?.mock && !!meta?.sync_enabled;
   async function load() {
     setLoading(true);
@@ -78,6 +84,20 @@ export function Accounts() {
     if (!window.confirm(t('删除云账号「{name}」？已采集的告警会保留。', { name: account.name }))) return;
     await action(account.id, `/accounts/${encodeURIComponent(account.id)}`, 'DELETE', '账号已删除');
   }
+  async function rotatePushToken(account: Account) {
+    if (busy) return;
+    if (account.push_configured && !window.confirm(t('轮换后旧推送 Token 立即失效，请同步更新发送端。是否继续？'))) return;
+    setBusy(account.id);
+    try {
+      const result = await api<PushTokenResult>(`/accounts/${encodeURIComponent(account.id)}/push-token`, { method: 'POST' });
+      setPushToken(result);
+      await load();
+    } catch (err: any) {
+      toast(err.message || t('生成推送 Token 失败'), true);
+    } finally {
+      setBusy('');
+    }
+  }
   const visible = accounts.filter(
     (account) =>
       (!status || accountStatus(account) === status) &&
@@ -113,7 +133,7 @@ export function Accounts() {
           onChange={(event) => setStatus(event.target.value)}
         >
           <option value="">{t('所有接入状态')}</option>
-          {['已同步', '同步失败', '部分失败', '同步延迟', '续传中', '等待首次同步', '已停用'].map((value) => (
+          {['已同步', '同步失败', '部分失败', '同步延迟', '续传中', '等待首次同步', '接收正常', '接收失败', '等待推送', '近期无推送', '部分记录失败', '已停用'].map((value) => (
             <option key={value} value={value}>
               {t(value)}
             </option>
@@ -183,6 +203,7 @@ export function Accounts() {
                   <tr key={account.id}>
                     <td>
                       <div className="font-medium">{account.name}</div>
+                      {account.push_only ? <div className="cell-sub">{t('推送接入')}</div> : null}
                       <div className="cell-sub max-w-[200px] font-mono" title={account.account_uid}>
                         {account.account_uid || '—'}
                       </div>
@@ -197,7 +218,7 @@ export function Accounts() {
                     <td>
                       <span className="inline-flex items-center gap-2 whitespace-nowrap">
                         <span
-                          className={`status-dot ${['同步失败', '部分失败'].includes(state) ? 'status-error' : state === '已同步' ? 'status-ok' : ['续传中', '同步延迟'].includes(state) ? 'status-pending' : ''}`}
+                          className={`status-dot ${['同步失败', '部分失败', '接收失败', '部分记录失败'].includes(state) ? 'status-error' : ['已同步', '接收正常'].includes(state) ? 'status-ok' : ['续传中', '同步延迟', '近期无推送'].includes(state) ? 'status-pending' : ''}`}
                         />
                         {t(state)}
                       </span>
@@ -220,7 +241,7 @@ export function Accounts() {
                     {isAdmin ? (
                       <td>
                         <div className="flex justify-end gap-1">
-                          <button
+                          {!account.push_only ? <><button
                             className="btn btn-ghost btn-icon"
                             aria-label={`${t('验证连接')} · ${account.name}`}
                             title={t('验证连接')}
@@ -255,7 +276,18 @@ export function Accounts() {
                             }
                           >
                             <Play className="h-4 w-4" />
-                          </button>
+                          </button></> : null}
+                          {providers.find((provider) => provider.id === account.provider)?.push_formats?.includes('webhook') ? (
+                            <button
+                              className="btn btn-ghost btn-icon"
+                              aria-label={`${t('推送 Token')} · ${account.name}`}
+                              title={t(account.push_token_managed_by_config ? '推送 Token 由配置文件管理' : account.push_configured ? '轮换推送 Token' : '生成推送 Token')}
+                              disabled={!!busy || !!meta?.mock || !!account.push_token_managed_by_config}
+                              onClick={() => rotatePushToken(account)}
+                            >
+                              <KeyRound className="h-4 w-4" />
+                            </button>
+                          ) : null}
                           <button
                             className="btn btn-ghost btn-icon"
                             aria-label={`${t('编辑')} · ${account.name}`}
@@ -330,7 +362,25 @@ export function Accounts() {
           setModalOpen(false);
           void load();
         }}
+        onPushToken={setPushToken}
       />
+      <Modal open={!!pushToken} onClose={() => setPushToken(null)} title={t('推送 Token')}>
+        {pushToken ? <div className="space-y-4">
+          <p className="text-sm text-[var(--muted)]">{t('Token 仅显示一次，关闭前请保存，并在发送端使用 Bearer 认证。')}</p>
+          <label className="form-label">
+            {t('接收地址')}
+            <input className="field w-full font-mono text-xs" readOnly value={`${window.location.origin}${pushToken.webhook_path || `/ingest/${encodeURIComponent(pushToken.account_name)}`}`} />
+          </label>
+          <label className="form-label">
+            {t('推送 Token')}
+            <input className="field w-full font-mono text-xs" readOnly value={pushToken.push_token} autoComplete="off" />
+          </label>
+          <div className="flex items-center justify-end gap-2">
+            <CopyButton value={pushToken.push_token} />
+            <button className="btn btn-primary" onClick={() => setPushToken(null)}>{t('已保存')}</button>
+          </div>
+        </div> : null}
+      </Modal>
     </div>
   );
 }
@@ -341,12 +391,14 @@ function AccountModal({
   providers,
   onClose,
   onSaved,
+  onPushToken,
 }: {
   open: boolean;
   editing: Account | null;
   providers: Provider[];
   onClose: () => void;
   onSaved: () => void;
+  onPushToken: (result: PushTokenResult) => void;
 }) {
   const { toast } = useApp();
   const { t } = useI18n();
@@ -427,10 +479,11 @@ function AccountModal({
         });
         toast('账号已更新');
       } else {
-        await api('/accounts', {
+        const created = await api<Account & { push_token?: string }>('/accounts', {
           method: 'POST',
           body: JSON.stringify({ ...body, provider: form.provider, enabled: form.enabled }),
         });
+        if (created.push_token) onPushToken({ account_name: created.name, push_token: created.push_token });
         toast('账号已接入');
       }
       onSaved();
@@ -575,7 +628,7 @@ function AccountModal({
                 checked={form.enabled}
                 onChange={(event) => set('enabled', event.target.checked)}
               />
-              {t('启用定时同步')}
+              {t(provider?.push_only ? '启用推送接入' : '启用定时同步')}
             </label>
           ) : null}
           <button className="btn" type="button" onClick={onClose}>

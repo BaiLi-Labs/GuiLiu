@@ -244,7 +244,7 @@ func extractAlarms(result json.RawMessage) ([]json.RawMessage, int, error) {
 	}
 	var items []json.RawMessage
 	if json.Unmarshal(result, &items) == nil {
-		return items, len(items), nil
+		return items, 0, nil // A bare page does not declare the full result count.
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(result, &object); err != nil {

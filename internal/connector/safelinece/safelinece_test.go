@@ -90,10 +90,10 @@ func TestNormalizeRecord(t *testing.T) {
 	}
 }
 
-// liveSample is a redacted record captured from SafeLine CE 9.4.3. It keeps the
-// real wire types: created_at and timestamp are integers, not strings.
-const liveSample = `{
-  "site_uuid": "1",
+// wireTypeSample reproduces the wire types observed in SafeLine CE 9.4.3.
+// Identifiers, addresses, hostnames and timestamps are synthetic test values.
+const wireTypeSample = `{
+  "site_uuid": "test-site-1",
   "src_ip": "203.0.113.10",
   "socket_ip": "203.0.113.10",
   "protocol": 0,
@@ -103,8 +103,8 @@ const liveSample = `{
   "country": "B1",
   "risk_level": 3,
   "action": 1,
-  "rule_id": "m_rule/33e75ff09dd601bbe69f351039152189",
-  "created_at": 1792855532,
+  "rule_id": "m_rule/00000000000000000000000000000002",
+  "created_at": 1767225601,
   "rule_id_list": ["65702"],
   "EventId": "",
   "src_port": 0,
@@ -112,17 +112,17 @@ const liveSample = `{
   "method": "",
   "query_string": "",
   "status_code": 0,
-  "event_id": "19f2563411384662bce8dbc2d341e905",
+  "event_id": "00000000000000000000000000000001",
   "website": "http://app.example.test/etc/passwd",
   "attack_type": 14,
   "module": "m_rule",
   "reason": "访问系统文件的请求",
   "short_rule_id": "65702",
-  "timestamp": 1792855531
+  "timestamp": 1767225600
 }`
 
-func TestNormalizeLiveSample(t *testing.T) {
-	alert, err := (&Connector{severityFrom: true}).Normalize(json.RawMessage(liveSample))
+func TestNormalizeValidatedWireTypes(t *testing.T) {
+	alert, err := (&Connector{severityFrom: true}).Normalize(json.RawMessage(wireTypeSample))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,19 +132,19 @@ func TestNormalizeLiveSample(t *testing.T) {
 	if alert.Severity != model.SeverityHigh {
 		t.Fatalf("severity = %v", alert.Severity)
 	}
-	if alert.ExternalID != "19f2563411384662bce8dbc2d341e905" {
+	if alert.ExternalID != "00000000000000000000000000000001" {
 		t.Fatalf("external id = %q", alert.ExternalID)
 	}
 	if alert.VendorStatus != "blocked" {
 		t.Fatalf("vendor status = %q", alert.VendorStatus)
 	}
-	// The live payload reports created_at as epoch seconds; it must not be
+	// The API reports created_at as epoch seconds; it must not be
 	// mistaken for milliseconds.
-	want := time.Unix(1792855531, 0).UTC()
+	want := time.Unix(1767225600, 0).UTC()
 	if !alert.EventTime.Equal(want) {
 		t.Fatalf("event time = %v want %v", alert.EventTime, want)
 	}
-	if alert.OriginalTime != "1792855531" {
+	if alert.OriginalTime != "1767225600" {
 		t.Fatalf("original time = %q", alert.OriginalTime)
 	}
 	ce := alert.Unmapped["safeline_ce"].(map[string]any)
@@ -192,7 +192,7 @@ func TestNewEnablesSeverityByDefault(t *testing.T) {
 }
 
 func TestTemplatedReasonBecomesReadableTitle(t *testing.T) {
-	raw := json.RawMessage(`{"event_id":"a","attack_type":0,"module":"m_sqli","reason":"检测到 0 攻击","url_path":"/?id=1","timestamp":1792855531}`)
+	raw := json.RawMessage(`{"event_id":"a","attack_type":0,"module":"m_sqli","reason":"检测到 0 攻击","url_path":"/?id=1","timestamp":1767225600}`)
 	alert, err := (&Connector{}).Normalize(raw)
 	if err != nil {
 		t.Fatal(err)

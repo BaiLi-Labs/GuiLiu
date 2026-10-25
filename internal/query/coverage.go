@@ -35,7 +35,14 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 		result.QueryWindow.TimeField = "event_time"
 	}
 	apis := map[string]string{"tencent": "CSIP DescribeAlertList", "aliyun": "SAS DescribeSuspEvents", "huawei": "SecMaster ListAlerts", "aws": "Security Hub GetFindingsV2", "gcp": "SCC ListFindings REST", "azure": "Defender for Cloud ARM Alerts - List"}
-	basis := map[string]string{"tencent": "vendor alert query window", "aliyun": "last occurrence time", "huawei": "vendor search time range", "aws": "created OR last_seen OR modified", "gcp": "event_time", "azure": "full list; local event/processing time window"}
+	basis := map[string]string{
+		"tencent": "vendor alert query window", "aliyun": "last occurrence time", "huawei": "vendor search time range",
+		"aws": "created OR last_seen OR modified", "gcp": "event_time", "azure": "full list; local event/processing time window",
+		"crowdstrike": "timestamp", "defender": "lastUpdateDateTime", "cloudflare": "datetime",
+		"safeline": "timestamp", "safeline-ce": "start/end in epoch milliseconds",
+		"tanswer": "time_range_start/time_range_end", "dsensor": "not_before/not_after",
+		"cosmos": "created_at", "cloudwalker": "created_at using configured time_format", "cef": "received records; no polling window",
+	}
 	for _, a := range accounts {
 		if f.Provider != "" && f.Provider != a.Provider || f.AccountID != "" && f.AccountID != a.ID {
 			continue
@@ -51,6 +58,7 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 		c.Reasons = []string{}
 		c.OutsideCompletedWindows = outsideCollection(f.Start, f.End, state.CoverageStart, state.CursorEnd)
 		c.Limitations = append(c.Limitations, "collection_window_bounds_are_not_event_time_coverage", "sync_metadata_is_current_not_snapshot_versioned")
+		pushOnly := false
 		if !state.PendingEnd.IsZero() {
 			c.PendingWindow = &model.CollectionWindow{Start: state.PendingStart, End: state.PendingEnd}
 		}
@@ -59,6 +67,11 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 			if d.SourceAPI != "" {
 				c.API = d.SourceAPI
 			}
+			if d.PushOnly {
+				pushOnly = true
+				c.Limitations = append(c.Limitations, "push_delivery_completeness_not_proven")
+				c.Reasons = append(c.Reasons, "push_delivery_completeness_not_proven")
+			}
 		}
 		if a.Region != "" {
 			c.Scope["region"] = a.Region
@@ -66,10 +79,22 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 		if a.AccountUID != "" {
 			c.Scope["account_uid"] = a.AccountUID
 		}
-		for _, key := range []string{"project_id", "workspace_id", "parent", "location", "subscription_id", "status", "api_version"} {
+		for _, key := range []string{"project_id", "workspace_id", "parent", "location", "subscription_id", "status", "api_version", "zone_id", "tenant_id", "member_cid", "event_type", "time_format", "syslog_cidrs"} {
 			if v := a.Options[key]; v != "" {
 				c.Scope[key] = v
 			}
+		}
+		if a.Provider == "cloudwalker" {
+			if c.Scope["event_type"] == "" {
+				c.Scope["event_type"] = "webshell_event"
+			}
+			if c.Scope["time_format"] == "" {
+				c.Scope["time_format"] = "datetime"
+			}
+			c.Limitations = append(c.Limitations, "single_event_family_per_account", "mapping_unverified")
+		}
+		if a.Provider == "cosmos" {
+			c.Limitations = append(c.Limitations, "mapping_unverified")
 		}
 		if a.Provider == "gcp" {
 			if c.Scope["location"] == "" {
@@ -87,7 +112,7 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 			v := state.CursorEnd
 			c.Watermark = &v
 		}
-		c.Complete = a.Enabled && c.Status == "healthy" && f.Start != nil && f.End != nil && c.CoverageStart != nil && c.Watermark != nil && !f.Start.Before(*c.CoverageStart) && !f.End.After(*c.Watermark)
+		c.Complete = !pushOnly && a.Enabled && c.Status == "healthy" && f.Start != nil && f.End != nil && c.CoverageStart != nil && c.Watermark != nil && !f.Start.Before(*c.CoverageStart) && !f.End.After(*c.Watermark)
 		if !a.Enabled {
 			c.Status = "disabled"
 		}

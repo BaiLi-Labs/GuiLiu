@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/connector/cef"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/store"
 )
@@ -51,6 +52,46 @@ func TestCoverageChecksTheRequestedHistoryNotOnlyFreshness(t *testing.T) {
 	c, err = Coverage(ctx, st, registry, model.AlertFilter{Start: &start, End: &end}, 15*time.Minute)
 	if err != nil || c.Complete || c.Accounts[0].FailedRecords != 1 {
 		t.Fatalf("mapping hole falsely complete: %+v %v", c, err)
+	}
+}
+
+func TestVendorCoverageExposesFamilyAndPushDeliveryLimits(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "vendor-coverage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	for _, provider := range []string{"cloudwalker", "cef"} {
+		a := &model.Account{Name: provider, Provider: provider, Enabled: true}
+		if err := st.CreateAccount(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now().UTC()
+		if err := st.SaveSyncState(ctx, &model.SyncState{AccountID: a.ID, CoverageStart: now.Add(-2 * time.Hour), CursorEnd: now, LastSuccessAt: &now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg := connector.NewRegistry()
+	pusher, err := cef.New(connector.AccountConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(pusher.Info(), cef.New); err != nil {
+		t.Fatal(err)
+	}
+	start, end := time.Now().Add(-time.Hour), time.Now().Add(-time.Minute)
+	coverage, err := Coverage(ctx, st, reg, model.AlertFilter{Start: &start, End: &end}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range coverage.Accounts {
+		if account.Provider == "cloudwalker" && (account.Scope["event_type"] != "webshell_event" || account.Scope["time_format"] != "datetime") {
+			t.Fatalf("default event family was not exposed: %+v", account)
+		}
+		if account.Provider == "cef" && (account.Complete || !strings.Contains(strings.Join(account.Reasons, ","), "push_delivery_completeness_not_proven")) {
+			t.Fatalf("push freshness claimed complete delivery: %+v", account)
+		}
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
+	"github.com/BaiLi-Labs/GuiLiu/internal/intake"
 	"github.com/BaiLi-Labs/GuiLiu/internal/mcp"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 	"github.com/BaiLi-Labs/GuiLiu/internal/secret"
@@ -34,6 +35,7 @@ import (
 type testServer struct {
 	URL     string
 	handler http.Handler
+	config  *config.Config
 }
 type handlerTransport struct{ handler http.Handler }
 
@@ -88,8 +90,9 @@ func setup(t *testing.T, devMode bool, register ...func(*connector.Registry)) (*
 	eng := ingest.New(st, reg, cipher, ingest.Options{Enabled: false}, logger)
 	authSvc := auth.New(st, auth.Config{DevMode: devMode, SessionTTL: time.Hour, AdminUser: "admin"}, logger)
 	mcpServer := mcp.New(st, reg, logger)
-	server := api.New(cfg, st, eng, reg, cipher, mcpServer, authSvc, nil, logger)
-	ts := &testServer{URL: "http://guiliu.test", handler: server.Handler()}
+	pushServer := intake.New(st, eng, reg, cipher, intake.Options{}, logger)
+	server := api.New(cfg, st, eng, reg, cipher, mcpServer, authSvc, pushServer, logger)
+	ts := &testServer{URL: "http://guiliu.test", handler: server.Handler(), config: cfg}
 	return ts, st, authSvc
 }
 
@@ -447,6 +450,9 @@ func TestAuthenticationSessionsAndAPIKeys(t *testing.T) {
 	}
 	if resp, _ := do(t, client, http.MethodPatch, ts.URL+"/api/v1/alerts/"+rec.ID, viewerLogin.Token, `{"status":"closed"}`); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("viewer patch alert = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, client, http.MethodPost, ts.URL+"/api/v1/accounts/"+acct.ID+"/push-token", viewerLogin.Token, ""); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("viewer rotate push token = %d", resp.StatusCode)
 	}
 
 	// API keys are created once, usable as Bearer tokens, and revocable.

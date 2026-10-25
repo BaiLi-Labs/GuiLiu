@@ -332,9 +332,11 @@ Syslog 需要独立监听（配置 `intake.syslog_listen`），TCP/UDP 均可，
 }
 ```
 
-- `push_token` 只在配置文件中出现，数据库只保存 `push_token_sha256`；该值不会通过 API 返回，也不能通过账号表单写入。
+- 配置文件可声明 `push_token`，数据库只保存 `push_token_sha256`；该哈希不会通过 API 返回，也不能通过账号选项直接写入。
+- 控制台新建纯推送来源时自动生成 Token，创建响应的 `push_token` 仅返回一次。管理员可调用 `POST /api/v1/accounts/{id}/push-token` 轮换，响应包含新 `push_token` 和 `webhook_path`；旧 Token 立即失效。普通读取只返回 `push_configured`。配置文件声明的 Token 禁止通过此接口轮换，以免重启覆盖。
 - 收到请求并返回 2xx 时，数据已经落库或已进入 `ingest_failures`。不要在写入前返回成功，设备会因此丢事件。
 - 非 CEF 的 Syslog 消息会被忽略，但不会中断监听。
+- TCP 仅支持换行分帧，队列满时背压；单帧受 `max_body_bytes` 限制。UDP 队列满时会丢帧并记录日志。停机先关闭监听与已建立连接，等待读取协程退出，再关闭队列并在独立的 5 秒期限内排空。此路径尚无持久接收队列，不能承诺进程崩溃时零丢失。
 
 ### 10.4 测试
 

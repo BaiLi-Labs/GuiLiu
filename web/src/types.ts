@@ -37,6 +37,9 @@ export interface Account {
   id: string;
   name: string;
   provider: string;
+	push_only?: boolean;
+	push_configured?: boolean;
+	push_token_managed_by_config?: boolean;
   provider_name?: string;
   account_uid?: string;
   region?: string;
@@ -82,6 +85,8 @@ export interface Provider {
   credential_fields?: CredentialField[];
   option_fields?: OptionField[];
   products?: Product[];
+  push_only?: boolean;
+  push_formats?: ('webhook' | 'syslog')[];
 }
 
 export interface Meta {

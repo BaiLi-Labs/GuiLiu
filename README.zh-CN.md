@@ -49,7 +49,7 @@ Web、REST、查询 CLI 与 MCP 的查询和操作写入独立的持久审计，
 | Google Cloud    | Security Command Center · `ListFindings` | 已实现，含单元测试与合成样本；待真实账号验证   |
 | Microsoft Azure | Defender for Cloud · `Alerts - List`     | 已实现，含单元测试与合成样本；待真实账号验证   |
 | 长亭科技        | 雷池 SafeLine · `FilterV2API`            | 依据公开的 chaitin-cli 契约实现；待真实设备验证 |
-| 长亭科技        | 雷池社区版 · `GET /open/records`         | 依据公开 OpenAPI 实现；可用本地 Docker 社区版真机验证 |
+| 长亭科技        | 雷池社区版 · `GET /api/open/records`     | 已在 9.4.3 真机验证路径、毫秒时间窗口、检测类型与重复同步去重 |
 | CrowdStrike     | Falcon · `Alerts v2`                     | 已实现，含单元测试与合成样本；待真实租户验证   |
 | Microsoft       | Defender XDR · Graph `alerts_v2`         | 已实现，含单元测试与合成样本；待真实租户验证   |
 | 通用            | Webhook / Syslog · CEF                   | 已实现，可作为推送接入的参考实现              |
@@ -70,7 +70,11 @@ Microsoft Defender for Cloud（Azure Resource Manager）与 Microsoft Defender X
 - Webhook：`POST /ingest/{account}`，请求头 `Authorization: Bearer <push_token>`。
 - Syslog：TCP 或 UDP 监听 `intake.syslog_listen`，支持 RFC 5424 / RFC 3164，并解码 CEF 头与扩展字段。
 
-推送账号在配置文件中设置 `push_token`，数据库只保存其 SHA-256。纯推送来源不需要产品凭据，定时拉取会自动跳过。传输信封与原始报文完整保留，修复映射后可离线重放，无需再次访问设备。
+在控制台创建纯推送来源时会自动生成 Token，仅显示一次；管理员可在账号列表生成或轮换 Token。数据库只保存其 SHA-256，普通账号查询和审计不返回 Token。也可在配置文件设置 `push_token`；此类 Token 由配置文件管理，需要修改配置并重启，控制台不会覆盖。
+
+纯推送来源不需要产品凭据，定时拉取会自动跳过；控制台区分“等待推送”“接收正常”“近期无推送”。收到过记录只表示接收新鲜度，不证明某个时间范围内的事件已经完整送达。TCP 使用队列背压，停机时关闭已建立连接并在 5 秒内尝试排空队列；UDP 与进程崩溃场景仍可能丢失尚未落库的报文。传输信封与原始报文保留，已保存记录可在修复映射后离线重放。
+
+牧云每个账号只采集一种 `event_type`，默认 `webshell_event`。要覆盖其他七类事件，请使用同一设备与凭据分别创建账号，并选择相应类型；覆盖范围查询会返回实际事件类型和时间格式。Cosmos、CloudWalker 仍标记为映射未验证，需要真实响应验收。
 
 ## 本地体验
 

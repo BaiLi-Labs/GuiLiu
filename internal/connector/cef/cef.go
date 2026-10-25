@@ -15,7 +15,7 @@ import (
 
 const (
 	providerID    = "cef"
-	mapperVersion = "cef/v1"
+	mapperVersion = "cef/v2"
 )
 
 func init() {

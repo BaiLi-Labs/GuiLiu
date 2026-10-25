@@ -264,6 +264,14 @@ test('account status handles disabled, failed, pending, and never-synced account
   );
 });
 
+test('push sources distinguish delivery freshness from polling progress', () => {
+  assert.equal(lib.accountStatus({ enabled: true, push_only: true }), '等待推送');
+  for (const [status, label] of Object.entries({ healthy: '接收正常', stale: '近期无推送', partial: '部分记录失败', failed: '接收失败' })) {
+    assert.equal(lib.accountStatus({ enabled: true, push_only: true, sync_state: { status } }), label);
+  }
+  assert.equal(lib.accountStatus({ enabled: false, push_only: true }), '已停用');
+});
+
 test('login and badges render in both languages without developer setup text', () => {
   const { Login } = load('src/pages/Login.tsx');
   const { SeverityBadge, StatusBadge } = load('src/components/ui.tsx');

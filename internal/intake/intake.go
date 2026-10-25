@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -227,17 +228,15 @@ func (s *Server) RunSyslog(ctx context.Context, cfg SyslogConfig) error {
 	}
 	queue := make(chan syslogJob, s.opts.QueueSize)
 	var closers []io.Closer
-	workersDone := make(chan struct{})
-	for i := 0; i < s.opts.SyslogWorkers; i++ {
-		go s.syslogWorker(ctx, queue, workersDone)
-	}
+	var listeners, readers sync.WaitGroup
+	var connections sync.Map
 	start := func(network string) (net.Listener, error) {
 		ln, err := net.Listen(network, addr)
 		if err != nil {
 			return nil, err
 		}
 		closers = append(closers, ln)
-		go s.serveSyslog(ctx, ln, queue)
+		listeners.Go(func() { s.serveSyslog(ctx, ln, queue, &readers, &connections) })
 		return ln, nil
 	}
 	if netMode == "tcp" || netMode == "both" {
@@ -254,17 +253,35 @@ func (s *Server) RunSyslog(ctx context.Context, cfg SyslogConfig) error {
 			s.log.Error("syslog udp listen failed", "addr", addr, "error", err)
 		} else {
 			closers = append(closers, pc)
-			go s.serveSyslogUDP(ctx, pc, queue)
+			listeners.Go(func() { s.serveSyslogUDP(ctx, pc, queue) })
 		}
 	}
 	if len(closers) == 0 {
 		return fmt.Errorf("no syslog listener could be started on %s", addr)
 	}
+	// Cancellation stops receive first. Workers retain a live context while
+	// already queued frames drain, bounded by a shutdown deadline below.
+	workerCtx, stopWorkers := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopWorkers()
+	workersDone := make(chan struct{})
+	for i := 0; i < s.opts.SyslogWorkers; i++ {
+		go s.syslogWorker(workerCtx, queue, workersDone)
+	}
 	s.log.Info("syslog intake listening", "addr", addr, "net", netMode)
 	<-ctx.Done()
+	drainDeadline := time.AfterFunc(5*time.Second, stopWorkers)
+	defer drainDeadline.Stop()
 	for _, c := range closers {
 		_ = c.Close()
 	}
+	// No more Accept calls may add readers after this wait. Close established
+	// connections too; closing a listener alone does not unblock their reads.
+	listeners.Wait()
+	connections.Range(func(key, _ any) bool {
+		_ = key.(net.Conn).Close()
+		return true
+	})
+	readers.Wait()
 	close(queue)
 	for i := 0; i < s.opts.SyslogWorkers; i++ {
 		<-workersDone
@@ -278,7 +295,7 @@ type syslogJob struct {
 	receivedAt time.Time
 }
 
-func (s *Server) serveSyslog(ctx context.Context, ln net.Listener, queue chan<- syslogJob) {
+func (s *Server) serveSyslog(ctx context.Context, ln net.Listener, queue chan<- syslogJob, readers *sync.WaitGroup, connections *sync.Map) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -288,21 +305,34 @@ func (s *Server) serveSyslog(ctx context.Context, ln net.Listener, queue chan<- 
 			s.log.Warn("syslog accept failed", "error", err)
 			continue
 		}
-		go s.readSyslogConn(conn, queue)
+		connections.Store(conn, struct{}{})
+		readers.Go(func() {
+			defer connections.Delete(conn)
+			s.readSyslogConn(ctx, conn, queue)
+		})
 	}
 }
 
-func (s *Server) readSyslogConn(conn net.Conn, queue chan<- syslogJob) {
+func (s *Server) readSyslogConn(ctx context.Context, conn net.Conn, queue chan<- syslogJob) {
 	defer conn.Close()
-	reader := bufio.NewReaderSize(conn, 64<<10)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			s.enqueue(queue, line, conn.RemoteAddr().String())
-		}
-		if err != nil {
+	reader := bufio.NewScanner(conn)
+	reader.Buffer(make([]byte, 0, 64<<10), int(s.opts.MaxBodyBytes)+1)
+	for reader.Scan() {
+		if int64(len(reader.Bytes())) > s.opts.MaxBodyBytes {
+			s.log.Warn("syslog frame exceeds payload limit", "remote", conn.RemoteAddr().String())
 			return
 		}
+		job := syslogJob{raw: append([]byte(nil), reader.Bytes()...), remote: conn.RemoteAddr().String(), receivedAt: s.now()}
+		// TCP can apply backpressure. Keep the frame until a worker can accept
+		// it, while allowing shutdown to unblock a full queue.
+		select {
+		case queue <- job:
+		case <-ctx.Done():
+			return
+		}
+	}
+	if err := reader.Err(); err != nil && ctx.Err() == nil {
+		s.log.Warn("syslog read failed", "remote", conn.RemoteAddr().String(), "error", err)
 	}
 }
 
@@ -320,6 +350,10 @@ func (s *Server) serveSyslogUDP(ctx context.Context, pc net.PacketConn, queue ch
 		remote := ""
 		if addr != nil {
 			remote = addr.String()
+		}
+		if int64(n) > s.opts.MaxBodyBytes {
+			s.log.Warn("syslog frame exceeds payload limit", "remote", remote)
+			continue
 		}
 		s.enqueue(queue, payload, remote)
 	}

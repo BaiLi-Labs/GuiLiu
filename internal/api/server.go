@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /accounts/{id}", s.adminOnly(s.handleDeleteAccount))
 	api.HandleFunc("POST /accounts/{id}/check", s.adminOnly(s.handleCheckAccount))
 	api.HandleFunc("POST /accounts/{id}/sync", s.adminOnly(s.handleSyncAccount))
+	api.HandleFunc("POST /accounts/{id}/push-token", s.adminOnly(s.handleRotatePushToken))
 	api.HandleFunc("GET /accounts/{id}/health", s.handleAccountHealth)
 	api.HandleFunc("GET /accounts/{id}/failures", s.handleAccountFailures)
 

@@ -117,6 +117,7 @@ func newTestConnector(t *testing.T, handler http.Handler) *Connector {
 func TestFetchPaginatesAndCachesToken(t *testing.T) {
 	var tokenCalls atomic.Int32
 	var alertCalls atomic.Int32
+	var detailCalls atomic.Int32
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/oauth2/token":
@@ -126,15 +127,35 @@ func TestFetchPaginatesAndCachesToken(t *testing.T) {
 				return
 			}
 			fmt.Fprint(w, `{"access_token":"tok","expires_in":1799}`)
-		case "/alerts/entities/alerts/v2":
+		case "/alerts/queries/alerts/v2":
 			alertCalls.Add(1)
+			if r.Method != http.MethodGet {
+				t.Errorf("query method = %s", r.Method)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			if r.Header.Get("Authorization") != "Bearer tok" {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 			offset := r.URL.Query().Get("offset")
-			item := fmt.Sprintf(`{"composite_id":"evt-%s","timestamp":"2026-10-23T10:00:00Z","severity":50}`, offset)
-			fmt.Fprintf(w, `{"meta":{"pagination":{"offset":%s,"limit":1,"total":2}},"resources":[%s],"errors":[]}`, offset, item)
+			fmt.Fprintf(w, `{"meta":{"pagination":{"offset":%s,"limit":1,"total":2}},"resources":["evt-%s"],"errors":[]}`, offset, offset)
+		case "/alerts/entities/alerts/v2":
+			detailCalls.Add(1)
+			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("detail request = %s, %s", r.Method, r.Header.Get("Content-Type"))
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			var body struct {
+				IDs []string `json:"composite_ids"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.IDs) != 1 {
+				t.Errorf("detail body = %+v, error %v", body, err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			fmt.Fprintf(w, `{"resources":[{"composite_id":%q,"timestamp":"2026-10-23T10:00:00Z","severity":50}],"errors":[]}`, body.IDs[0])
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -162,6 +183,48 @@ func TestFetchPaginatesAndCachesToken(t *testing.T) {
 	}
 	if alertCalls.Load() != 2 {
 		t.Fatalf("alert calls = %d", alertCalls.Load())
+	}
+	if detailCalls.Load() != 2 {
+		t.Fatalf("detail calls = %d", detailCalls.Load())
+	}
+}
+
+func TestFetchDoesNotCommitIncompleteDetails(t *testing.T) {
+	for _, response := range []string{`{"resources":[]}`, `{"resources":[],"errors":[{"code":403,"message":"denied"}]}`} {
+		t.Run(response, func(t *testing.T) {
+			c := newTestConnector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case tokenPath:
+					fmt.Fprint(w, `{"access_token":"tok","expires_in":1799}`)
+				case queryPath:
+					fmt.Fprint(w, `{"meta":{"pagination":{"total":1}},"resources":["evt-1"]}`)
+				case alertsPath:
+					fmt.Fprint(w, response)
+				}
+			}))
+			page, err := c.Fetch(context.Background(), connector.Query{Start: time.Now().Add(-time.Hour), End: time.Now()})
+			if err == nil || len(page.Records) != 0 || page.NextToken != "" {
+				t.Fatalf("incomplete detail page = %+v, error = %v", page, err)
+			}
+		})
+	}
+}
+
+func TestFetchEmptyQueryDoesNotRequestDetails(t *testing.T) {
+	c := newTestConnector(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case tokenPath:
+			fmt.Fprint(w, `{"access_token":"tok","expires_in":1799}`)
+		case queryPath:
+			fmt.Fprint(w, `{"meta":{"pagination":{"total":0}},"resources":[]}`)
+		default:
+			t.Errorf("unexpected detail request: %s", r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	page, err := c.Fetch(context.Background(), connector.Query{})
+	if err != nil || len(page.Records) != 0 || page.NextToken != "" {
+		t.Fatalf("empty query = %+v, %v", page, err)
 	}
 }
 
