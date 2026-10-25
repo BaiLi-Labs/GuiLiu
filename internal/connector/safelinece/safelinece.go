@@ -59,7 +59,7 @@ func descriptor() connector.Descriptor {
 		OptionFields: []connector.OptionField{
 			{Name: "endpoint", Label: "SafeLine CE URL", Required: true, Placeholder: "https://waf.example.com:9443", Help: "社区版控制台地址，不含 /open 路径"},
 			{Name: "insecure", Label: "Skip TLS verification", Placeholder: "false", Help: "社区版默认自签证书，内网测试可开启"},
-			{Name: "severity_from_level", Label: "Derive severity from risk_level", Placeholder: "false", Help: "risk_level 为整数但公开 spec 未写明顺序。开启后按 1=low..4=critical 推导并标记"},
+			{Name: "severity_from_level", Label: "Derive severity from risk_level", Placeholder: "true", Help: "已在 9.4.3 实测确认 1=低危、2=中危、3=高危（高危才阻断）。默认启用；设为 false 则保留为 unknown"},
 		},
 		Products: []connector.Product{
 			{Code: "DetectLog", Name: "Attack log"},
@@ -93,7 +93,7 @@ func New(cfg connector.AccountConfig) (connector.Connector, error) {
 	return &Connector{
 		endpoint:     endpoint,
 		token:        token,
-		severityFrom: strings.EqualFold(strings.TrimSpace(cfg.Options["severity_from_level"]), "true"),
+		severityFrom: !strings.EqualFold(strings.TrimSpace(cfg.Options["severity_from_level"]), "false"),
 		limiter:      connector.NewLimiter(connector.OptionFloat(cfg.Options, "rate_limit", defaultQPS)),
 		pageSize:     connector.OptionInt(cfg.Options, "page_size", defaultPageSize),
 		client:       &http.Client{Timeout: 60 * time.Second, Transport: transport},

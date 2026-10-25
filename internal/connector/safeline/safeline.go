@@ -68,7 +68,7 @@ func descriptor() connector.Descriptor {
 			{Name: "exclude_body", Label: "Exclude request body", Placeholder: "true", Help: "默认 true，减少响应体积；原始载荷仍完整保留返回的字段"},
 			{Name: "insecure", Label: "Skip TLS verification", Placeholder: "false", Help: "雷池使用自签证书时设为 true"},
 			{Name: "time_filter", Label: "Time filter", Placeholder: "auto", Help: "auto 先尝试 timestamp__gte/lte，服务端拒绝时自动降级为客户端窗口过滤；off 直接关闭"},
-			{Name: "fetch_detail", Label: "Fetch per-event detail", Placeholder: "false", Help: "列表仅返回 7 个字段。开启后逐条调用 detail scope 才能拿到 risk_level、method 与处置动作，成本是每条事件一次请求"},
+			{Name: "fetch_detail", Label: "Fetch per-event detail", Placeholder: "false", Help: "列表仅返回 7 个字段。开启后逐条调用 detail scope 才能拿到 risk_level、method 与处置动作，成本是每条事件一次请求。社区版实测 risk_level 为 1低/2中/3高，商业版未验证"},
 			{Name: "detail_max_page", Label: "Detail requests per page", Placeholder: "10", Help: "每页最多补齐多少条详情，控制 QPS 消耗；未补齐的记录保留列表原始字段"},
 		},
 		Products: []connector.Product{

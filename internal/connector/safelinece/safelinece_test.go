@@ -45,15 +45,15 @@ const sampleRecord = `{
 }`
 
 func TestNormalizeRecord(t *testing.T) {
-	alert, err := (&Connector{}).Normalize(json.RawMessage(sampleRecord))
+	alert, err := (&Connector{severityFrom: true}).Normalize(json.RawMessage(sampleRecord))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if alert.ExternalID != "evt-abc" {
 		t.Fatalf("external id = %q", alert.ExternalID)
 	}
-	if alert.Severity != model.SeverityUnknown {
-		t.Fatalf("risk_level ordering is unpublished; got %v", alert.Severity)
+	if alert.Severity != model.SeverityHigh {
+		t.Fatalf("risk_level 3 must map to high; got %v", alert.Severity)
 	}
 	if alert.OriginalSeverity != "3" {
 		t.Fatalf("original severity = %q", alert.OriginalSeverity)
@@ -122,9 +122,15 @@ const liveSample = `{
 }`
 
 func TestNormalizeLiveSample(t *testing.T) {
-	alert, err := (&Connector{}).Normalize(json.RawMessage(liveSample))
+	alert, err := (&Connector{severityFrom: true}).Normalize(json.RawMessage(liveSample))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if alert.AlertType != "Rule match" {
+		t.Fatalf("m_rule must keep a generic type, got %q", alert.AlertType)
+	}
+	if alert.Severity != model.SeverityHigh {
+		t.Fatalf("severity = %v", alert.Severity)
 	}
 	if alert.ExternalID != "19f2563411384662bce8dbc2d341e905" {
 		t.Fatalf("external id = %q", alert.ExternalID)
@@ -147,16 +153,89 @@ func TestNormalizeLiveSample(t *testing.T) {
 	}
 }
 
-func TestSeverityDerivationIsOptIn(t *testing.T) {
-	alert, err := (&Connector{severityFrom: true}).Normalize(json.RawMessage(sampleRecord))
+func TestSeverityCanBeDisabled(t *testing.T) {
+	alert, err := (&Connector{severityFrom: false}).Normalize(json.RawMessage(sampleRecord))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if alert.Severity != model.SeverityHigh {
-		t.Fatalf("derived severity = %v", alert.Severity)
+	if alert.Severity != model.SeverityUnknown {
+		t.Fatalf("severity must stay unknown when derivation is disabled, got %v", alert.Severity)
 	}
-	if alert.Unmapped["severity_source"] != "derived_from_risk_level" {
-		t.Fatal("a derived severity must be labelled")
+	if alert.OriginalSeverity != "3" {
+		t.Fatalf("original severity = %q", alert.OriginalSeverity)
+	}
+	if _, ok := alert.Unmapped["severity_source"]; ok {
+		t.Fatal("no derivation label when derivation is disabled")
+	}
+}
+
+func TestNewEnablesSeverityByDefault(t *testing.T) {
+	base := connector.AccountConfig{
+		Options:    map[string]string{"endpoint": "https://example.test"},
+		Credential: connector.Credential{AccessKeyID: "token"},
+	}
+	c, err := New(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.(*Connector).severityFrom {
+		t.Fatal("risk_level derivation must be on by default")
+	}
+	base.Options["severity_from_level"] = "false"
+	disabled, err := New(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.(*Connector).severityFrom {
+		t.Fatal("severity_from_level=false must disable derivation")
+	}
+}
+
+func TestTemplatedReasonBecomesReadableTitle(t *testing.T) {
+	raw := json.RawMessage(`{"event_id":"a","attack_type":0,"module":"m_sqli","reason":"检测到 0 攻击","url_path":"/?id=1","timestamp":1792855531}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.Title != "SQL Injection /?id=1" {
+		t.Fatalf("title = %q", alert.Title)
+	}
+	if alert.AlertType != "SQL Injection" {
+		t.Fatalf("alert type = %q", alert.AlertType)
+	}
+	ce := alert.Unmapped["safeline_ce"].(map[string]any)
+	if ce["reason"] != "检测到 0 攻击" {
+		t.Fatalf("the vendor reason must be preserved, got %v", ce["reason"])
+	}
+}
+
+func TestRuleReasonIsKeptAsTitle(t *testing.T) {
+	alert, err := (&Connector{}).Normalize(json.RawMessage(`{"event_id":"b","attack_type":14,"module":"m_rule","reason":"访问 Git 仓库的请求","url_path":"/.git/config"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.Title != "访问 Git 仓库的请求" {
+		t.Fatalf("a specific rule reason must remain the title, got %q", alert.Title)
+	}
+	if alert.AlertType != "Rule match" {
+		t.Fatalf("alert type = %q", alert.AlertType)
+	}
+}
+
+func TestModuleLabels(t *testing.T) {
+	for module, want := range map[string]string{
+		"m_sqli":          "SQL Injection",
+		"m_xss":           "XSS",
+		"m_ssrf":          "SSRF",
+		"m_cmd_injection": "Command Injection",
+		"m_file_include":  "File Inclusion",
+		"m_ssti":          "SSTI",
+		"m_rule":          "Rule match",
+		"m_unknown":       "",
+	} {
+		if got := moduleLabel(module); got != want {
+			t.Fatalf("moduleLabel(%q) = %q want %q", module, got, want)
+		}
 	}
 }
 

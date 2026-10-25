@@ -3,6 +3,7 @@ package safelinece
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,12 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
+
+var templatedReason = regexp.MustCompile(`^检测到\s*\d+\s*攻击$`)
+
+func isTemplatedReason(reason string) bool {
+	return templatedReason.MatchString(strings.TrimSpace(reason))
+}
 
 func normalize(raw json.RawMessage, severityFrom bool) (model.Alert, error) {
 	var item struct {
@@ -70,12 +77,32 @@ func normalize(raw json.RawMessage, severityFrom bool) (model.Alert, error) {
 	collector.Add("ip", 2, dstIP, "/dst_ip")
 	collector.Add("hostname", 1, host, "/host")
 
-	title := strings.TrimSpace(scalarText(item.Reason))
+	urlPath := strings.TrimSpace(scalarText(item.URLPath))
+	queryString := strings.TrimSpace(scalarText(item.QueryString))
+
+	module := strings.TrimSpace(scalarText(item.Module))
+	reason := strings.TrimSpace(scalarText(item.Reason))
+	title := reason
 	if title == "" {
 		title = "SafeLine CE attack log"
 	}
-	urlPath := strings.TrimSpace(scalarText(item.URLPath))
-	queryString := strings.TrimSpace(scalarText(item.QueryString))
+	// attack_type is a detector/rule id, not a stable enum: the semantic
+	// detectors (m_sqli, m_xss, ...) and the rule engine (m_rule) share the
+	// field. module is the readable detector name, so it drives AlertType.
+	alertType := moduleLabel(module)
+	if alertType == "" {
+		alertType = attackType
+	}
+	// The semantic detectors emit a templated reason such as "检测到 0 攻击",
+	// which is useless as a title. Use the detector name plus the request while
+	// keeping the original reason in Unmapped.
+	if alertType != attackType && isTemplatedReason(reason) {
+		if urlPath != "" {
+			title = alertType + " " + urlPath
+		} else {
+			title = alertType
+		}
+	}
 	description := urlPath
 	if queryString != "" {
 		description = urlPath + "?" + queryString
@@ -85,8 +112,9 @@ func normalize(raw json.RawMessage, severityFrom bool) (model.Alert, error) {
 		"action":          scalarText(item.Action),
 		"action_label":    actionLabel(scalarText(item.Action)),
 		"attack_type":     attackType,
+		"reason":          reason,
 		"risk_level":      riskLevel,
-		"module":          scalarText(item.Module),
+		"module":          module,
 		"policy_name":     scalarText(item.PolicyName),
 		"method":          scalarText(item.Method),
 		"url_path":        urlPath,
@@ -120,7 +148,7 @@ func normalize(raw json.RawMessage, severityFrom bool) (model.Alert, error) {
 		SourceUpdatedAt:  parseTimestamp(scalarText(item.UpdatedAt)),
 		OriginalTime:     scalarText(item.Timestamp),
 		Product:          "SafeLine Community Edition",
-		AlertType:        attackType,
+		AlertType:        alertType,
 		RuleID:           connector.FirstNonEmpty(strings.TrimSpace(scalarText(item.RuleID)), strings.TrimSpace(scalarText(item.ShortRuleID))),
 		Resource:         connector.NamedResource(host, "domain", "", host),
 		SourceIP:         srcIP,
@@ -129,6 +157,30 @@ func normalize(raw json.RawMessage, severityFrom bool) (model.Alert, error) {
 		Unmapped:         unmapped,
 		Raw:              append(json.RawMessage(nil), raw...),
 	}, nil
+}
+
+// moduleLabel names the semantic detectors observed on a live 9.4.3 build.
+// m_rule is the generic rule engine, so its alerts keep the rule text as the
+// title instead of claiming a category.
+func moduleLabel(module string) string {
+	switch module {
+	case "m_sqli":
+		return "SQL Injection"
+	case "m_xss":
+		return "XSS"
+	case "m_ssrf":
+		return "SSRF"
+	case "m_cmd_injection":
+		return "Command Injection"
+	case "m_file_include":
+		return "File Inclusion"
+	case "m_ssti":
+		return "SSTI"
+	case "m_rule":
+		return "Rule match"
+	default:
+		return ""
+	}
 }
 
 // actionLabel uses the documented mapping: 0 allow, 1 block. Any other value is
