@@ -259,6 +259,13 @@ func revisionTableColumns(fields string) ([]column[view.Revision], error) {
 
 func healthAllColumns() []column[view.Account] {
 	state := func(a view.Account) view.SyncState {
+		if a.QueryOnly {
+			status := "on_demand"
+			if !a.Enabled {
+				status = "disabled"
+			}
+			return view.SyncState{Status: status}
+		}
 		if a.SyncState == nil {
 			return view.SyncState{}
 		}
@@ -678,6 +685,9 @@ func renderHealth(w io.Writer, columns []column[view.Account], health healthResp
 }
 
 func renderAccountHealth(w io.Writer, health accountHealthResponse) error {
+	if health.Account.QueryOnly {
+		return renderDetail(w, [][2]string{{"status", health.Status}, {"account", health.Account.Name}, {"provider", health.Account.Provider}, {"enabled", strconv.FormatBool(health.Account.Enabled)}, {"access_mode", "explicit_remote_event_query"}})
+	}
 	pairs := [][2]string{
 		{"status", health.Status},
 		{"account", health.Account.Name},

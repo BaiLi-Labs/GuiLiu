@@ -110,6 +110,17 @@ func TestRemoteEventsRESTMCPCLIShareSourceContract(t *testing.T) {
 	if resp.StatusCode != 401 || queries.Load() != before {
 		t.Fatal("unauthenticated request reached the source")
 	}
+	for _, invalidBody := range []string{string(request) + ` {}`, `{"account_id":"` + account.ID + `","query":{"match_all":{}}}`} {
+		before := queries.Load()
+		resp, _ := do(t, client, "POST", ts.URL+"/api/v1/events/search", readerKey, invalidBody)
+		if resp.StatusCode != 400 || queries.Load() != before {
+			t.Fatal("unsupported request reached the source")
+		}
+	}
+	resp, body = do(t, client, "GET", ts.URL+"/api/v1/events/fields?account_id="+account.ID, readerKey, "")
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"mapper_version":"elasticsearch-event/v1"`) {
+		t.Fatalf("source field metadata: %d %s", resp.StatusCode, body)
+	}
 	resp, body = do(t, client, "POST", ts.URL+"/api/v1/events/search", readerKey, string(request))
 	var page model.EventPage
 	if resp.StatusCode != 200 || json.Unmarshal(body, &page) != nil || len(page.Events) != 1 || page.NextCursor == "" || !page.HasMore {
@@ -129,6 +140,12 @@ func TestRemoteEventsRESTMCPCLIShareSourceContract(t *testing.T) {
 		if resp.StatusCode != 400 || queries.Load() != before {
 			t.Fatal("invalid cursor reached the upstream")
 		}
+	}
+	resumePinned, _ := json.Marshal(model.EventSearch{AccountID: account.ID, Cursor: page.NextCursor})
+	resp, body = do(t, client, "POST", ts.URL+"/api/v1/events/search", readerKey, string(resumePinned))
+	var continued model.EventPage
+	if resp.StatusCode != 200 || json.Unmarshal(body, &continued) != nil || continued.Query.Start != page.Query.Start || continued.Query.Keyword != page.Query.Keyword || continued.Query.Limit != 1 || continued.HasMore {
+		t.Fatalf("pinned continuation changed query: %d %s", resp.StatusCode, body)
 	}
 	ref, _ := json.Marshal(page.Events[0].Evidence)
 	resp, body = do(t, client, "POST", ts.URL+"/api/v1/events/evidence", readerKey, string(ref))
@@ -185,5 +202,14 @@ func TestRemoteEventsRESTMCPCLIShareSourceContract(t *testing.T) {
 	resp, _ = do(t, client, "POST", ts.URL+"/api/v1/events/search", readerKey, string(resume))
 	if resp.StatusCode != 400 || queries.Load() != before {
 		t.Fatal("cursor survived source scope change")
+	}
+	resp, _ = do(t, client, "PATCH", ts.URL+"/api/v1/accounts/"+account.ID, adminKey, `{"enabled":false}`)
+	if resp.StatusCode != 200 {
+		t.Fatal("could not disable source")
+	}
+	before = queries.Load()
+	resp, _ = do(t, client, "POST", ts.URL+"/api/v1/events/search", readerKey, string(request))
+	if resp.StatusCode != 400 || queries.Load() != before {
+		t.Fatal("disabled source was queried")
 	}
 }

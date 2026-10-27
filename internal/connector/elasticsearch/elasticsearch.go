@@ -21,21 +21,21 @@ const mapperVersion = "elasticsearch-event/v1"
 const sourceAPI = "Elasticsearch Search API"
 
 var descriptor = connector.Descriptor{
-	ID: "elasticsearch", Name: "Elasticsearch", Vendor: "Elastic", Product: "Remote security events",
+	ID: "elasticsearch", Name: "Elasticsearch", Vendor: "Elastic", Product: "安全日志事件",
 	SourceAPI: sourceAPI, APIVersion: "7.12+ Search / PIT REST", MapperVersion: mapperVersion,
 	DocsURL:   "https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-search",
 	QueryOnly: true, DataTypes: []string{"event"},
 	Credential: []connector.CredentialField{
-		{Name: "access_key_id", Label: "Username (Basic authentication only)", Help: "Leave empty for API key or Bearer authentication."},
-		{Name: "access_key_secret", Label: "API key / password / Bearer token", Secret: true, Required: true, Help: "For API keys, use the encoded value returned by Elasticsearch, without the ApiKey prefix."},
+		{Name: "access_key_id", Label: "用户名（仅 Basic 认证）", Help: "使用 API Key 或 Bearer 时留空。"},
+		{Name: "access_key_secret", Label: "API Key / 密码 / Bearer Token", Secret: true, Required: true, Help: "API Key 使用 Elasticsearch 返回的 encoded 值，无需添加 ApiKey 前缀。"},
 	},
 	OptionFields: []connector.OptionField{
-		{Name: "endpoint", Label: "Elasticsearch URL", Required: true, Placeholder: "https://es.example.com:9200", Help: "Existing upstream Elasticsearch endpoint; credentials are stored separately."},
-		{Name: "indices", Label: "Index / alias scope", Required: true, Placeholder: "logs-web-*,logs-app-*", Help: "Comma-separated local indices, aliases or data streams. Every query stays inside this configured scope."},
-		{Name: "auth_type", Label: "Authentication type", Default: "api_key", Choices: []string{"api_key", "basic", "bearer"}, Help: "api_key (default), basic or bearer. Use a dedicated read-only credential."},
-		{Name: "field_mapping", Label: "Event field mapping (JSON)", Multiline: true, Placeholder: `{"event_time":"@timestamp","message":"message"}`, Help: "Override ECS source paths for event_time, message, host_ids, host_names, source_ips, destination_ips, users, actions, categories, datasets, source_severity. Empty paths disable optional fields."},
-		{Name: "timestamp_format", Label: "Timestamp format", Placeholder: "date", Help: "date (default: ISO date or epoch milliseconds), epoch_millis or epoch_seconds. Used for both filtering and mapping."},
-		{Name: "ca_cert", Label: "Custom CA certificate (PEM)", Multiline: true, Help: "Optional trusted CA for a private HTTPS deployment. Certificate verification remains enabled."},
+		{Name: "endpoint", Label: "Elasticsearch 地址", Required: true, Placeholder: "https://es.example.com:9200", Help: "已有 Elasticsearch 服务地址，凭据单独加密保存。"},
+		{Name: "indices", Label: "索引 / 别名范围", Required: true, Placeholder: "logs-web-*,logs-app-*", Help: "多个索引、别名或数据流用逗号分隔，所有查询均限于配置范围。"},
+		{Name: "auth_type", Label: "认证方式", Default: "api_key", Choices: []string{"api_key", "basic", "bearer"}, Help: "支持 API Key、用户名密码（Basic）和 Bearer，请使用专用只读凭据。"},
+		{Name: "field_mapping", Label: "事件字段映射（JSON）", Multiline: true, Placeholder: `{"event_time":"@timestamp","message":"message"}`, Help: "默认使用 ECS 字段。可覆盖时间、消息、主机、IP、用户等来源路径；空路径禁用可选字段。"},
+		{Name: "timestamp_format", Label: "时间戳格式", Placeholder: "date", Help: "date（默认，ISO 日期或 epoch 毫秒）、epoch_millis 或 epoch_seconds，同时用于查询与映射。"},
+		{Name: "ca_cert", Label: "自定义 CA 证书（PEM）", Multiline: true, Help: "私有 HTTPS 可填写信任的 CA 证书，始终验证服务端证书。"},
 	},
 }
 

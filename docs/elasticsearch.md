@@ -48,7 +48,7 @@ Elasticsearch 与云安全产品一样，是归流的上游来源。归流通过
 | `filters` | 最多 16 个原生字段到字符串值的精确 `term` 条件；不开放脚本或任意 DSL |
 | `group_by` / `top_n` | 一个可聚合的原生字段的前 N 个文档计数，默认 10、最多 50；保留其他文档数与分布式计数误差上界 |
 
-字段查询不支持的类型或缺少权限时明确返回错误，不悄悄忽略筛选。`term` 是索引项匹配；对 text 字段不保证原文精确匹配，先读取字段能力，必要时显式使用来源 `.keyword` 字段。统计是文档数，不是攻击次数。
+未支持的公共参数会被拒绝，来源错误与权限不足会明确返回。原生字段条件按 ES 语义执行；未映射的原生字段可能返回零匹配，应先检查字段能力，不能据此推断事件不存在。`term` 是索引项匹配；对 text 字段不保证原文精确匹配，先读取字段能力，必要时显式使用来源 `.keyword` 字段。统计是文档数，不是攻击次数。
 
 默认映射使用 ECS 路径：`@timestamp`、`message`、`host.id`、`host.name`、`source.ip`、`destination.ip`、`user.name`、`event.action`、`event.category`、`event.dataset`、`log.level`。可以用 `field_mapping` JSON 覆盖这些路径，空路径禁用可选字段；时间字段必须配置。时间格式 `timestamp_format` 支持 `date`（默认，ISO 日期或 epoch 毫秒）、`epoch_millis`、`epoch_seconds`，同时控制查询转换和结果解析。
 

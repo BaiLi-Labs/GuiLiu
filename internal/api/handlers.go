@@ -396,7 +396,11 @@ func (s *Server) handleAccountHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v.QueryOnly {
-		writeJSON(w, 200, map[string]any{"status": "on_demand", "account": v, "sync_state": nil, "recent_runs": []any{}})
+		status := "on_demand"
+		if !acct.Enabled {
+			status = "disabled"
+		}
+		writeJSON(w, 200, map[string]any{"status": status, "account": v, "sync_state": nil, "recent_runs": []any{}})
 		return
 	}
 	state, err := s.store.GetSyncState(r.Context(), acct.ID)

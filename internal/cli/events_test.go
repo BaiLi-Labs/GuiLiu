@@ -63,3 +63,12 @@ func TestIncompleteEventQueryFailsAfterEmittingExplicitMetadata(t *testing.T) {
 		t.Fatalf("partial query appeared successful: %d %s %s", code, output, diagnostic)
 	}
 }
+
+func TestRemoteEventHealthDoesNotInventSyncHealth(t *testing.T) {
+	code, output, diagnostic := runCLI(t, []string{"health", "--account", "source"}, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"on_demand","account":{"id":"source","name":"source","provider":"elasticsearch","enabled":true,"query_only":true},"sync_state":null,"recent_runs":[]}`)
+	})
+	if code != 0 || !strings.Contains(output, "on_demand") || strings.Contains(output, "healthy") {
+		t.Fatalf("invented sync state: %d %s %s", code, output, diagnostic)
+	}
+}

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
@@ -11,7 +13,7 @@ import (
 
 func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	var q model.EventSearch
-	if err := decodeJSON(w, r, &q); err != nil {
+	if err := decodeEventJSON(w, r, &q); err != nil {
 		writeError(w, 400, "invalid_request", "invalid event query: "+err.Error())
 		return
 	}
@@ -40,7 +42,7 @@ func (s *Server) handleEventFields(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEventEvidence(w http.ResponseWriter, r *http.Request) {
 	var ref model.EventReference
-	if err := decodeJSON(w, r, &ref); err != nil {
+	if err := decodeEventJSON(w, r, &ref); err != nil {
 		writeError(w, 400, "invalid_request", "invalid event reference: "+err.Error())
 		return
 	}
@@ -51,6 +53,26 @@ func (s *Server) handleEventEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, evidence)
+}
+
+func decodeEventJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	if err := allowedAssetQuery(r); err != nil {
+		return err
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if !errors.Is(decoder.Decode(&extra), io.EOF) {
+		return errors.New("request must contain one JSON object")
+	}
+	if observer, ok := w.(interface{ ObserveRequest(any) }); ok {
+		observer.ObserveRequest(target)
+	}
+	return nil
 }
 
 func (s *Server) writeEventError(w http.ResponseWriter, err error) {

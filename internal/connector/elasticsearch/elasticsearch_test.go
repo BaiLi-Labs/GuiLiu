@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
@@ -220,6 +221,33 @@ func TestBasicBearerAndRedirectBoundaries(t *testing.T) {
 	}, nil)
 	if c.Check(context.Background()) == nil || followed {
 		t.Fatal("credential-bearing requests must not follow redirects")
+	}
+}
+
+func TestPrivateCAIsTrustedWithoutDisablingVerification(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"hits":{"hits":[]}}`) }))
+	defer server.Close()
+	options := map[string]string{"endpoint": server.URL, "indices": "logs-*"}
+	cfg := connector.AccountConfig{Options: options, Credential: connector.Credential{AccessKeySecret: "synthetic-key"}}
+	untrusted, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connector.Close(untrusted)
+	if untrusted.Check(context.Background()) == nil {
+		t.Fatal("untrusted TLS certificate was accepted")
+	}
+	options["ca_cert"] = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+	trusted, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connector.Close(trusted)
+	if err := trusted.Check(context.Background()); err != nil {
+		t.Fatalf("configured CA was not trusted: %v", err)
+	}
+	if trusted.(*Connector).client.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("TLS verification was disabled")
 	}
 }
 

@@ -554,15 +554,15 @@ function AccountModal({
               required
             />
           </label>
-          <label className="form-label">
+          {!provider?.query_only ? <label className="form-label">
             {t('云账号 ID / 项目 ID（可选）')}
             <input
               className="field w-full"
               value={form.account_uid}
               onChange={(event) => set('account_uid', event.target.value)}
             />
-          </label>
-          <label className="form-label">
+          </label> : null}
+          {!provider?.query_only ? <label className="form-label">
             {t('Region（可选）')}
             <input
               className="field w-full"
@@ -570,7 +570,7 @@ function AccountModal({
               onChange={(event) => set('region', event.target.value)}
               placeholder={t('例如 us-east-1')}
             />
-          </label>
+          </label> : null}
           {requiredOptions.map(optionInput)}
         </div>
         <section className="border-t border-[var(--line)] pt-5">

@@ -321,7 +321,11 @@ func (s *Server) toolHealth(ctx context.Context, args map[string]any) (any, erro
 		if d, ok := s.registry.Descriptor(a.Provider); ok && d.QueryOnly {
 			v := view.AccountFromModel(a)
 			v.QueryOnly, v.ProviderName = true, d.Name
-			items = append(items, map[string]any{"account": v, "status": "on_demand", "sync_state": nil, "recent_runs": []any{}})
+			status := "on_demand"
+			if !a.Enabled {
+				status = "disabled"
+			}
+			items = append(items, map[string]any{"account": v, "status": status, "sync_state": nil, "recent_runs": []any{}})
 			continue
 		}
 		state, err := s.store.GetSyncState(ctx, a.ID)

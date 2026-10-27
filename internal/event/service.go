@@ -112,7 +112,13 @@ func (s *Service) source(ctx context.Context, id string) (connector.Connector, c
 		return nil, nil, "", invalid("source connection is disabled")
 	}
 	desc, ok := s.registry.Descriptor(acct.Provider)
-	if !ok || !desc.QueryOnly {
+	hasEvents := desc.QueryOnly
+	for _, dataType := range desc.DataTypes {
+		if dataType == "event" {
+			hasEvents = true
+		}
+	}
+	if !ok || !hasEvents {
 		return nil, nil, "", invalid("source does not support remote event queries")
 	}
 	cred, err := credential.Load(ctx, s.store, s.cipher, id)
