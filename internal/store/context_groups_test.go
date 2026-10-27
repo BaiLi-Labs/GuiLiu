@@ -13,6 +13,44 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
+func TestRegionlessScopedResourceStillGroups(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	add := func(id string) {
+		a := testAlert("Domain scan")
+		a.ExternalID = id
+		// Global resources carry no region; identity comes from the domain.
+		a.Region = ""
+		a.Resource = model.Resource{ID: "example.com", Name: "example.com", Type: "domain", Source: model.ResourceSourceIdentifierFallback}
+		a.EventTime = now
+		a.Raw = json.RawMessage(`{"id":"` + id + `"}`)
+		if _, err := st.UpsertAlert(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("domain-a")
+	add("domain-b")
+	seq, err := st.SnapshotSequence(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, total, err := st.ListAlertGroups(ctx, model.AlertFilter{GroupBy: model.GroupByAsset, SnapshotSequence: &seq, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(groups) != 1 {
+		t.Fatalf("groups=%d total=%d, want one group for the same domain", len(groups), total)
+	}
+	g := groups[0]
+	if g.Key["singleton"] != "" {
+		t.Fatalf("a resource without a region must still group: %+v", g.Key)
+	}
+	if g.Key["resource_id"] != "example.com" || g.FindingCount != 2 {
+		t.Fatalf("group = %+v", g)
+	}
+}
+
 func TestNetworkGroupsPinObservationsDeduplicateAndRetainEvidence(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

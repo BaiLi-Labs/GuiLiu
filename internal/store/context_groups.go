@@ -86,7 +86,11 @@ func contextPrefix(f model.AlertFilter) string {
 	} else {
 		extra := ""
 		owner := resourceOwnerExpr("a")
-		required := owner + `='' OR a.resource_id='' OR a.resource_type='' OR (a.region='' AND a.provider IN ('tencent','aliyun','huawei','aws'))`
+		// A missing region is not a missing identity: global resources (CDN,
+		// domain-level endpoints) legitimately have no region, and the product
+		// contract allows an explicit global scope. Only identity fields decide
+		// whether a finding can join a group.
+		required := owner + `='' OR a.resource_id='' OR a.resource_type=''`
 		if f.GroupBy == model.GroupByNameAsset {
 			extra = `,'product',a.product,'vendor_title',a.title`
 			required += ` OR a.product='' OR a.title=''`

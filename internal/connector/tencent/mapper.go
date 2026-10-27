@@ -68,11 +68,21 @@ func (c *Connector) Normalize(raw json.RawMessage) (model.Alert, error) {
 		// RoleInfo.Account is kept out of resource.account_uid as well: the
 		// observed value is an AppID, while account_uid is a UIN, so projecting
 		// it would invent a cross-account identity that cannot be matched.
+		victimID := connector.Str(a.Victim.InstanceID)
+		victimType := assetType(connector.Int64(a.Victim.AssetType))
+		domain := connector.Str(a.Victim.Domain)
+		// A domain-level alert has no instance ID, but the domain is the
+		// identity the source itself declares. Using it as the resource id lets
+		// repeated findings for one domain form a scoped group instead of
+		// falling apart into one singleton per event.
+		if victimID == "" && victimType == "domain" && domain != "" {
+			victimID = domain
+		}
 		alert.Resource = connector.NamedResource(
-			connector.Str(a.Victim.InstanceID),
-			assetType(connector.Int64(a.Victim.AssetType)),
+			victimID,
+			victimType,
 			"",
-			connector.Str(a.Victim.Domain), connector.Str(a.Victim.IP), connector.Str(a.Victim.InstanceID),
+			domain, connector.Str(a.Victim.IP), victimID,
 		)
 		alert.Resource.DeclaredName = connector.Str(a.Victim.Name)
 	}

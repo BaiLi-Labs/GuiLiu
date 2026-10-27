@@ -116,6 +116,11 @@ func TestResourceNameOriginIsExplicit(t *testing.T) {
 	if domain.Resource.Name != "example.com" || domain.Resource.Source != model.ResourceSourceIdentifierFallback {
 		t.Fatalf("domain resource = %+v", domain.Resource)
 	}
+	// A domain alert has no instance ID; the domain itself becomes the scoped
+	// identity so repeated findings for one domain can form a group.
+	if domain.Resource.ID != "example.com" || domain.Resource.Type != "domain" {
+		t.Fatalf("domain resource identity = %+v", domain.Resource)
+	}
 }
 
 func TestNormalize(t *testing.T) {
