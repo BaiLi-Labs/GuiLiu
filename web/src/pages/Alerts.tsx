@@ -422,7 +422,7 @@ export function Alerts() {
                       {groupTitle(group)}
                     </button>
                     <div className="cell-sub break-all">{[group.key.region, group.resource_id, group.alert_type, group.source_ip].filter(Boolean).join(' · ')}</div>
-                    {group.missing_fields?.length ? <p className="text-xs text-[var(--muted)]">{t('缺少分组依据')}：{group.missing_fields.map(field => t(({rule_id:'规则 ID',account_uid:'真实云账号 UID',resource_id:'资源 ID',source_ip:'源 IP',product:'厂商产品',alert_type:'厂商告警类型',saved_host_network_reference:'已保存的主机网络引用',explicit_scoped_resource_reference:'完整作用域下的资源引用'} as Record<string,string>)[field] || field)).join('、')}</p> : null}
+                    {group.missing_fields?.length ? <p className="text-xs text-[var(--muted)]">{t('缺少分组依据')}：{group.missing_fields.map(field => t(({rule_id:'规则 ID',account_uid:'真实云账号 UID',resource_id:'资源 ID',source_ip:'源 IP',product:'厂商产品',alert_type:'厂商告警类型',saved_host_network_reference:'已保存的主机网络引用',explicit_scoped_resource_reference:'完整作用域下的资源引用'} as Record<string,string>)[field] || field)).join('、')} · {t('该来源未提供资源实例 ID，这条告警单独成组')}</p> : null}
                   </td>
                   <td className="tabular-nums">{fmtNum(group.finding_count)}</td>
                   <td className="tabular-nums">{!['asset','name_asset','vpc','subnet','security_group','nic'].includes(group.group_by) ? '—' : fmtNum(group.asset_count || 0)}</td>

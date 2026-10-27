@@ -107,6 +107,7 @@ export const en: Record<string, string> = {
   "独立告警": "Unique Findings",
   "已关联资产观测": "With asset observations",
   "缺少分组依据": "Missing grouping fields",
+  "该来源未提供资源实例 ID，这条告警单独成组": "the source returned no resource instance ID, so this finding stands alone",
   "分组成员合计（可重复）": "Group memberships (may overlap)",
   "已观测主机": "Observed hosts",
   "观测时间": "Observed at",
