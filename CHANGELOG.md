@@ -4,11 +4,25 @@
 
 ## [Unreleased]
 
+## [0.3.5-dev] - 2026-10-27
+
+### 新增
+
 - 新增 Elasticsearch 上游事件来源，复用账号配置和加密凭据，支持 API Key、Basic、Bearer 与自定义 CA；普通日志按事件表达，不进入 Finding 同步或替代归流数据库。
 - 新增只读事件查询、来源字段能力和证据回查；公共筛选转换为有界 ES 查询，支持 ECS/显式字段映射、PIT 游标与有限文档计数，保留超时、分片失败、计数下界和证据变更说明。
 - Web、REST、MCP 与查询 CLI 共用事件服务，新增 `events` / `event-fields` / `event` 命令和三个 MCP 工具；ES 需要 7.12+，目前仅完成合成契约及本地链路验证，待真实环境验收。详见 [Elasticsearch 接入](docs/elasticsearch.md)。
+
+### 行为变更（升级前必读）
+
+- 通用 CEF 连接器必须显式配置 `event_categories`，未配置时不再接收任何记录，避免把流量或审计日志当作告警入库。**已有 `cef` 账号升级后会停止入库，需要补配置**；`accept_all_events=true` 可临时跳过过滤。
+- 推送通道只承载可归一化为 Finding 的告警。Syslog 默认不启用；启用时仅限可信网络，UDP 无认证，启动时会输出告警日志。
+
+### 修复与数据契约
+
 - 腾讯云域名类告警用厂商声明的域名作为 `resource_id`，mapper 升级到 `tencent-csip/v7`。分组不再把缺少 region 的全局资源判为独立告警，同一域名的多条告警可聚为一组。历史记录用 `guiliu replay -account <名称> -mapper-version tencent-csip/v6 -apply` 重放（会新增修订）。
 - 华为 SecMaster 的 `website` / `domain` 资源在厂商未返回 `id` 时使用声明名称作为 `resource_id`，mapper 升级到 `huawei-secmaster/v6`。类型枚举依据官方 API 文档，双方都提供 id 时仍以 id 为准。
+- 审计列表翻页后显示页码与本页条数；JSON 响应加 `Cache-Control: no-store`，避免缓存掩盖新写入的记录。
+- 分组视图在缺少资源身份时说明原因，不再只显示“缺少分组依据”。
 
 ## [0.3.4] - 2026-10-25
 
