@@ -30,6 +30,7 @@ export const STATUS_LABEL: Record<AlertStatus, string> = {
 };
 
 export const PROVIDER_SHORT: Record<string, string> = {
+  elasticsearch: 'Elasticsearch',
   tencent: 'Tencent',
   aliyun: 'Alibaba',
   huawei: 'Huawei',
@@ -39,6 +40,7 @@ export const PROVIDER_SHORT: Record<string, string> = {
 };
 
 export const PROVIDER_LABEL: Record<string, string> = {
+  elasticsearch: 'Elasticsearch',
   tencent: 'Tencent Cloud',
   aliyun: 'Alibaba Cloud',
   huawei: 'Huawei Cloud',
@@ -125,7 +127,7 @@ export type RouteParams = Record<string, string>;
 
 export function parseHashPage(hash: string): Page {
   const raw = hash.replace(/^#\/?/, '').split(/[/?]/)[0];
-  const pages: Page[] = ['overview', 'alerts', 'accounts', 'health', 'mcp', 'audit'];
+  const pages: Page[] = ['overview', 'alerts', 'events', 'accounts', 'health', 'mcp', 'audit'];
   return pages.includes(raw as Page) ? (raw as Page) : 'overview';
 }
 
@@ -148,6 +150,7 @@ export function useHashPage(): [Page, (page: Page, params?: RouteParams) => void
 // One status definition for account lists, overview, and ingestion details.
 export function accountStatus(account: Account): string {
   if (!account.enabled) return '已停用';
+  if (account.query_only) return '按需查询';
   const state = account.sync_state;
   if (account.push_only) {
     const pushLabels = {

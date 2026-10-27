@@ -90,15 +90,30 @@ func (e *apiError) Error() string {
 }
 
 func (c *client) get(ctx context.Context, path string, params url.Values) ([]byte, error) {
+	return c.send(ctx, http.MethodGet, path, params, nil)
+}
+
+func (c *client) post(ctx context.Context, path string, value any) ([]byte, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return c.send(ctx, http.MethodPost, path, url.Values{}, body)
+}
+
+func (c *client) send(ctx context.Context, method, path string, params url.Values, payload []byte) ([]byte, error) {
 	u := *c.base
 	u.Path = strings.TrimRight(c.base.Path, "/") + path
 	u.RawQuery = params.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("X-Guiliu-Client", clientHeader)
 	req.Header.Set("User-Agent", "guiliu-cli/"+c.version)
 	if c.apiKey != "" {

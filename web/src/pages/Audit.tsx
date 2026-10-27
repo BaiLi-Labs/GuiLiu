@@ -91,6 +91,9 @@ export function Audit() {
       </tr>{expanded === event.sequence ? <tr><td colSpan={6}><AuditEventDetails event={event} /></td></tr> : null}</Fragment>)}
       {data && !data.events.length ? <tr><td colSpan={6} className="py-8 text-center text-[var(--muted)]">{t('没有匹配的审计记录')}</td></tr> : null}
     </tbody></table></div>
-    <div className="flex justify-end gap-2"><button className="btn" disabled={busy || !cursors.length} onClick={() => setCursors(old => old.slice(0, -1))}>{t('上一页')}</button><button className="btn" disabled={busy || !data?.has_more} onClick={() => data && setCursors(old => [...old, data.next_cursor])}>{t('下一页')}</button></div>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span className="text-xs text-[var(--muted)]">{data ? t('第 {page} 页 · 本页 {count} 条', { page: cursors.length + 1, count: data.events.length }) : ''}{data?.has_more ? ` · ${t('还有更多')}` : ''}</span>
+      <div className="flex gap-2"><button className="btn" disabled={busy || !cursors.length} onClick={() => setCursors(old => old.slice(0, -1))}>{t('上一页')}</button><button className="btn" disabled={busy || !data?.has_more} onClick={() => data && setCursors(old => [...old, data.next_cursor])}>{t('下一页')}</button></div>
+    </div>
   </div>;
 }

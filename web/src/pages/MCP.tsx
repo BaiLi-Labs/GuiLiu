@@ -8,6 +8,9 @@ import { formatDate } from '../lib';
 import type { APIKey } from '../types';
 
 const TOOLS = [
+ ['search_events', '按需查询上游事件，返回统一字段、证据引用和查询范围'],
+ ['get_event_fields', '读取上游字段类型及当前映射'],
+ ['get_event_evidence', '展开当前上游事件证据并比较内容校验值'],
  ['get_asset_by_reference', '按来源账号、地域、类型和原生 ID 查询关联网络资源'],
  ['list_assets', '查询本地已保存资产，不访问云端'],
  ['get_asset', '读取资产基础信息、组件状态与精确修订'],

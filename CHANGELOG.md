@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+- 新增 Elasticsearch 上游事件来源，复用账号配置和加密凭据，支持 API Key、Basic、Bearer 与自定义 CA；普通日志按事件表达，不进入 Finding 同步或替代归流数据库。
+- 新增只读事件查询、来源字段能力和证据回查；公共筛选转换为有界 ES 查询，支持 ECS/显式字段映射、PIT 游标与有限文档计数，保留超时、分片失败、计数下界和证据变更说明。
+- Web、REST、MCP 与查询 CLI 共用事件服务，新增 `events` / `event-fields` / `event` 命令和三个 MCP 工具；ES 需要 7.12+，目前仅完成合成契约及本地链路验证，待真实环境验收。详见 [Elasticsearch 接入](docs/elasticsearch.md)。
+
 ## [0.3.4] - 2026-10-25
 
 ### 新增与调整

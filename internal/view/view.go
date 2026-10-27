@@ -245,6 +245,7 @@ type Account struct {
 	AccessKeyHint            string            `json:"access_key_hint,omitempty"`
 	CredentialSet            bool              `json:"credential_configured"`
 	PushOnly                 bool              `json:"push_only,omitempty"`
+	QueryOnly                bool              `json:"query_only,omitempty"`
 	PushConfigured           bool              `json:"push_configured"`
 	PushTokenManagedByConfig bool              `json:"push_token_managed_by_config,omitempty"`
 	CreatedAt                string            `json:"created_at,omitempty"`

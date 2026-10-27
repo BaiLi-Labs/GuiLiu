@@ -27,6 +27,8 @@ var ErrAlreadyRunning = errors.New("sync already running for this account")
 // accepts pushed records.
 var ErrPushOnly = errors.New("source only accepts pushed records")
 
+var ErrQueryOnly = errors.New("source supports explicit remote event queries only")
+
 // Options are the ingest loop defaults. Account options can override window
 // and page settings per account.
 type Options struct {
@@ -164,6 +166,9 @@ func (e *Engine) Trigger(accountID, trigger string) (bool, error) {
 		return false, errors.New("account is disabled")
 	}
 	if !e.polls(acct.Provider) {
+		if d, ok := e.registry.Descriptor(acct.Provider); ok && d.QueryOnly {
+			return false, ErrQueryOnly
+		}
 		return false, ErrPushOnly
 	}
 	if !e.acquire(accountID) {
@@ -183,6 +188,9 @@ func (e *Engine) Trigger(accountID, trigger string) (bool, error) {
 // SyncAccount syncs one account synchronously.
 func (e *Engine) SyncAccount(ctx context.Context, acct model.Account, trigger string) (*model.SyncRun, error) {
 	if !e.polls(acct.Provider) {
+		if d, ok := e.registry.Descriptor(acct.Provider); ok && d.QueryOnly {
+			return nil, ErrQueryOnly
+		}
 		return nil, ErrPushOnly
 	}
 	if !e.acquire(acct.ID) {
@@ -199,7 +207,7 @@ func (e *Engine) polls(provider string) bool {
 		return true
 	}
 	desc, ok := e.registry.Descriptor(provider)
-	return !ok || !desc.PushOnly
+	return !ok || (!desc.PushOnly && !desc.QueryOnly)
 }
 
 func (e *Engine) acquire(id string) bool {

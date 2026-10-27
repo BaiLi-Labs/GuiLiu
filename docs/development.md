@@ -45,7 +45,7 @@ GuiLiu 的边界很明确：**数据面优先，AI 无关**。即使没有任何
 | 品牌图标 | 六家云厂商图标来自 [theSVG](https://github.com/glincker/thesvg) 与 [Devicon](https://github.com/devicons/devicon)（均为 MIT），以 React 组件内嵌，不依赖外部 CDN |
 | 认证 | Argon2id 密码、HttpOnly Session Cookie、可吊销 API Key、登录限流、`admin` / `viewer` 角色 |
 | REST API | `/api/v1/*`，Session Cookie 或 Bearer Session / API Key |
-| MCP | Streamable HTTP `/mcp` + stdio `gl-cli mcp`，20 个只读工具；HTTP 使用 API Key |
+| MCP | Streamable HTTP `/mcp` + stdio `gl-cli mcp`，23 个只读工具；HTTP 使用 API Key |
 | 查询 CLI | `gl-cli query <command>`，REST 薄客户端；表格 / `--json` / `--ndjson` / `--all`，`describe` 输出机器可读命令与参数 |
 | Mock | `make mock` 启动免登录的六家云合成数据（56 条），用于前端、API、MCP 与映射开发 |
 | 凭据安全 | AK/SK 与 GCP Service Account JSON 使用 AES-256-GCM 加密存储；API 只返回提示后缀 |
@@ -755,3 +755,7 @@ make run      # 本地启动
 ## 一句话总结
 
 **过去我们为人开发工具，再教 AI 使用工具；现在可以用 AI 大规模建设过去缺失的工具，而这些工具从一开始就同时服务人和 AI。**
+
+## 上游 Elasticsearch 事件查询
+
+ES 与云安全来源并列注册，复用账号配置、加密凭据及认证审计。事件服务通过 REST / MCP / 查询 CLI / Web 按需查询来源，不修改上游、不进入 Finding 定时采集或本地历史表。接口为 `POST /api/v1/events/search`、`GET /api/v1/events/fields`、`POST /api/v1/events/evidence`。部署配置、分页与证据限制见 [Elasticsearch 接入](elasticsearch.md)。

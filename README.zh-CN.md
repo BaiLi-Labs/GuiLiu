@@ -24,7 +24,7 @@
 - **可靠接入**：增量窗口、限流重试、页级断点续传。映射失败的原始载荷独立保存并自动重试，不阻塞后续采集。
 - **统一查询**：账号、来源等级与状态、资产、IP、Hash、用户和证据使用同一套事实契约；OCSF 按来源语义投影，不推造缺失字段。
 - **保留原始数据**：统一字段之外，可查看厂商原始 JSON 和映射版本；查询时分组保留全部原始告警。
-- **人和 Agent 共用**：控制台、REST API、20 个只读 MCP 工具和只读查询 CLI 访问同一份数据，可接入企业现有 Agent。
+- **人和 Agent 共用**：控制台、REST API、23 个只读 MCP 工具和只读查询 CLI 提供一致的数据访问，可接入企业现有 Agent。
 
 一次典型使用流程：接入云账号，筛选或分组告警，检查原始数据，再让已有 Agent 通过 MCP 或查询 CLI 访问相同记录。研判与响应由团队选择的工具完成。
 
@@ -77,6 +77,10 @@ Microsoft Defender for Cloud（Azure Resource Manager）与 Microsoft Defender X
 推送只承载可归一化为告警的事件，不做通用日志采集。通用 CEF 连接器必须显式配置 `event_categories`，未配置时不接收任何记录，避免把流量或审计日志当作告警入库。Syslog 默认不启用；启用时仅限可信网络，未配置 TLS 时传输未加密、无身份认证。
 
 牧云每个账号只采集一种 `event_type`，默认 `webshell_event`。要覆盖其他七类事件，请使用同一设备与凭据分别创建账号，并选择相应类型；覆盖范围查询会返回实际事件类型和时间格式。Cosmos、CloudWalker 仍标记为映射未验证，需要真实响应验收。
+
+## Elasticsearch 事件查询
+
+Elasticsearch 也可作为上游事件来源接入，支持只读 API Key / Basic / Bearer 认证、自定义字段映射和有界远程查询。日志保留在 ES，归流提供统一事件摘要、来源证据、分页与执行范围；不把日志同步成告警。控制台在账号管理配置后使用“事件查询”，Agent 使用 `search_events` 等工具或 `gl-cli query events --account SOURCE_ID --since 24h --json`。需要 ES 7.12+，当前为合成契约验证，待真实环境验收。详见 [Elasticsearch 接入说明](docs/elasticsearch.md)。
 
 ## 本地体验
 

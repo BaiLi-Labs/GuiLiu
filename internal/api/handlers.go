@@ -135,6 +135,14 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "missing required option: "+strings.Join(missing, ", "))
 		return
 	}
+	if desc.QueryOnly {
+		conn, err := s.registry.New(connector.AccountConfig{Provider: req.Provider, Options: req.Options, Credential: cred})
+		if err != nil {
+			s.writeEventError(w, err)
+			return
+		}
+		connector.Close(conn)
+	}
 	var enc string
 	if !desc.PushOnly {
 		var err error
@@ -235,6 +243,27 @@ func (s *Server) handlePatchAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var encoded *string
+	if desc.QueryOnly {
+		// Validate configuration edits with the same credential that will be used
+		// at query time, including changes between Basic and API key auth.
+		cred, err := s.decryptCredential(r.Context(), acct.ID)
+		if err != nil {
+			writeError(w, 400, "invalid_request", "cannot load source credential")
+			return
+		}
+		if req.AccessKeyID != nil {
+			cred.AccessKeyID = *req.AccessKeyID
+		}
+		if req.AccessKeySecret != nil {
+			cred.AccessKeySecret = *req.AccessKeySecret
+		}
+		conn, err := s.registry.New(connector.AccountConfig{Provider: acct.Provider, Options: acct.Options, Credential: *cred})
+		if err != nil {
+			s.writeEventError(w, err)
+			return
+		}
+		connector.Close(conn)
+	}
 	if req.AccessKeyID != nil || req.AccessKeySecret != nil || req.SessionToken != nil || req.ServiceAccountJSON != nil {
 		cred, err := s.decryptCredential(r.Context(), acct.ID)
 		if err != nil {
@@ -300,14 +329,20 @@ func (s *Server) handleCheckAccount(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorError(w, err)
 		return
 	}
+	scope := "finding_query_only"
+	limitations := []string{"asset_and_network_permissions_not_checked", "only_the_requested_source_scope_was_tested"}
+	if conn.Info().QueryOnly {
+		scope = "event_query_only"
+		limitations = []string{"field_metadata_permissions_not_checked", "only_the_requested_source_scope_was_tested", "point_in_time_support_not_checked"}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
 		"account":     acct.Name,
 		"provider":    acct.Provider,
 		"checked_at":  timeutil.Format(time.Now().UTC()),
 		"checked_api": conn.Info().SourceAPI,
-		"check_scope": "finding_query_only",
-		"limitations": []string{"asset_and_network_permissions_not_checked", "only_the_requested_source_scope_was_tested"},
+		"check_scope": scope,
+		"limitations": limitations,
 	})
 }
 
@@ -326,6 +361,8 @@ func (s *Server) handleSyncAccount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "already_running", "a sync is already running for this account")
 		case errors.Is(err, ingest.ErrPushOnly):
 			writeError(w, http.StatusUnprocessableEntity, "push_only", "this source only accepts pushed records")
+		case errors.Is(err, ingest.ErrQueryOnly):
+			writeError(w, http.StatusUnprocessableEntity, "query_only", "use explicit remote event queries for this source")
 		default:
 			writeError(w, http.StatusBadRequest, "sync_failed", err.Error())
 		}
@@ -356,6 +393,10 @@ func (s *Server) handleAccountHealth(w http.ResponseWriter, r *http.Request) {
 	v, err := s.accountView(r.Context(), acct, true)
 	if err != nil {
 		s.writeStoreError(w, err)
+		return
+	}
+	if v.QueryOnly {
+		writeJSON(w, 200, map[string]any{"status": "on_demand", "account": v, "sync_state": nil, "recent_runs": []any{}})
 		return
 	}
 	state, err := s.store.GetSyncState(r.Context(), acct.ID)
@@ -414,9 +455,10 @@ func (s *Server) accountView(ctx context.Context, acct *model.Account, withState
 	if d, ok := s.registry.Descriptor(acct.Provider); ok {
 		v.ProviderName = d.Name
 		v.PushOnly = d.PushOnly
+		v.QueryOnly = d.QueryOnly
 	}
 	v.PushTokenManagedByConfig = s.configManagesPushToken(acct.Name)
-	if withState {
+	if withState && !v.QueryOnly {
 		state, err := s.store.GetSyncState(ctx, acct.ID)
 		if err != nil {
 			return v, err
@@ -808,7 +850,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			s.writeStoreError(w, err)
 			return
 		}
-		if accounts[i].Enabled && v.SyncState != nil && !v.SyncState.Healthy {
+		if accounts[i].Enabled && !v.QueryOnly && v.SyncState != nil && !v.SyncState.Healthy {
 			status = "degraded"
 		}
 		items = append(items, v)

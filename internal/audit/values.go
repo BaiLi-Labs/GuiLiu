@@ -36,7 +36,7 @@ func fingerprint(v any) any {
 	return map[string]any{"redacted": true, "sha256": fmt.Sprintf("%x", sha256.Sum256(raw)), "bytes": len(raw)}
 }
 
-var parameterKeys = strings.Fields("top_by top_n provider account_id account_uid region resource_id resource_type resource asset_id alert_id rule_id product severity status vendor_status finding_kind time_field start end since range limit offset after_id cursor asset_snapshot_sequence vendor_title snapshot_sequence revision before_revision before_sequence group_by group_key src_ip dst_ip source_ip destination_ip ip asset alert_type observable_type observable_value sort component username enabled expires_in_days request_id user_id api_key_id surface operation tool outcome q keyword")
+var parameterKeys = strings.Fields("top_by top_n provider account_id account_uid region resource_id resource_type resource asset_id alert_id rule_id product severity status vendor_status finding_kind time_field start end since range limit offset after_id cursor asset_snapshot_sequence vendor_title snapshot_sequence revision before_revision before_sequence group_by group_key src_ip dst_ip source_ip destination_ip ip asset alert_type observable_type observable_value sort component username enabled expires_in_days request_id user_id api_key_id surface operation tool outcome q keyword host user filters index id raw_hash routing")
 
 func object(v reflect.Value) reflect.Value {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
@@ -113,7 +113,7 @@ func Parameters(input any) map[string]any {
 		if !v.IsValid() {
 			continue
 		}
-		if key == "q" || key == "keyword" || key == "vendor_title" || key == "group_key" {
+		if key == "q" || key == "keyword" || key == "vendor_title" || key == "group_key" || key == "filters" || key == "host" || key == "user" || key == "routing" || (key == "cursor" && v.Kind() == reflect.String) {
 			out[key] = fingerprint(v.Interface())
 			continue
 		}
@@ -161,11 +161,20 @@ func Summary(input any) map[string]any {
 			if key := field(list.Index(i), "key"); key.IsValid() {
 				entry["group_key"] = fingerprint(key.Interface())
 			}
+			if key == "events" {
+				ref := map[string]any{}
+				for _, name := range strings.Fields("account_id index id raw_hash") {
+					if value := scalar(field(field(list.Index(i), "evidence"), name)); value != nil {
+						ref[name] = value
+					}
+				}
+				entry["evidence"] = ref
+			}
 			items = append(items, entry)
 		}
 		out[key] = map[string]any{"returned_count": list.Len(), "references": items, "truncated": list.Len() > 200}
 	}
-	for _, key := range strings.Fields("api_key asset account alert user attempt refresh") {
+	for _, key := range strings.Fields("api_key asset account alert event user attempt refresh") {
 		v := field(root, key)
 		if !v.IsValid() {
 			continue

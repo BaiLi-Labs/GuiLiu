@@ -14,6 +14,7 @@ import (
 
 func responseSchema(command string) map[string]any {
 	values := map[string]any{
+		"events": model.EventPage{}, "event": model.EventEvidence{}, "event-fields": model.EventFields{},
 		"alerts": alertListResponse{}, "alert": view.Alert{}, "groups": groupListResponse{},
 		"changes": changePage{}, "stats": statsResponse{}, "coverage": model.Coverage{},
 		"revisions": revisionPageResponse{}, "context": query.AssetContext{},
@@ -37,6 +38,15 @@ func responseSchema(command string) map[string]any {
 }
 
 func ndjsonType(command string) reflect.Type {
+	if command == "events" {
+		return reflect.TypeOf(model.Event{})
+	}
+	if command == "event" {
+		return reflect.TypeOf(model.EventEvidence{})
+	}
+	if command == "event-fields" {
+		return reflect.TypeOf(model.EventField{})
+	}
 	values := map[string]any{"alerts": view.Alert{}, "groups": model.AlertGroup{}, "changes": model.AlertChange{}, "revisions": view.Revision{}, "assets": model.Asset{}, "findings": view.Alert{}, "providers": connector.Descriptor{}, "mapping": connector.MappingSpec{}, "failures": failureRecord{}}
 	return reflect.TypeOf(values[command])
 }

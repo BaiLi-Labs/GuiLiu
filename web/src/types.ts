@@ -38,6 +38,7 @@ export interface Account {
   name: string;
   provider: string;
 	push_only?: boolean;
+	query_only?: boolean;
 	push_configured?: boolean;
 	push_token_managed_by_config?: boolean;
   provider_name?: string;
@@ -67,6 +68,9 @@ export interface OptionField {
   required?: boolean;
   placeholder?: string;
   help?: string;
+	 multiline?: boolean;
+	 choices?: string[];
+	 default?: string;
 }
 
 export interface Product {
@@ -86,6 +90,8 @@ export interface Provider {
   option_fields?: OptionField[];
   products?: Product[];
   push_only?: boolean;
+	query_only?: boolean;
+	data_types?: string[];
   push_formats?: ('webhook' | 'syslog')[];
 }
 
@@ -359,7 +365,24 @@ export interface AccountPayload {
   [key: string]: unknown;
 }
 
-export type Page = 'overview' | 'alerts' | 'accounts' | 'health' | 'mcp' | 'audit';
+export type Page = 'overview' | 'alerts' | 'events' | 'accounts' | 'health' | 'mcp' | 'audit';
+
+export interface EventReference {
+  account_id: string; index: string; id: string; routing?: string; raw_hash?: string;
+}
+export interface SecurityEvent {
+  id: string; provider: string; account_id: string; event_time?: string; message?: string;
+  host_ids?: string[]; host_names?: string[]; source_ips?: string[]; destination_ips?: string[];
+  users?: string[]; actions?: string[]; categories?: string[]; datasets?: string[]; source_severity?: string;
+  field_sources: Record<string, string>; mapping_warnings?: string[]; evidence: EventReference;
+}
+export interface EventPage {
+  events: SecurityEvent[]; account_id: string; provider: string; indices: string[]; mapper_version: string;
+  query: { start: string; end: string; limit: number }; total: { value: number; relation: 'eq' | 'gte' };
+  has_more: boolean; next_cursor: string; observed_at: string;
+  coverage: { execution_complete: boolean; consistency: string; timed_out: boolean; failed_shards: number; limitations: string[] };
+  aggregation?: { field: string; buckets: { value: string; count: number }[]; other_document_count: number; document_count_error_bound: number };
+}
 
 export interface Coverage {
  complete: boolean;

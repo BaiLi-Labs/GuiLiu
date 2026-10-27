@@ -101,7 +101,7 @@ export function Health() {
     }
   }
   const accounts = health?.accounts || [];
-  const enabled = accounts.filter((account) => account.enabled);
+  const enabled = accounts.filter((account) => account.enabled && !account.query_only);
   const successful = enabled.filter((account) => accountStatus(account) === '已同步').length;
   const pending = enabled.filter((account) => accountStatus(account) === '续传中').length;
   const failing = enabled.filter((account) => ['同步失败', '同步延迟', '部分失败'].includes(accountStatus(account))).length;

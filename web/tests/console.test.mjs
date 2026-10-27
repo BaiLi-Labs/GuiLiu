@@ -272,6 +272,13 @@ test('push sources distinguish delivery freshness from polling progress', () => 
   assert.equal(lib.accountStatus({ enabled: false, push_only: true }), '已停用');
 });
 
+test('remote event sources use explicit query status and routes', () => {
+  assert.equal(lib.accountStatus({ enabled: true, query_only: true }), '按需查询');
+  assert.equal(lib.accountStatus({ enabled: true, query_only: true, sync_state: { status: 'never_synced' } }), '按需查询');
+  assert.equal(lib.accountStatus({ enabled: false, query_only: true }), '已停用');
+  assert.equal(lib.parseHashPage('#/events?account_id=source'), 'events');
+});
+
 test('login and badges render in both languages without developer setup text', () => {
   const { Login } = load('src/pages/Login.tsx');
   const { SeverityBadge, StatusBadge } = load('src/components/ui.tsx');

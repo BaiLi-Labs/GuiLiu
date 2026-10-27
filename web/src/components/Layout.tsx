@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Terminal,
   ScrollText,
+  Search,
 } from 'lucide-react';
 import { api, logout } from '../api';
 import { useI18n } from '../i18n';
@@ -21,6 +22,7 @@ import { GuiLiuMark } from './GuiLiuMark';
 const NAV = [
   { page: 'overview', label: '概览', icon: LayoutDashboard },
   { page: 'alerts', label: '统一告警', icon: Bell },
+  { page: 'events', label: '事件查询', icon: Search },
   { page: 'accounts', label: '云账号', icon: Cloud },
   { page: 'health', label: '接入状态', icon: Activity },
   { page: 'mcp', label: 'API 与 MCP', icon: Terminal },

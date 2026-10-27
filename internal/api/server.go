@@ -18,6 +18,7 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/auth"
 	"github.com/BaiLi-Labs/GuiLiu/internal/config"
 	"github.com/BaiLi-Labs/GuiLiu/internal/connector"
+	"github.com/BaiLi-Labs/GuiLiu/internal/event"
 	"github.com/BaiLi-Labs/GuiLiu/internal/ingest"
 	"github.com/BaiLi-Labs/GuiLiu/internal/intake"
 	"github.com/BaiLi-Labs/GuiLiu/internal/mcp"
@@ -40,6 +41,7 @@ type Server struct {
 	startedAt time.Time
 	assets    *asset.Service
 	intake    *intake.Server
+	events    *event.Service
 }
 
 func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *connector.Registry, cipher *secret.Cipher, mcpServer *mcp.Server, authService *auth.Service, intakeServer *intake.Server, log *slog.Logger) *Server {
@@ -48,6 +50,10 @@ func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *co
 	}
 	if log == nil {
 		log = slog.Default()
+	}
+	eventService := event.New(st, registry, cipher)
+	if mcpServer != nil {
+		mcpServer.SetEventService(eventService)
 	}
 	return &Server{
 		cfg:       cfg,
@@ -61,6 +67,7 @@ func New(cfg *config.Config, st store.Store, engine *ingest.Engine, registry *co
 		startedAt: time.Now().UTC(),
 		assets:    asset.New(st, cipher, cfg.Mock),
 		intake:    intakeServer,
+		events:    eventService,
 	}
 }
 
@@ -77,6 +84,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /providers", s.handleProviders)
 	api.HandleFunc("GET /providers/{id}/mapping", s.handleMapping)
 	api.HandleFunc("GET /coverage", s.handleCoverage)
+	api.HandleFunc("POST /events/search", s.handleSearchEvents)
+	api.HandleFunc("GET /events/fields", s.handleEventFields)
+	api.HandleFunc("POST /events/evidence", s.handleEventEvidence)
 	api.HandleFunc("GET /assets", s.handleListAssets)
 	api.HandleFunc("GET /assets/lookup", s.handleAssetLookup)
 	api.HandleFunc("GET /assets/{id}", s.handleGetAsset)
@@ -251,6 +261,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 		observer.ObserveResult(v)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// API responses carry live security data. A cached page would hide newly
+	// written audit rows and make pagination look like it did not advance.
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)

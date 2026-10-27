@@ -205,7 +205,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func commands() []*command {
-	return []*command{
+	return append(eventCommands(), []*command{
 		{
 			name:     "alerts",
 			summary:  "List alerts with filters and bounded pagination",
@@ -383,7 +383,7 @@ func commands() []*command {
 			},
 			newRun: newFailuresCommand,
 		},
-	}
+	}...)
 }
 
 // reorderArgs moves flags before positional arguments so

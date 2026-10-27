@@ -49,11 +49,14 @@ type CredentialField struct {
 // OptionField describes a non-secret provider setting (project ID, workspace,
 // GCP parent, ...) that the console should collect into account options.
 type OptionField struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Placeholder string `json:"placeholder,omitempty"`
-	Required    bool   `json:"required"`
-	Help        string `json:"help,omitempty"`
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Placeholder string   `json:"placeholder,omitempty"`
+	Required    bool     `json:"required"`
+	Help        string   `json:"help,omitempty"`
+	Multiline   bool     `json:"multiline,omitempty"`
+	Choices     []string `json:"choices,omitempty"`
+	Default     string   `json:"default,omitempty"`
 }
 
 // Product describes a sub-product aggregated by the connector.
@@ -83,6 +86,9 @@ type Descriptor struct {
 	// PushOnly marks a source with no polling API. The scheduled loop skips it
 	// instead of recording a permanent Fetch failure every interval.
 	PushOnly bool `json:"push_only,omitempty"`
+	// QueryOnly sources expose remote event queries and do not poll Findings.
+	QueryOnly bool     `json:"query_only,omitempty"`
+	DataTypes []string `json:"data_types,omitempty"`
 }
 
 // Query is one page request over a fixed time window. Token is opaque to the

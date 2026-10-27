@@ -44,6 +44,10 @@ func Coverage(ctx context.Context, st store.Store, registry *connector.Registry,
 		"cosmos": "created_at", "cloudwalker": "created_at using configured time_format", "cef": "received records; no polling window",
 	}
 	for _, a := range accounts {
+		// Finding coverage does not describe sources that only query remote events.
+		if d, ok := registry.Descriptor(a.Provider); ok && d.QueryOnly {
+			continue
+		}
 		if f.Provider != "" && f.Provider != a.Provider || f.AccountID != "" && f.AccountID != a.ID {
 			continue
 		}

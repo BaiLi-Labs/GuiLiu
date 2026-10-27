@@ -133,7 +133,7 @@ export function Accounts() {
           onChange={(event) => setStatus(event.target.value)}
         >
           <option value="">{t('所有接入状态')}</option>
-          {['已同步', '同步失败', '部分失败', '同步延迟', '续传中', '等待首次同步', '接收正常', '接收失败', '等待推送', '近期无推送', '部分记录失败', '已停用'].map((value) => (
+          {['已同步', '同步失败', '部分失败', '同步延迟', '续传中', '等待首次同步', '接收正常', '接收失败', '等待推送', '近期无推送', '部分记录失败', '按需查询', '已停用'].map((value) => (
             <option key={value} value={value}>
               {t(value)}
             </option>
@@ -204,6 +204,7 @@ export function Accounts() {
                     <td>
                       <div className="font-medium">{account.name}</div>
                       {account.push_only ? <div className="cell-sub">{t('推送接入')}</div> : null}
+                      {account.query_only ? <a className="cell-sub text-[var(--accent)]" href={`#/events?account_id=${encodeURIComponent(account.id)}`}>{t('查询事件')}</a> : null}
                       <div className="cell-sub max-w-[200px] font-mono" title={account.account_uid}>
                         {account.account_uid || '—'}
                       </div>
@@ -251,7 +252,7 @@ export function Accounts() {
                                 account.id,
                                 `/accounts/${encodeURIComponent(account.id)}/check`,
                                 'POST',
-                                '告警查询验证成功；资产和网络权限尚未验证',
+                                account.query_only ? '事件查询验证成功；字段元数据权限尚未验证' : '告警查询验证成功；资产和网络权限尚未验证',
                               )
                             }
                           >
@@ -261,7 +262,7 @@ export function Accounts() {
                               <Check className="h-4 w-4" />
                             )}
                           </button>
-                          <button
+                          {!account.query_only ? <button
                             className="btn btn-ghost btn-icon"
                             aria-label={`${t('同步')} · ${account.name}`}
                             title={t('同步')}
@@ -276,7 +277,7 @@ export function Accounts() {
                             }
                           >
                             <Play className="h-4 w-4" />
-                          </button></> : null}
+                          </button> : null}</> : null}
                           {providers.find((provider) => provider.id === account.provider)?.push_formats?.includes('webhook') ? (
                             <button
                               className="btn btn-ghost btn-icon"
@@ -429,8 +430,8 @@ function AccountModal({
   );
   const credentialFields = provider?.credential_fields || [];
   const optionFields = provider?.option_fields || [];
-  const requiredOptions = optionFields.filter((field) => field.required);
-  const optionalOptions = optionFields.filter((field) => !field.required && field.name !== 'endpoint');
+  const requiredOptions = optionFields.filter((field) => field.required || field.name === 'auth_type');
+  const optionalOptions = optionFields.filter((field) => !field.required && field.name !== 'endpoint' && field.name !== 'auth_type');
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((previous) => ({ ...previous, [key]: value }));
   }
@@ -468,7 +469,7 @@ function AccountModal({
       region: form.region.trim(),
       options: Object.fromEntries(Object.entries(form.options).map(([key, value]) => [key, value.trim()])),
     };
-    for (const [key, value] of Object.entries(form.credentials)) if (value.trim()) body[key] = value.trim();
+    for (const [key, value] of Object.entries(form.credentials)) if (value.trim()) body[key] = provider.query_only && credentialFields.find(field => field.name === key)?.secret ? value : value.trim();
     setBusy(true);
     setError('');
     try {
@@ -494,10 +495,12 @@ function AccountModal({
     }
   }
   const optionInput = (field: NonNullable<Provider['option_fields']>[number]) => (
-    <label key={field.name} className="form-label">
+    <label key={field.name} className={`form-label ${field.multiline ? 'sm:col-span-2' : ''}`}>
       {t(field.label)}
       {field.required ? ' *' : ''}
-      <input
+      {field.choices ? <select className="field w-full" value={form.options[field.name] || field.default || ''} onChange={event => setOption(field.name, event.target.value)}>
+        {field.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+      </select> : field.multiline ? <textarea className="field w-full font-mono text-xs" rows={4} spellCheck={false} value={form.options[field.name] || ''} onChange={event => setOption(field.name, event.target.value)} placeholder={field.placeholder} /> : <input
         className="field w-full"
         type={field.name === 'rate_limit' || field.name === 'max_pages' ? 'number' : 'text'}
         min={field.name === 'rate_limit' || field.name === 'max_pages' ? 1 : undefined}
@@ -506,7 +509,7 @@ function AccountModal({
         onChange={(event) => setOption(field.name, event.target.value)}
         placeholder={t(field.placeholder || '')}
         required={field.required}
-      />
+      />}
       {field.help ? <span className="field-help">{t(field.help)}</span> : null}
     </label>
   );
@@ -609,13 +612,13 @@ function AccountModal({
         <details className="disclosure">
           <summary>{t('高级选项')}</summary>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            {optionInput({
+            {!requiredOptions.some(field => field.name === 'endpoint') ? optionInput({
               name: 'endpoint',
               label: provider?.id === 'azure' ? 'ARM Endpoint' : 'Endpoint',
               placeholder: '默认官方 endpoint',
-            })}
-            {optionInput({ name: 'rate_limit', label: '限速 QPS', placeholder: '默认按厂商' })}
-            {optionInput({ name: 'max_pages', label: '每轮最大页数', placeholder: '默认 10' })}
+            }) : null}
+            {!provider?.query_only ? optionInput({ name: 'rate_limit', label: '限速 QPS', placeholder: '默认按厂商' }) : null}
+            {!provider?.query_only ? optionInput({ name: 'max_pages', label: '每轮最大页数', placeholder: '默认 10' }) : null}
             {optionalOptions.map(optionInput)}
           </div>
         </details>

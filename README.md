@@ -24,7 +24,7 @@ GuiLiu provides a common data layer:
 - **Reliable ingestion.** Incremental windows, rate limits, retries, and page-level checkpoints. Failed mappings retain their raw payload separately and are retried without blocking newer alerts.
 - **Consistent queries.** A shared fact contract for source severity/status, accounts, assets, IPs, hashes, users and evidence. OCSF classification follows source semantics; missing facts remain unknown.
 - **Original data.** Vendor JSON and mapping versions remain available alongside normalized fields. Query-time grouping preserves the underlying alerts.
-- **Human and agent access.** One dataset across the console, REST API, 20 read-only MCP tools, and a read-only query CLI for shell agents and automation. Bring your own agent.
+- **Human and agent access.** Consistent access across the console, REST API, 23 read-only MCP tools, and a read-only query CLI for shell agents and automation. Bring your own agent.
 
 A typical workflow: connect cloud accounts, filter or group alerts, inspect the original data, then let your existing agent query the same records through MCP or the query CLI. Analysis and response stay with the tools you choose.
 
@@ -94,6 +94,10 @@ Each CloudWalker account collects one `event_type`, defaulting to `webshell_even
 Create separate accounts with the same appliance and credential for the other
 seven families. Coverage responses expose the configured family and time format.
 Cosmos and CloudWalker mappings remain unverified pending real responses.
+
+## Elasticsearch event queries
+
+Elasticsearch can also be configured as an upstream event source with read-only API key, Basic or Bearer authentication and explicit field mapping. Logs remain in ES; GuiLiu translates bounded queries and returns normalized events, source evidence and execution limits. Events are not ingested as Findings. Configure it in Accounts, then use Event search, the `search_events` MCP tool or `gl-cli query events --account SOURCE_ID --since 24h --json`. Requires ES 7.12+; currently validated with synthetic HTTP contracts, pending real-deployment verification. See the [Elasticsearch guide](docs/elasticsearch.md).
 
 ## Try it locally
 

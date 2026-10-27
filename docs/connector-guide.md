@@ -351,3 +351,7 @@ go test ./internal/pushwire ./internal/intake ./internal/connector/cef -v
 - 重复推送不新增行；
 - 相同 `ExternalID` 内容变化时产生新修订；
 - 错误 token、未知账号、超限载荷被拒绝。
+
+## 远程事件来源
+
+连接器可额外实现 `connector.EventSource`，通过相同注册表、账号与凭据管理提供受限的事件查询。仅远程查询的来源声明 `query_only=true`、`data_types=["event"]`，引擎跳过 Finding 采集；事件通过独立类型表达，不用告警承载普通日志。Elasticsearch 首版已实现此能力，查询转换、映射、来源证据与验证范围见 [接入说明](elasticsearch.md)。

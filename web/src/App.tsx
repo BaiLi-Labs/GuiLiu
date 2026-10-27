@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
 import { Alerts } from './pages/Alerts';
 import { Accounts } from './pages/Accounts';
+import { Events } from './pages/Events';
 import { Health } from './pages/Health';
 import { MCP } from './pages/MCP';
 import { Audit } from './pages/Audit';
@@ -39,6 +40,7 @@ export default function App() {
     const names = {
       overview: '概览',
       alerts: '统一告警',
+      events: '事件查询',
       accounts: '云账号',
       health: '接入状态',
       mcp: 'API 与 MCP',
@@ -126,6 +128,7 @@ export default function App() {
       <Layout>
         {page === 'overview' ? <Overview /> : null}
         {page === 'alerts' ? <Alerts /> : null}
+        {page === 'events' ? <Events /> : null}
         {page === 'accounts' ? <Accounts /> : null}
         {page === 'health' ? <Health /> : null}
         {page === 'mcp' ? <MCP /> : null}
