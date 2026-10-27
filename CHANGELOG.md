@@ -8,6 +8,7 @@
 - 新增只读事件查询、来源字段能力和证据回查；公共筛选转换为有界 ES 查询，支持 ECS/显式字段映射、PIT 游标与有限文档计数，保留超时、分片失败、计数下界和证据变更说明。
 - Web、REST、MCP 与查询 CLI 共用事件服务，新增 `events` / `event-fields` / `event` 命令和三个 MCP 工具；ES 需要 7.12+，目前仅完成合成契约及本地链路验证，待真实环境验收。详见 [Elasticsearch 接入](docs/elasticsearch.md)。
 - 腾讯云域名类告警用厂商声明的域名作为 `resource_id`，mapper 升级到 `tencent-csip/v7`。分组不再把缺少 region 的全局资源判为独立告警，同一域名的多条告警可聚为一组。历史记录用 `guiliu replay -account <名称> -mapper-version tencent-csip/v6 -apply` 重放（会新增修订）。
+- 华为 SecMaster 的 `website` / `domain` 资源在厂商未返回 `id` 时使用声明名称作为 `resource_id`，mapper 升级到 `huawei-secmaster/v6`。类型枚举依据官方 API 文档，双方都提供 id 时仍以 id 为准。
 
 ## [0.3.4] - 2026-10-25
 

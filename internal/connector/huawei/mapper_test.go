@@ -8,6 +8,42 @@ import (
 	"github.com/BaiLi-Labs/GuiLiu/internal/model"
 )
 
+func TestWebsiteResourceWithoutIDUsesDeclaredName(t *testing.T) {
+	// SecMaster documents a website resource type. When the source omits the
+	// id, the declared name is the only identity available.
+	raw := json.RawMessage(`{
+	  "id": "huawei-web-1",
+	  "title": "网站扫描",
+	  "severity": "Low",
+	  "resource_list": [{"id": "", "name": "www.example.com", "type": "website"}]
+	}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.Resource.ID != "www.example.com" || alert.Resource.Type != "website" {
+		t.Fatalf("website resource = %+v", alert.Resource)
+	}
+	if alert.Resource.Name != "www.example.com" {
+		t.Fatalf("name = %q", alert.Resource.Name)
+	}
+}
+
+func TestWebsiteResourceKeepsDeclaredID(t *testing.T) {
+	raw := json.RawMessage(`{
+	  "id": "huawei-web-2",
+	  "title": "网站扫描",
+	  "resource_list": [{"id": "site-123", "name": "www.example.com", "type": "website"}]
+	}`)
+	alert, err := (&Connector{}).Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alert.Resource.ID != "site-123" {
+		t.Fatalf("a declared id must win over the name: %+v", alert.Resource)
+	}
+}
+
 func TestNormalizeHuaweiAlert(t *testing.T) {
 	raw := json.RawMessage(`{
 	  "id": "huawei-1",

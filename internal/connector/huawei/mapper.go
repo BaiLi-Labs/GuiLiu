@@ -58,12 +58,16 @@ func normalizeAlert(a *secmastermodel.ListAlertRsp, raw json.RawMessage) model.A
 	}
 	if a.ResourceList != nil {
 		for _, r := range *a.ResourceList {
-			alert.Resources = append(alert.Resources, connector.NamedResource(
-				connector.Str(r.Id),
-				connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource"),
-				connector.Str(r.Name),
-				connector.Str(r.Id),
-			))
+			id := connector.Str(r.Id)
+			name := connector.Str(r.Name)
+			typ := connector.FirstNonEmpty(strings.ToLower(connector.Str(r.Type)), "resource")
+			// SecMaster documents a "website" resource type. When the source
+			// omits its id, the declared name is the only identity it gives, so
+			// use it instead of leaving the finding ungrouped.
+			if id == "" && (typ == "website" || typ == "domain") && name != "" {
+				id = name
+			}
+			alert.Resources = append(alert.Resources, connector.NamedResource(id, typ, name, id))
 		}
 	}
 	if len(alert.Resources) > 0 {
