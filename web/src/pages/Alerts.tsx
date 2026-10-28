@@ -12,6 +12,7 @@ import {
   Drawer,
   Empty,
   ErrorBox,
+  Notice,
   SeverityBadge,
   SkeletonRows,
   StatusBadge,
@@ -55,6 +56,16 @@ interface Filters {
 }
 const EMPTY: Filters = { provider: '', severity: '', status: '', range: '7d', q: '', ip: '', observable_type: '', observable_value: '', rule_id: '', finding_kind: '', vendor_status: '', time_field: 'event_time', vendor_title: '' };
 const filterKeys = Object.keys(EMPTY) as Array<keyof Filters>;
+const groupFieldLabels: Record<string, string> = {
+  rule_id: '规则 ID',
+  account_uid: '真实云账号 UID',
+  resource_id: '资源 ID',
+  source_ip: '源 IP',
+  product: '厂商产品',
+  alert_type: '厂商告警类型',
+  saved_host_network_reference: '已保存的主机网络引用',
+  explicit_scoped_resource_reference: '完整作用域下的资源引用',
+};
 
 export function readAlertRoute(query: string) {
   const params = new URLSearchParams(query);
@@ -199,6 +210,7 @@ export function Alerts() {
   const pages = Math.max(1, Math.ceil(total / limit));
   const severityOptions = ['critical,fatal,high', ...SEVERITY_ORDER];
   const shownWindow = (route.view === 'groups' ? groups : data)?.window;
+  const coverage = (route.view === 'groups' ? groups : data)?.coverage;
 
   return (
     <div className="space-y-4">
@@ -236,7 +248,6 @@ export function Alerts() {
               <option value="nic">{t('按网卡')}</option>
               <option value="type_asset">{t('按类型与资产')}</option>
             <option value="signature">{t('按规则、资产与源 IP')}</option>
-            <option value="asset">{t('按资产')}</option>
             <option value="source">{t('按源 IP 与类型')}</option>
           </select>
         ) : null}
@@ -352,7 +363,9 @@ export function Alerts() {
         </div>
       </details>
       </form>
-      {(route.view==='groups'?groups:data)?.coverage && !(route.view==='groups'?groups:data)?.coverage?.complete ? <p className="text-xs text-[var(--muted)]" role="status">{t('当前查询范围尚未确认完整，请结合覆盖范围与同步水位查看结果。')}</p>:null}
+      {coverage && !coverage.complete ? (
+        <Notice>{t('当前查询范围尚未确认完整，请结合覆盖范围与同步水位查看结果。')}</Notice>
+      ) : null}
       {route.groupKey ? (
         <div className="flex items-center gap-3 text-sm">
           <button
@@ -368,22 +381,19 @@ export function Alerts() {
           </span>
         </div>
       ) : null}
-      <div className="flex justify-between text-xs text-[var(--muted)]">
-        <span aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>
-            {!loading && !error
-              ? t(route.view === 'groups' ? '共 {count} 组' : '共 {count} 条', { count: fmtNum(total) })
-              : loading ? t('加载中…') : null}
-          </span>
-          {!loading && !error && shownWindow?.end ? (
-            <span title={[shownWindow.start, shownWindow.end].filter(Boolean).map(formatTime).join(' — ')}>
-              {shownWindow.start
-                ? `${formatDate(shownWindow.start)} — ${formatDate(shownWindow.end)}`
-                : t('截至 {time}', { time: formatDate(shownWindow.end) })}
-            </span>
-          ) : null}
+      <div aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
+        <span>
+          {!loading && !error
+            ? t(route.view === 'groups' ? '共 {count} 组' : '共 {count} 条', { count: fmtNum(total) })
+            : loading ? t('加载中…') : null}
         </span>
-        <span>{t('第 {current} / {pages} 页', { current, pages })}</span>
+        {!loading && !error && shownWindow?.end ? (
+          <span title={[shownWindow.start, shownWindow.end].filter(Boolean).map(formatTime).join(' — ')}>
+            {shownWindow.start
+              ? `${formatDate(shownWindow.start)} — ${formatDate(shownWindow.end)}`
+              : t('截至 {time}', { time: formatDate(shownWindow.end) })}
+          </span>
+        ) : null}
       </div>
       {route.view === 'groups' && !loading && !error && groups?.summary ? <GroupingCoverage summary={groups.summary} /> : null}
       <div className="table-wrap">
@@ -395,7 +405,6 @@ export function Alerts() {
           </div>
         ) : total === 0 ? (
           <Empty title={route.view === 'groups' ? '没有匹配的分组' : '没有匹配的告警'}>
-            <p>{t('调整筛选条件后重试。')}</p>
             <button className="btn mt-4" onClick={reset}>
               {t('清除筛选')}
             </button>
@@ -406,23 +415,34 @@ export function Alerts() {
               <tr>
                 <th>{t('告警分组')}</th>
                 <th>{t('独立告警')}</th>
-                  <th>{t('已观测主机')}</th>
+                <th title={t('当前资产观测，不代表告警发生时配置。网络关系不表示流量路径或规则放行。')}>{t('已观测主机')}</th>
                 <th title={t('取组内厂商告警的最高等级')}>{t('组内最高等级')}</th>
                 <th>{t('云厂商')}</th>
                 <th>{t('最近')}</th>
               </tr>
             </thead>
             <tbody>
-              {groups?.groups.map((group) => (
+              {groups?.groups.map((group) => {
+                const groupLine = [group.key.region, group.resource_id, group.alert_type, group.source_ip].filter(Boolean).join(' · ');
+                return (
                 <Fragment key={group.id}>
                 <tr>
                   <td>
-                    <button className="cell-title inline-flex items-center gap-2 text-left font-medium hover:text-[var(--accent)]" aria-expanded={expandedGroup === group.id} aria-controls={`group-summary-${group.id}`} onClick={() => setExpandedGroup(expandedGroup === group.id ? null : group.id)}>
-                      <ChevronRight aria-hidden="true" className={`h-4 w-4 shrink-0 ${expandedGroup === group.id ? 'rotate-90' : ''}`} />
-                      {groupTitle(group)}
-                    </button>
-                    <div className="cell-sub break-all">{[group.key.region, group.resource_id, group.alert_type, group.source_ip].filter(Boolean).join(' · ')}</div>
-                    {group.missing_fields?.length ? <p className="text-xs text-[var(--muted)]">{t('缺少分组依据')}：{group.missing_fields.map(field => t(({rule_id:'规则 ID',account_uid:'真实云账号 UID',resource_id:'资源 ID',source_ip:'源 IP',product:'厂商产品',alert_type:'厂商告警类型',saved_host_network_reference:'已保存的主机网络引用',explicit_scoped_resource_reference:'完整作用域下的资源引用'} as Record<string,string>)[field] || field)).join('、')} · {t('该来源未提供资源实例 ID，这条告警单独成组')}</p> : null}
+                    <div className="max-w-[360px]">
+                      <button className="cell-title inline-flex items-center gap-2 text-left font-medium hover:text-[var(--accent)]" aria-expanded={expandedGroup === group.id} aria-controls={`group-summary-${group.id}`} onClick={() => setExpandedGroup(expandedGroup === group.id ? null : group.id)}>
+                        <ChevronRight aria-hidden="true" className={`h-4 w-4 shrink-0 ${expandedGroup === group.id ? 'rotate-90' : ''}`} />
+                        {groupTitle(group)}
+                      </button>
+                      <div className="cell-sub" title={groupLine}>{groupLine}</div>
+                      {group.missing_fields?.length ? (
+                        <div
+                          className="mt-1 text-xs text-[var(--med)]"
+                          title={`${t('缺少分组依据')}：${group.missing_fields.map(field => t(groupFieldLabels[field] || field)).join('、')} · ${t('该来源未提供资源实例 ID，这条告警单独成组')}`}
+                        >
+                          {t('缺少分组依据')}
+                        </div>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="tabular-nums">{fmtNum(group.finding_count)}</td>
                   <td className="tabular-nums">{!['asset','name_asset','vpc','subnet','security_group','nic'].includes(group.group_by) ? '—' : fmtNum(group.asset_count || 0)}</td>
@@ -449,11 +469,12 @@ export function Alerts() {
                   </td>
                 </tr> : null}
                 </Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         ) : (
-          <table className="data-table min-w-[1060px]">
+          <table className="data-table min-w-[1000px]">
             <thead>
               <tr>
                 <th>{t('时间')}</th>
@@ -476,7 +497,7 @@ export function Alerts() {
                   </td>
                   <td>
                     <button
-                      className="cell-title max-w-[340px] text-left font-medium hover:text-[var(--accent)]"
+                      className="cell-title max-w-[260px] text-left font-medium hover:text-[var(--accent)]"
                       onClick={() => navigate({ alert: alert.id })}
                       title={alert.title}
                     >
@@ -492,16 +513,15 @@ export function Alerts() {
                     <div className="cell-sub">{alert.account_name || alert.account_id}</div>
                   </td>
                   <td>
-                    <div className="cell-title max-w-[180px]" title={alert.resource?.name}>
-                      {alert.resource?.name || '—'}
-                    </div>
-                    <div className="cell-sub max-w-[180px] font-mono" title={alert.resource?.id}>
-                      {alert.resource?.id}
+                    <div className="cell-title max-w-[170px]" title={alert.resource?.id || alert.resource?.name}>
+                      {alert.resource?.name || alert.resource?.id || '—'}
                     </div>
                   </td>
                   <td className="whitespace-nowrap font-mono text-xs">
-                    {alert.source_ip || '—'} <span className="text-[var(--dim)]">→</span>{' '}
-                    {alert.destination_ip || '—'}
+                    <div>{alert.source_ip || '—'}</div>
+                    {alert.destination_ip ? (
+                      <div className="cell-sub">→ {alert.destination_ip}</div>
+                    ) : null}
                   </td>
                   <td>
                     <StatusBadge status={alert.status} />
@@ -514,6 +534,7 @@ export function Alerts() {
       </div>
       <div className="flex items-center justify-end gap-2">
         <span className="mr-auto text-xs text-[var(--muted)]">
+          {t('第 {current} / {pages} 页', { current, pages })} ·{' '}
           {t(route.view === 'groups' ? '每页 {count} 组' : '每页 {count} 条', { count: limit })}
         </span>
         <button
@@ -634,9 +655,7 @@ function AlertDrawer({
         detail ? (
           <>
             <BrandIcon provider={detail.provider} size="xs" />
-            <span>
-              {providerShort(detail.provider)} · {detail.product}
-            </span>
+            <span>{providerShort(detail.provider)}</span>
           </>
         ) : null
       }
@@ -724,15 +743,19 @@ function AlertDrawer({
                       <dd className="font-mono text-xs">{detail.response_action}</dd>
                     </>
                   ) : null}
-                  <dt>{t('云 / 账号')}</dt>
+                  <dt>{t('云厂商')}</dt>
+                  <dd>{providerShort(detail.provider)}</dd>
+                  <dt>{t('账号')}</dt>
                   <dd>
-                    {providerShort(detail.provider)} · {detail.account_name || detail.account_id}
-                    <div className="mt-1 font-mono text-xs text-[var(--muted)]">{detail.account_uid}</div>
+                    {detail.account_name || detail.account_id}
+                    {detail.account_uid ? (
+                      <div className="mt-1 font-mono text-xs text-[var(--muted)]">{detail.account_uid}</div>
+                    ) : null}
                   </dd>
-                  <dt>{t('产品 / 类型')}</dt>
-                  <dd>
-                    {detail.product || '—'} · {detail.alert_type || '—'}
-                  </dd>
+                  <dt>{t('产品')}</dt>
+                  <dd>{detail.product || '—'}</dd>
+                  <dt>{t('告警类型')}</dt>
+                  <dd>{detail.alert_type || '—'}</dd>
                   <dt>{t('区域')}</dt>
                   <dd>{detail.region || '—'}</dd>
                   <dt>{t('首次发现')}</dt>

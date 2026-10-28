@@ -109,22 +109,18 @@ export function Health() {
   if (loading) return <SkeletonRows count={10} />;
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="flex items-center gap-2 text-sm text-[var(--muted)]">
-          <span className={`status-dot ${health?.database === 'ok' ? 'status-ok' : 'status-error'}`} />
-          {t('数据库')} · {t(health?.database === 'ok' ? '服务可用' : '服务不可用')}
-        </span>
-        {isAdmin ? (
+      {isAdmin ? (
+        <div className="flex justify-end">
           <button
-            className="btn ml-auto"
+            className="btn"
             onClick={syncAll}
             disabled={busy || !meta?.sync_enabled || !!meta?.mock}
           >
             <RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
             {t(busy ? '同步中…' : '同步全部')}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard label={t('最近同步成功')} value={`${successful} / ${enabled.length}`} />
         <StatCard label={t('续传账号')} value={fmtNum(pending)} />
@@ -137,7 +133,6 @@ export function Health() {
       <section className="table-wrap">
         <div className="section-heading">
           <h2 className="section-title">{t('账号状态')}</h2>
-          <span className="text-xs text-[var(--muted)]">{accounts.length}</span>
         </div>
         {accounts.length ? (
           <table className="data-table min-w-[920px]">
@@ -159,9 +154,8 @@ export function Health() {
                 return (
                   <tr key={account.id}>
                     <td>
-                      <div className="font-medium">{account.name}</div>
-                      <div className="cell-sub max-w-[200px]" title={account.account_uid}>
-                        {account.account_uid || account.id}
+                      <div className="font-medium" title={account.account_uid || account.id}>
+                        {account.name}
                       </div>
                     </td>
                     <td>
@@ -215,10 +209,12 @@ export function Health() {
         )}
       </section>
       <section className="card p-5 space-y-3">
-        <h2 className="section-title">{t('来源与覆盖范围')}</h2>
-        <p className="text-xs text-[var(--muted)]">
-          {t('同步成功仅说明当前 API 与授权范围内完成采集，不代表厂商全部产品或历史。')}
-        </p>
+        <h2
+          className="section-title"
+          title={t('同步成功仅说明当前 API 与授权范围内完成采集，不代表厂商全部产品或历史。')}
+        >
+          {t('来源与覆盖范围')}
+        </h2>
         {coverage?.accounts.map(account => (
           <details key={account.account_id} className="disclosure">
             <summary>{account.name} · {account.api}</summary>
@@ -258,7 +254,6 @@ export function Health() {
       <section className="table-wrap">
         <div className="section-heading">
           <h2 className="section-title">{t('最近同步运行')}</h2>
-          <span className="text-xs text-[var(--muted)]">{t('最近 {count} 条', { count: 30 })}</span>
         </div>
         {runs.length ? (
           <table className="data-table min-w-[1080px]">

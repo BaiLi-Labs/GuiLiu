@@ -65,8 +65,6 @@ export function Audit() {
   function search(event: React.FormEvent) { event.preventDefault(); setExpanded(null); setCursors([]); setSubmitted({ ...filters }); }
   function trace(id: string) { const next = { ...blank, range: 'all', request_id: id }; setExpanded(null); setFilters(next); setCursors([]); setSubmitted(next); }
   return <div className="space-y-4">
-    <p className="text-xs text-[var(--muted)]">{t('记录平台访问与操作；MCP 工具失败单独记录，即使 HTTP 返回 200。')}</p>
-    <p className="text-xs text-[var(--muted)]">{t('关键词只保存指纹，凭据与原始证据正文不进入审计。')} {data ? t('审计保留 {days} 天', { days: data.retention_days }) : ''}</p>
     <form onSubmit={search} className="flex flex-wrap gap-2">
       {(['username', 'api_key_id', 'tool', 'request_id'] as const).map((key, i) => <input key={key} className="field" aria-label={t(['用户名', 'API Key ID', 'MCP 工具', '请求 ID'][i])} placeholder={t(['用户名', 'API Key ID', 'MCP 工具', '请求 ID'][i])} value={filters[key]} onChange={e => setFilters(old => ({ ...old, [key]: e.target.value }))} />)}
       <select className="field" aria-label={t('访问入口')} value={filters.surface} onChange={e => setFilters(old => ({ ...old, surface: e.target.value }))}>
@@ -95,5 +93,15 @@ export function Audit() {
       <span className="text-xs text-[var(--muted)]">{data ? t('第 {page} 页 · 本页 {count} 条', { page: cursors.length + 1, count: data.events.length }) : ''}{data?.has_more ? ` · ${t('还有更多')}` : ''}</span>
       <div className="flex gap-2"><button className="btn" disabled={busy || !cursors.length} onClick={() => setCursors(old => old.slice(0, -1))}>{t('上一页')}</button><button className="btn" disabled={busy || !data?.has_more} onClick={() => data && setCursors(old => [...old, data.next_cursor])}>{t('下一页')}</button></div>
     </div>
+    <details className="disclosure">
+      <summary>{t('口径与保留')}</summary>
+      <div className="mt-3 space-y-1 text-xs text-[var(--muted)]">
+        <p>{t('记录平台访问与操作；MCP 工具失败单独记录，即使 HTTP 返回 200。')}</p>
+        <p>
+          {t('关键词只保存指纹，凭据与原始证据正文不进入审计。')}
+          {data ? ` · ${t('审计保留 {days} 天', { days: data.retention_days })}` : ''}
+        </p>
+      </div>
+    </details>
   </div>;
 }

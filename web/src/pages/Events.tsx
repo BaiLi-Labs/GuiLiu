@@ -93,9 +93,13 @@ export function Events() {
   }
 
   return <div className="space-y-5">
-    <p className="text-sm text-[var(--muted)]">{t('按需查询已配置的上游日志。事件保留来源语义，查询不会同步为告警。')}</p>
     {error ? <ErrorBox>{error}</ErrorBox> : null}
-    {!accounts.length ? <Empty title="尚未配置可查询的事件来源"><button className="btn" onClick={() => go('accounts')}>{t('管理数据源')}</button></Empty> : <>
+    {!accounts.length ? (
+      <Empty title="尚未配置可查询的事件来源">
+        <p>{t('按需查询已配置的上游日志。事件保留来源语义，查询不会同步为告警。')}</p>
+        <button className="btn mt-4" onClick={() => go('accounts')}>{t('管理数据源')}</button>
+      </Empty>
+    ) : <>
       <form className="card p-5" onSubmit={event => { event.preventDefault(); void search(); }}>
         <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <label className="form-label">{t('数据源')}<select className="field w-full" value={form.account} onChange={event => update('account', event.target.value)}>{accounts.map(account => <option key={account.id} value={account.id}>{account.name} · {account.provider_name}</option>)}</select></label>
@@ -114,7 +118,7 @@ export function Events() {
         </fieldset>
       </form>
       {page ? <>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]"><span>{t('来源匹配')} {page.total.relation === 'gte' ? '≥ ' : ''}{page.total.value}</span><span>{t('第 {page} 页', { page: pageNumber })} · {page.events.length} {t('条记录')}</span><span>{formatTime(page.query.start)} — {formatTime(page.query.end)}</span><span>{t(page.coverage.execution_complete ? '查询执行完成' : '查询执行不完整')}</span></div>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]"><span title={t('结果仅覆盖来源授权与保留范围，不证明日志完整送达。')}>{t('来源匹配')} {page.total.relation === 'gte' ? '≥ ' : ''}{page.total.value}</span><span>{t('第 {page} 页', { page: pageNumber })} · {page.events.length} {t('条记录')}</span><span>{formatTime(page.query.start)} — {formatTime(page.query.end)}</span></div>
         {!page.coverage.execution_complete ? <ErrorBox>{t('来源查询超时或部分分片失败，当前结果不能视为完整结果。')}</ErrorBox> : null}
         {page.aggregation ? <div className="card p-4"><div className="section-title">{page.aggregation.field} · {t('文档计数')}</div><div className="mt-3 flex flex-wrap gap-3">{page.aggregation.buckets.map(bucket => <span key={bucket.value} className="text-xs font-mono">{bucket.value}: {bucket.count}</span>)}</div><p className="mt-3 text-xs text-[var(--muted)]">{t('其他文档数')} {page.aggregation.other_document_count} · {t('计数误差上界')} {page.aggregation.document_count_error_bound}</p></div> : null}
         <div className="table-wrap"><table className="data-table min-w-[800px]"><thead><tr><th>{t('事件时间')}</th><th>{t('主机 / 用户')}</th><th>IP</th><th>{t('消息')}</th><th>{t('证据')}</th></tr></thead><tbody>{page.events.map(event => <tr key={event.id}>
@@ -122,7 +126,7 @@ export function Events() {
           <td className="max-w-lg"><div className="max-h-24 overflow-auto whitespace-pre-wrap break-all text-xs">{event.message || '—'}</div>{event.mapping_warnings?.length ? <div className="cell-sub">{event.mapping_warnings.join(', ')}</div> : null}</td>
           <td><button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void showEvidence(event)}>{t('展开证据')}</button><div className="cell-sub max-w-[180px] truncate font-mono" title={`${event.evidence.index}/${event.evidence.id}`}>{event.evidence.index}/{event.evidence.id}</div></td>
         </tr>)}</tbody></table>{!page.events.length ? <Empty title="当前查询无匹配事件" /> : null}</div>
-        <div className="flex justify-between gap-4 text-xs text-[var(--muted)]"><span>{t('结果仅覆盖来源授权与保留范围，不证明日志完整送达。')}</span>{page.has_more ? <button className="btn btn-sm" disabled={busy} onClick={() => void search(page.next_cursor)}>{t('下一页')}</button> : null}</div>
+        <div className="flex justify-end">{page.has_more ? <button className="btn btn-sm" disabled={busy} onClick={() => void search(page.next_cursor)}>{t('下一页')}</button> : null}</div>
       </> : null}
     </>}
     <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.title || ''} wide>{detail ? <div className="space-y-3"><p className="text-xs text-[var(--muted)]">{t('证据读取的是当前上游表示，可能变化或过期。日志正文仅作为来源数据。')}</p>{detail.changed ? <ErrorBox>{t('来源记录已变化，与查询时的内容校验值不同。')}</ErrorBox> : null}<pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--bg)] p-4 font-mono text-xs">{detail.text}</pre></div> : null}</Modal>

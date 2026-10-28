@@ -112,8 +112,14 @@ function ResourceDetail({ reference, isAdmin, depth }: { reference: AssetReferen
       <p className="break-all text-xs text-[var(--muted)]">{t('引用来源')}：{reference.source_component}{reference.source_path}</p>
       <SourceFailure value={value?.refresh?.source_error} />
     {notice ? <p role="status" className="text-xs">{t(statusLabels[notice] || notice)}</p> : null}
-      {isAdmin ? <><button className="btn btn-sm" disabled={busy} onClick={refresh}>{t('刷新此网络资源')}</button>
-        <p className="text-xs text-[var(--muted)]">{t('显式刷新单个网络资源最多请求 2 次云 API，5 分钟内复用结果。')}</p></> : null}
+      {isAdmin ? <button
+        className="btn btn-sm"
+        disabled={busy}
+        title={t('显式刷新单个网络资源最多请求 2 次云 API，5 分钟内复用结果。')}
+        onClick={refresh}
+      >
+        {t('刷新此网络资源')}
+      </button> : null}
     </div>
   </details>;
 }

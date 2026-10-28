@@ -47,23 +47,27 @@ export function AssetSummary({ asset }: { asset: Asset }) {
   const list = (values: string[] | null | undefined) => values == null ? t('未知') : values.length ? values.join(', ') : t('无（来源报告）');
   return <>
     {asset.synthetic ? <p className="text-xs text-[var(--muted)]">{t('合成资产数据，未经真实账号验证')}</p> : null}
-    <dl className="detail-fields asset-fields">
+    <dl
+      className="detail-fields asset-fields"
+      title={t('当前资产观测不代表告警发生时的状态。安全组规则不等于监听或可达端口。')}
+    >
       <dt>{t('资产')}</dt><dd>{asset.name || asset.resource_id}</dd>
       <dt>ID</dt><dd className="break-all font-mono">{asset.resource_id}</dd>
       <dt>{t('云账号')}</dt><dd>{asset.account_uid}</dd>
-      <dt>{t('地域')}</dt><dd>{asset.region} / {asset.zone || '—'}</dd>
+      <dt>{t('地域')}</dt><dd>{asset.region}</dd>
+      <dt>{t('可用区')}</dt><dd>{asset.zone || t('未知')}</dd>
       <dt>{t('操作系统')}</dt><dd>{asset.os || t('未知')}</dd>
       <dt>{t('实例规格')}</dt><dd>{asset.instance_type || t('未知')}</dd>
       <dt>{t('厂商状态')}</dt><dd>{asset.state || t('未知')}</dd>
       <dt>{t('公网 IP')}</dt><dd>{list(asset.public_ips)}</dd>
       <dt>{t('私网 IP')}</dt><dd>{list(asset.private_ips)}</dd>
-      <dt>VPC / {t('子网')}</dt><dd>{asset.vpc_id || '—'} / {asset.subnet_id || '—'}</dd>
+      <dt>VPC</dt><dd>{asset.vpc_id || '—'}</dd>
+      <dt>{t('子网')}</dt><dd>{asset.subnet_id || '—'}</dd>
       <dt>{t('安全组')}</dt><dd>{list(asset.security_group_ids)}</dd>
       <dt>{t('标签')}</dt><dd>{list(asset.tags?.map(tag => `${tag.key}=${tag.value}`))}</dd>
       <dt>{t('最近确认时间')}</dt><dd>{formatTime(asset.last_observed_at)}</dd>
       <dt>{t('修订')}</dt><dd>{asset.revision}</dd>
     </dl>
-    <p className="text-xs text-[var(--muted)]">{t('当前资产观测不代表告警发生时的状态。安全组规则不等于监听或可达端口。')}</p>
   </>;
 }
 
@@ -125,8 +129,13 @@ export function AssetContextPanel({ detail, isAdmin }: { detail: Alert; isAdmin:
         </> : null}
       </details>)}
       <details className="disclosure"><summary>{t('数据溯源')}</summary><VendorFields value={value.asset.provenance} /></details>
-      {!related || related.has_more ? <button className="btn btn-sm" onClick={findRelated}>{t(related ? '加载更多' : '查询同一资源的告警')}</button> : null}
-      {related ? <p className="text-xs">{t('仅查询本地已保存告警，按完整资源身份匹配。')}</p> : null}
+      {!related || related.has_more ? <button
+        className="btn btn-sm"
+        title={t('仅查询本地已保存告警，按完整资源身份匹配。')}
+        onClick={findRelated}
+      >
+        {t(related ? '加载更多' : '查询同一资源的告警')}
+      </button> : null}
       {members.map(item => <a className="block break-all text-xs underline" key={item.id} href={`#/alerts?alert=${encodeURIComponent(item.id)}`}>{item.title} · {item.external_id}</a>)}
     </> : null}
     {value?.refresh ? <p className="text-xs text-[var(--muted)]">{t('最近刷新')}：{t(messages[value.refresh.status] || value.refresh.status)} · {formatTime(value.refresh.attempted_at)}</p> : null}
@@ -135,8 +144,14 @@ export function AssetContextPanel({ detail, isAdmin }: { detail: Alert; isAdmin:
     <SourceFailure value={value?.refresh?.source_error} />
     {notice ? <p role="status" className="text-xs">{t(messages[notice] || notice)}</p> : null}
     {isAdmin && value?.refresh_account_id && value.resource_id ? <>
-      <button className="btn btn-sm" disabled={busy} onClick={refresh}>{t(busy ? '加载中…' : '从云端刷新资产')}</button>
-      <p className="text-xs text-[var(--muted)]">{t('显式刷新最多请求 10 次云 API，超时 15 秒，5 分钟内复用结果；需配置真实账号 UID 和地域。')}</p>
+      <button
+        className="btn btn-sm"
+        disabled={busy}
+        title={t('显式刷新最多请求 10 次云 API，超时 15 秒，5 分钟内复用结果；需配置真实账号 UID 和地域。')}
+        onClick={refresh}
+      >
+        {t(busy ? '加载中…' : '从云端刷新资产')}
+      </button>
     </> : null}
   </section>;
 }

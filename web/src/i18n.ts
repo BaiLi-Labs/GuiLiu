@@ -658,6 +658,14 @@ Object.assign(en, {
     'No usable credential or client; no cloud request was made.',
   '资源所属账号尚未配置连接，无法刷新':
     'The account that owns this resource has no configured connection, so it cannot be refreshed.',
+  厂商告警名称分布: 'Source finding titles',
+  资产观测摘要: 'Observed hosts',
+  没有匹配的已保存资产观测: 'No matching saved asset observation',
+  关系依据: 'Relationship evidence',
+  账号: 'Account',
+  产品: 'Product',
+  告警类型: 'Alert type',
+  口径与保留: 'Scope and retention',
 });
 const zh: Record<string, string> = {
   'Optional, for temporary credentials': '可选，用于临时凭据',

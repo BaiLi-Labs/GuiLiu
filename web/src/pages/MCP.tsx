@@ -118,10 +118,8 @@ export function MCP() {
       <section className="card">
         <div className="section-heading">
           <h2 className="section-title">{t('API Keys')}</h2>
-          <span className="text-xs text-[var(--muted)]">{t('只读')}</span>
         </div>
         <div className="space-y-4 p-5">
-          <p className="text-xs text-[var(--muted)]">{t('访问范围：当前实例的全部云账号。')}</p>
           {error ? <ErrorBox>{error}</ErrorBox> : null}
           {newKey ? (
             <div className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] p-4">
@@ -224,6 +222,7 @@ export function MCP() {
           <select
             className="field"
             aria-label={t('传输方式')}
+            title={transport === 'stdio' ? t('使用当前系统用户权限访问本机数据。') : undefined}
             value={transport}
             onChange={(event) => setTransport(event.target.value)}
           >
@@ -238,20 +237,9 @@ export function MCP() {
           <CopyButton value={config} label="复制配置" />
         </div>
         <pre className="code">{config}</pre>
-        <p className="mt-3 text-xs text-[var(--muted)]">
-          {t(
-            transport === 'stdio'
-              ? '使用当前系统用户权限访问本机数据。'
-              : dev
-                ? '生产环境需要 API Key；演示模式无需认证。'
-                : '配置中的占位符需要替换为 API Key。',
-          )}
-        </p>
       </section>
       <details className="disclosure">
-        <summary>
-          {t('工具目录')} <span className="ml-2 text-xs text-[var(--muted)]">{TOOLS.length}</span>
-        </summary>
+        <summary>{t('工具目录')}</summary>
         <div className="table-wrap mt-4">
           <table className="data-table">
             <thead>

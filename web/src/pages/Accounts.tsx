@@ -202,11 +202,21 @@ export function Accounts() {
                 return (
                   <tr key={account.id}>
                     <td>
-                      <div className="font-medium">{account.name}</div>
-                      {account.push_only ? <div className="cell-sub">{t('推送接入')}</div> : null}
-                      {account.query_only ? <a className="cell-sub text-[var(--accent)]" href={`#/events?account_id=${encodeURIComponent(account.id)}`}>{t('查询事件')}</a> : null}
-                      <div className="cell-sub max-w-[200px] font-mono" title={account.account_uid}>
-                        {account.account_uid || '—'}
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium" title={account.account_uid || undefined}>
+                          {account.name}
+                        </span>
+                        {account.push_only ? (
+                          <span className="text-xs text-[var(--muted)]">{t('推送接入')}</span>
+                        ) : null}
+                        {account.query_only ? (
+                          <a
+                            className="text-xs text-[var(--accent)]"
+                            href={`#/events?account_id=${encodeURIComponent(account.id)}`}
+                          >
+                            {t('查询事件')}
+                          </a>
+                        ) : null}
                       </div>
                     </td>
                     <td>
@@ -215,7 +225,7 @@ export function Accounts() {
                         {providerShort(account.provider)}
                       </div>
                     </td>
-                    <td className="text-xs">{account.region || '—'}</td>
+                    <td className="whitespace-nowrap text-xs">{account.region || '—'}</td>
                     <td>
                       <span className="inline-flex items-center gap-2 whitespace-nowrap">
                         <span
@@ -336,9 +346,7 @@ export function Accounts() {
         )}
       </div>
       <details className="disclosure">
-        <summary>
-          {t('可用连接器')} <span className="ml-2 text-xs text-[var(--muted)]">{providers.length}</span>
-        </summary>
+        <summary>{t('可用连接器')}</summary>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {providers.map((provider) => (
             <div

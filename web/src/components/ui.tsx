@@ -77,6 +77,18 @@ export function ErrorBox({ children }: { children: ReactNode }) {
     </div>
   );
 }
+export function Notice({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-3 rounded-lg border border-[color-mix(in_srgb,var(--med)_30%,transparent)] bg-[color-mix(in_srgb,var(--med)_9%,transparent)] px-4 py-3 text-sm text-[var(--text)]"
+    >
+      <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--med)]" aria-hidden="true" />
+      <div className="min-w-0">{typeof children === 'string' ? t(children) : children}</div>
+    </div>
+  );
+}
 export function CopyButton({ value, label = '复制' }: { value: string; label?: string }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');

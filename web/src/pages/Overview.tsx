@@ -37,7 +37,6 @@ export function Overview() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [loadedAt, setLoadedAt] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -57,7 +56,6 @@ export function Overview() {
         setStats(statistics.statistics);
         setRecent(alerts);
         setHealth(ingestion);
-        setLoadedAt(new Date().toISOString());
       })
       .catch((err) => {
         if (alive) setError(err.message || '加载失败');
@@ -83,10 +81,7 @@ export function Overview() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-[var(--muted)]">
-          {loadedAt ? `${t('更新')} ${formatDate(loadedAt)}` : ''}
-        </span>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <select
           className="field"
           aria-label={t('时间范围')}
@@ -162,12 +157,7 @@ export function Overview() {
               </div>
             </section>
             <section className="card p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="section-title">{t('云厂商')}</h2>
-                <span className="text-xs text-[var(--muted)]">
-                  {t('已连接 {count} 家云厂商', { count: providerIDs.length })}
-                </span>
-              </div>
+              <h2 className="section-title mb-4">{t('云厂商')}</h2>
               <div className="space-y-1">
                 {providerIDs.map((provider) => (
                   <button

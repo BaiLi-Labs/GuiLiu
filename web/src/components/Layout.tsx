@@ -129,12 +129,12 @@ export function Layout({ children }: { children: ReactNode }) {
             >
               <RefreshCw className="h-4 w-4" />
             </button>
-            <div className="hidden h-5 w-px bg-[var(--line)] sm:block" />
-            <span className="max-w-[130px] truncate text-xs text-[var(--muted)]">
-              {dev ? t('本地开发') : me?.user?.username}
-            </span>
             {!dev ? (
               <>
+                <div className="hidden h-5 w-px bg-[var(--line)] sm:block" />
+                <span className="max-w-[130px] truncate text-xs text-[var(--muted)]">
+                  {me?.user?.username}
+                </span>
                 <button
                   className="btn btn-ghost btn-icon"
                   onClick={() => setPasswordOpen(true)}
